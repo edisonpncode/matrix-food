@@ -1,0 +1,23 @@
+{
+  "name": "@matrix-food/auth",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./middleware": "./src/middleware.ts"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "next-firebase-auth-edge": "^1.8.4",
+    "firebase": "^11.9.0",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@matrix-food/tsconfig": "workspace:*",
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

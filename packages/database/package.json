@@ -1,0 +1,27 @@
+{
+  "name": "@matrix-food/database",
+  "version": "0.0.0",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
+  },
+  "scripts": {
+    "generate": "drizzle-kit generate",
+    "migrate": "drizzle-kit migrate",
+    "push": "drizzle-kit push",
+    "studio": "drizzle-kit studio",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.44.2",
+    "postgres": "^3.4.7",
+    "zod": "^3.25.67"
+  },
+  "devDependencies": {
+    "@matrix-food/tsconfig": "workspace:*",
+    "drizzle-kit": "^0.31.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.4"
+  }
+}

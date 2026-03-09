@@ -1,0 +1,45 @@
+{
+  "name": "matrix-food",
+  "private": true,
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "lint": "turbo lint",
+    "test": "turbo test",
+    "test:e2e": "turbo test:e2e",
+    "format": "prettier --write \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,json,md}\"",
+    "db:generate": "pnpm --filter @matrix-food/database generate",
+    "db:migrate": "pnpm --filter @matrix-food/database migrate",
+    "db:push": "pnpm --filter @matrix-food/database push",
+    "db:studio": "pnpm --filter @matrix-food/database studio",
+    "clean": "turbo clean"
+  },
+  "packageManager": "pnpm@10.31.0",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.5",
+    "@eslint/js": "^10.0.1",
+    "@radix-ui/react-slot": "^1.2.4",
+    "@typescript-eslint/eslint-plugin": "^8.57.0",
+    "@typescript-eslint/parser": "^8.57.0",
+    "eslint": "^10.0.3",
+    "prettier": "^3.8.1",
+    "prettier-plugin-tailwindcss": "^0.7.2",
+    "turbo": "^2.8.14"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "sharp",
+      "@firebase/util",
+      "protobufjs"
+    ]
+  },
+  "dependencies": {
+    "@trpc/server": "^11.12.0",
+    "superjson": "^2.2.6"
+  }
+}
