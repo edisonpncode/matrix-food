@@ -11,6 +11,7 @@ import {
   EyeOff,
   Loader2,
 } from "lucide-react";
+import { ImageUploader } from "@/components/image-uploader";
 
 export default function CategoriasPage() {
   const utils = trpc.useUtils();
@@ -37,27 +38,31 @@ export default function CategoriasPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   function resetForm() {
     setName("");
     setDescription("");
+    setImageUrl(null);
   }
 
-  function startEdit(cat: { id: string; name: string; description: string | null }) {
+  function startEdit(cat: { id: string; name: string; description: string | null; imageUrl: string | null }) {
     setEditingId(cat.id);
     setName(cat.name);
     setDescription(cat.description ?? "");
+    setImageUrl(cat.imageUrl ?? null);
     setShowForm(true);
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (editingId) {
-      updateMutation.mutate({ id: editingId, name, description });
+      updateMutation.mutate({ id: editingId, name, description, imageUrl });
     } else {
       createMutation.mutate({
         name,
         description,
+        imageUrl: imageUrl ?? undefined,
         sortOrder: (categories.data?.length ?? 0),
       });
     }
@@ -130,6 +135,16 @@ export default function CategoriasPage() {
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Ex: Os melhores hambúrgueres artesanais"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Imagem
+              </label>
+              <ImageUploader
+                value={imageUrl}
+                onChange={setImageUrl}
+                folder="matrix-food/categories"
               />
             </div>
           </div>

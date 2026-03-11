@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
 import { Plus, Trash2, Loader2, GripVertical } from "lucide-react";
+import { ImageUploader } from "./image-uploader";
 
 interface Variant {
   name: string;
@@ -59,6 +60,9 @@ export function ProductForm({ product }: { product?: ProductData }) {
   const [price, setPrice] = useState(product?.price ?? "0");
   const [originalPrice, setOriginalPrice] = useState(
     product?.originalPrice ?? ""
+  );
+  const [imageUrl, setImageUrl] = useState<string | null>(
+    product?.imageUrl ?? null
   );
   const [isNew, setIsNew] = useState(product?.isNew ?? false);
   const [hasVariants, setHasVariants] = useState(product?.hasVariants ?? false);
@@ -123,6 +127,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
         categoryId,
         price,
         originalPrice: originalPrice || null,
+        imageUrl,
         isNew,
         hasVariants,
       });
@@ -151,6 +156,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
         categoryId,
         price,
         originalPrice: originalPrice || undefined,
+        imageUrl: imageUrl ?? undefined,
         isNew,
         hasVariants,
         variants,
@@ -266,6 +272,16 @@ export function ProductForm({ product }: { product?: ProductData }) {
               placeholder="Descreva o produto..."
               rows={2}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+            />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="mb-1 block text-sm font-medium text-foreground">
+              Imagem
+            </label>
+            <ImageUploader
+              value={imageUrl}
+              onChange={setImageUrl}
+              folder="matrix-food/products"
             />
           </div>
           <div>
