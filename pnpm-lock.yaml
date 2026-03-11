@@ -48,6 +48,9 @@ importers:
       '@hookform/resolvers':
         specifier: ^5.0.1
         version: 5.2.2(react-hook-form@7.71.2(react@19.2.4))
+      '@matrix-food/api':
+        specifier: workspace:*
+        version: link:../../packages/api
       '@matrix-food/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -69,6 +72,12 @@ importers:
       '@trpc/react-query':
         specifier: ^11.1.2
         version: 11.12.0(@tanstack/react-query@5.90.21(react@19.2.4))(@trpc/client@11.12.0(@trpc/server@11.12.0(typescript@5.9.3))(typescript@5.9.3))(@trpc/server@11.12.0(typescript@5.9.3))(react@19.2.4)(typescript@5.9.3)
+      '@trpc/server':
+        specifier: ^11.1.2
+        version: 11.12.0(typescript@5.9.3)
+      lucide-react:
+        specifier: ^0.513.0
+        version: 0.513.0(react@19.2.4)
       next:
         specifier: ^15.3.3
         version: 15.5.12(@playwright/test@1.58.2)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
@@ -84,6 +93,9 @@ importers:
       recharts:
         specifier: ^2.15.3
         version: 2.15.4(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
+      superjson:
+        specifier: ^2.2.6
+        version: 2.2.6
       zod:
         specifier: ^3.25.67
         version: 3.25.76
