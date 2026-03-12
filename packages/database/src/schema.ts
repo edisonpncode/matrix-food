@@ -299,6 +299,107 @@ export const customizationOptions = pgTable("customization_options", {
 });
 
 // ============================================
+// ORDERS (Pedidos)
+// ============================================
+
+export const orders = pgTable("orders", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  customerId: uuid("customer_id").references(() => customers.id, {
+    onDelete: "set null",
+  }),
+  /** Número sequencial por tenant (para controle interno) */
+  orderNumber: integer("order_number").notNull(),
+  /** Número exibido ao cliente (ex: #0042) */
+  displayNumber: varchar("display_number", { length: 20 }).notNull(),
+  status: orderStatusEnum("status").notNull().default("PENDING"),
+  type: orderTypeEnum("type").notNull(),
+  source: orderSourceEnum("source").notNull().default("ONLINE"),
+  /** Dados do cliente denormalizados (para pedidos anônimos) */
+  customerName: varchar("customer_name", { length: 255 }).notNull(),
+  customerPhone: varchar("customer_phone", { length: 20 }).notNull(),
+  /** Endereço de entrega (null se retirada) */
+  deliveryAddress: jsonb("delivery_address").$type<{
+    street: string;
+    number: string;
+    complement?: string;
+    neighborhood: string;
+    city: string;
+    state: string;
+    zipCode: string;
+  }>(),
+  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+  deliveryFee: decimal("delivery_fee", { precision: 10, scale: 2 })
+    .notNull()
+    .default("0"),
+  discount: decimal("discount", { precision: 10, scale: 2 })
+    .notNull()
+    .default("0"),
+  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+  paymentMethod: paymentMethodEnum("payment_method").notNull(),
+  paymentStatus: paymentStatusEnum("payment_status")
+    .notNull()
+    .default("PENDING"),
+  /** Troco para (se pagamento em dinheiro) */
+  changeFor: decimal("change_for", { precision: 10, scale: 2 }),
+  notes: text("notes"),
+  estimatedMinutes: integer("estimated_minutes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// ============================================
+// ORDER ITEMS (Itens do Pedido - snapshot)
+// ============================================
+
+export const orderItems = pgTable("order_items", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orderId: uuid("order_id")
+    .notNull()
+    .references(() => orders.id, { onDelete: "cascade" }),
+  /** Referência ao produto original (nullable se produto foi deletado) */
+  productId: uuid("product_id").references(() => products.id, {
+    onDelete: "set null",
+  }),
+  productVariantId: uuid("product_variant_id").references(
+    () => productVariants.id,
+    { onDelete: "set null" }
+  ),
+  /** Snapshots dos nomes no momento do pedido */
+  productName: varchar("product_name", { length: 255 }).notNull(),
+  variantName: varchar("variant_name", { length: 100 }),
+  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+  quantity: integer("quantity").notNull().default(1),
+  totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ============================================
+// ORDER ITEM CUSTOMIZATIONS (Personalizações do Item)
+// ============================================
+
+export const orderItemCustomizations = pgTable("order_item_customizations", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orderItemId: uuid("order_item_id")
+    .notNull()
+    .references(() => orderItems.id, { onDelete: "cascade" }),
+  /** Snapshots dos nomes no momento do pedido */
+  customizationGroupName: varchar("customization_group_name", {
+    length: 255,
+  }).notNull(),
+  customizationOptionName: varchar("customization_option_name", {
+    length: 255,
+  }).notNull(),
+  price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
+});
+
+// ============================================
 // RELATIONS
 // ============================================
 
@@ -307,6 +408,7 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   customerTenants: many(customerTenants),
   categories: many(categories),
   products: many(products),
+  orders: many(orders),
 }));
 
 export const tenantUsersRelations = relations(tenantUsers, ({ one }) => ({
@@ -384,6 +486,46 @@ export const customizationOptionsRelations = relations(
     group: one(customizationGroups, {
       fields: [customizationOptions.groupId],
       references: [customizationGroups.id],
+    }),
+  })
+);
+
+// --- Order Relations ---
+
+export const ordersRelations = relations(orders, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [orders.tenantId],
+    references: [tenants.id],
+  }),
+  customer: one(customers, {
+    fields: [orders.customerId],
+    references: [customers.id],
+  }),
+  items: many(orderItems),
+}));
+
+export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
+  order: one(orders, {
+    fields: [orderItems.orderId],
+    references: [orders.id],
+  }),
+  product: one(products, {
+    fields: [orderItems.productId],
+    references: [products.id],
+  }),
+  productVariant: one(productVariants, {
+    fields: [orderItems.productVariantId],
+    references: [productVariants.id],
+  }),
+  customizations: many(orderItemCustomizations),
+}));
+
+export const orderItemCustomizationsRelations = relations(
+  orderItemCustomizations,
+  ({ one }) => ({
+    orderItem: one(orderItems, {
+      fields: [orderItemCustomizations.orderItemId],
+      references: [orderItems.id],
     }),
   })
 );

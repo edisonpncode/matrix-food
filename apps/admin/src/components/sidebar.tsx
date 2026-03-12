@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   FolderOpen,
   ShoppingBag,
+  ClipboardList,
   Settings,
   ChevronLeft,
   ChevronRight,
@@ -17,6 +18,7 @@ const menuItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/categorias", label: "Categorias", icon: FolderOpen },
   { href: "/produtos", label: "Produtos", icon: ShoppingBag },
+  { href: "/pedidos", label: "Pedidos", icon: ClipboardList },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 

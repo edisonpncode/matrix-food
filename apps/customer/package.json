@@ -12,28 +12,29 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@matrix-food/api": "workspace:*",
+    "@matrix-food/auth": "workspace:*",
     "@matrix-food/database": "workspace:*",
     "@matrix-food/ui": "workspace:*",
-    "@matrix-food/auth": "workspace:*",
     "@matrix-food/utils": "workspace:*",
-    "@matrix-food/api": "workspace:*",
-    "superjson": "^2.2.6",
-    "next": "^15.3.3",
-    "react": "^19.1.0",
-    "react-dom": "^19.1.0",
-    "zustand": "^5.0.5",
     "@tanstack/react-query": "^5.80.7",
     "@trpc/client": "^11.1.2",
     "@trpc/react-query": "^11.1.2",
-    "zod": "^3.25.67"
+    "lucide-react": "^0.513.0",
+    "next": "^15.3.3",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "superjson": "^2.2.6",
+    "zod": "^3.25.67",
+    "zustand": "^5.0.5"
   },
   "devDependencies": {
     "@matrix-food/tsconfig": "workspace:*",
+    "@playwright/test": "^1.52.0",
     "@types/node": "^22.15.30",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.6",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4",
-    "@playwright/test": "^1.52.0"
+    "vitest": "^3.2.4"
   }
 }

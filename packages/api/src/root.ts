@@ -3,6 +3,7 @@ import { healthRouter } from "./routers/health";
 import { tenantRouter } from "./routers/tenant";
 import { categoryRouter } from "./routers/category";
 import { productRouter } from "./routers/product";
+import { orderRouter } from "./routers/order";
 
 /**
  * Router raiz que combina todos os sub-routers.
@@ -13,6 +14,7 @@ export const appRouter = createTRPCRouter({
   tenant: tenantRouter,
   category: categoryRouter,
   product: productRouter,
+  order: orderRouter,
 });
 
 export type AppRouter = typeof appRouter;
