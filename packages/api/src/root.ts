@@ -4,6 +4,7 @@ import { tenantRouter } from "./routers/tenant";
 import { categoryRouter } from "./routers/category";
 import { productRouter } from "./routers/product";
 import { orderRouter } from "./routers/order";
+import { cashRegisterRouter } from "./routers/cashRegister";
 
 /**
  * Router raiz que combina todos os sub-routers.
@@ -15,6 +16,7 @@ export const appRouter = createTRPCRouter({
   category: categoryRouter,
   product: productRouter,
   order: orderRouter,
+  cashRegister: cashRegisterRouter,
 });
 
 export type AppRouter = typeof appRouter;

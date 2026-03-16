@@ -9,6 +9,8 @@ import {
   products,
   productVariants,
   customizationOptions,
+  cashRegisterSessions,
+  cashRegisterTransactions,
   eq,
   and,
   desc,
@@ -361,5 +363,217 @@ export const orderRouter = createTRPCRouter({
       }
 
       return updated;
+    }),
+
+  /**
+   * Cria pedido pelo POS (funcionário). Source = POS.
+   * Registra venda no caixa automaticamente se houver sessão aberta.
+   */
+  createFromPOS: tenantProcedure
+    .input(
+      z.object({
+        type: z.enum(["DELIVERY", "PICKUP", "DINE_IN"]),
+        customerName: z.string().default("Balcão"),
+        customerPhone: z.string().default(""),
+        paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]),
+        changeFor: z.string().nullable().optional(),
+        notes: z.string().optional(),
+        items: z.array(orderItemInput).min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      // Calcular preços server-side (mesma lógica do create)
+      const itemsWithPrices = await Promise.all(
+        input.items.map(async (item) => {
+          const [product] = await db
+            .select()
+            .from(products)
+            .where(
+              and(
+                eq(products.id, item.productId),
+                eq(products.tenantId, ctx.tenantId),
+                eq(products.isActive, true)
+              )
+            )
+            .limit(1);
+
+          if (!product) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: `Produto não encontrado: ${item.productId}`,
+            });
+          }
+
+          let unitPrice = product.price;
+          let variantName: string | null = null;
+
+          if (item.productVariantId) {
+            const [variant] = await db
+              .select()
+              .from(productVariants)
+              .where(
+                and(
+                  eq(productVariants.id, item.productVariantId),
+                  eq(productVariants.productId, product.id),
+                  eq(productVariants.isActive, true)
+                )
+              )
+              .limit(1);
+
+            if (!variant) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Variante não encontrada: ${item.productVariantId}`,
+              });
+            }
+
+            unitPrice = variant.price;
+            variantName = variant.name;
+          }
+
+          let customizationsTotal = 0;
+          const resolvedCustomizations = await Promise.all(
+            item.customizations.map(async (c) => {
+              const [option] = await db
+                .select()
+                .from(customizationOptions)
+                .where(eq(customizationOptions.id, c.optionId))
+                .limit(1);
+
+              const optionPrice = option ? parseFloat(option.price) : 0;
+              customizationsTotal += optionPrice;
+
+              return {
+                customizationGroupName: c.customizationGroupName,
+                customizationOptionName: c.customizationOptionName,
+                price: option?.price ?? "0",
+              };
+            })
+          );
+
+          const itemUnitPrice = parseFloat(unitPrice) + customizationsTotal;
+          const totalPrice = itemUnitPrice * item.quantity;
+
+          return {
+            productId: product.id,
+            productVariantId: item.productVariantId,
+            productName: product.name,
+            variantName,
+            unitPrice: itemUnitPrice.toFixed(2),
+            quantity: item.quantity,
+            totalPrice: totalPrice.toFixed(2),
+            notes: item.notes,
+            customizations: resolvedCustomizations,
+          };
+        })
+      );
+
+      const subtotal = itemsWithPrices.reduce(
+        (sum, item) => sum + parseFloat(item.totalPrice),
+        0
+      );
+      const total = subtotal;
+
+      // Gerar número do pedido
+      const [lastOrder] = await db
+        .select({ orderNumber: orders.orderNumber })
+        .from(orders)
+        .where(eq(orders.tenantId, ctx.tenantId))
+        .orderBy(desc(orders.orderNumber))
+        .limit(1);
+
+      const nextOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
+      const displayNumber = generateOrderNumber(nextOrderNumber);
+
+      // Criar pedido com source POS e status CONFIRMED (já aceito pelo funcionário)
+      const [order] = await db
+        .insert(orders)
+        .values({
+          tenantId: ctx.tenantId,
+          orderNumber: nextOrderNumber,
+          displayNumber,
+          type: input.type,
+          source: "POS",
+          status: "CONFIRMED",
+          customerName: input.customerName,
+          customerPhone: input.customerPhone,
+          subtotal: subtotal.toFixed(2),
+          deliveryFee: "0",
+          total: total.toFixed(2),
+          paymentMethod: input.paymentMethod,
+          paymentStatus: "PAID",
+          changeFor: input.changeFor,
+          notes: input.notes,
+        })
+        .returning();
+
+      if (!order) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Falha ao criar pedido",
+        });
+      }
+
+      // Criar itens do pedido
+      for (const item of itemsWithPrices) {
+        const [orderItem] = await db
+          .insert(orderItems)
+          .values({
+            orderId: order.id,
+            productId: item.productId,
+            productVariantId: item.productVariantId,
+            productName: item.productName,
+            variantName: item.variantName,
+            unitPrice: item.unitPrice,
+            quantity: item.quantity,
+            totalPrice: item.totalPrice,
+            notes: item.notes,
+          })
+          .returning();
+
+        if (!orderItem) continue;
+
+        if (item.customizations.length > 0) {
+          await db.insert(orderItemCustomizations).values(
+            item.customizations.map((c) => ({
+              orderItemId: orderItem.id,
+              ...c,
+            }))
+          );
+        }
+      }
+
+      // Registrar venda no caixa automaticamente (se sessão aberta)
+      const [activeSession] = await db
+        .select()
+        .from(cashRegisterSessions)
+        .where(
+          and(
+            eq(cashRegisterSessions.tenantId, ctx.tenantId),
+            eq(cashRegisterSessions.status, "OPEN")
+          )
+        )
+        .limit(1);
+
+      if (activeSession) {
+        await db.insert(cashRegisterTransactions).values({
+          sessionId: activeSession.id,
+          tenantId: ctx.tenantId,
+          type: "SALE",
+          amount: total.toFixed(2),
+          description: `Pedido ${displayNumber}`,
+          orderId: order.id,
+          createdBy: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+        });
+      }
+
+      return {
+        id: order.id,
+        displayNumber: order.displayNumber,
+        total: order.total,
+        status: order.status,
+      };
     }),
 });

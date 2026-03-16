@@ -60,6 +60,18 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "REFUNDED",
 ]);
 
+export const cashTransactionTypeEnum = pgEnum("cash_transaction_type", [
+  "SALE",
+  "WITHDRAWAL",
+  "DEPOSIT",
+  "ADJUSTMENT",
+]);
+
+export const cashSessionStatusEnum = pgEnum("cash_session_status", [
+  "OPEN",
+  "CLOSED",
+]);
+
 // ============================================
 // TENANTS (Restaurantes)
 // ============================================
@@ -400,6 +412,53 @@ export const orderItemCustomizations = pgTable("order_item_customizations", {
 });
 
 // ============================================
+// CASH REGISTER SESSIONS (Sessões de Caixa)
+// ============================================
+
+export const cashRegisterSessions = pgTable("cash_register_sessions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** Quem abriu o caixa */
+  openedBy: varchar("opened_by", { length: 255 }).notNull(),
+  /** Quem fechou o caixa */
+  closedBy: varchar("closed_by", { length: 255 }),
+  openingBalance: decimal("opening_balance", { precision: 10, scale: 2 })
+    .notNull()
+    .default("0"),
+  closingBalance: decimal("closing_balance", { precision: 10, scale: 2 }),
+  expectedBalance: decimal("expected_balance", { precision: 10, scale: 2 }),
+  status: cashSessionStatusEnum("status").notNull().default("OPEN"),
+  openedAt: timestamp("opened_at").notNull().defaultNow(),
+  closedAt: timestamp("closed_at"),
+  notes: text("notes"),
+});
+
+// ============================================
+// CASH REGISTER TRANSACTIONS (Movimentações do Caixa)
+// ============================================
+
+export const cashRegisterTransactions = pgTable("cash_register_transactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  sessionId: uuid("session_id")
+    .notNull()
+    .references(() => cashRegisterSessions.id, { onDelete: "cascade" }),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  type: cashTransactionTypeEnum("type").notNull(),
+  amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+  description: varchar("description", { length: 500 }),
+  /** Referência ao pedido (se for venda) */
+  orderId: uuid("order_id").references(() => orders.id, {
+    onDelete: "set null",
+  }),
+  createdBy: varchar("created_by", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ============================================
 // RELATIONS
 // ============================================
 
@@ -526,6 +585,37 @@ export const orderItemCustomizationsRelations = relations(
     orderItem: one(orderItems, {
       fields: [orderItemCustomizations.orderItemId],
       references: [orderItems.id],
+    }),
+  })
+);
+
+// --- Cash Register Relations ---
+
+export const cashRegisterSessionsRelations = relations(
+  cashRegisterSessions,
+  ({ one, many }) => ({
+    tenant: one(tenants, {
+      fields: [cashRegisterSessions.tenantId],
+      references: [tenants.id],
+    }),
+    transactions: many(cashRegisterTransactions),
+  })
+);
+
+export const cashRegisterTransactionsRelations = relations(
+  cashRegisterTransactions,
+  ({ one }) => ({
+    session: one(cashRegisterSessions, {
+      fields: [cashRegisterTransactions.sessionId],
+      references: [cashRegisterSessions.id],
+    }),
+    tenant: one(tenants, {
+      fields: [cashRegisterTransactions.tenantId],
+      references: [tenants.id],
+    }),
+    order: one(orders, {
+      fields: [cashRegisterTransactions.orderId],
+      references: [orders.id],
     }),
   })
 );
