@@ -10,6 +10,7 @@ import { ProductDetailModal } from "@/components/product-detail-modal";
 import { CartFab } from "@/components/cart-fab";
 import { CartDrawer } from "@/components/cart-drawer";
 import { CheckoutForm } from "@/components/checkout-form";
+import { PromoBanner } from "@/components/promo-banner";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -84,6 +85,9 @@ export default function RestaurantPage({ params }: PageProps) {
   return (
     <div className="min-h-screen bg-gray-50 pb-24">
       <RestaurantHeader tenant={tenant} />
+
+      {/* Banner de Promoções */}
+      <PromoBanner tenantId={tenant.id} />
 
       {categories.length > 0 && (
         <CategoryTabs

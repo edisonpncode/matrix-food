@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Tag, X, Check } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
 import { formatCurrency } from "@matrix-food/utils";
@@ -54,6 +54,13 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
   const [changeFor, setChangeFor] = useState("");
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+  const [promoError, setPromoError] = useState("");
+  const [appliedPromo, setAppliedPromo] = useState<{
+    code: string;
+    discountAmount: number;
+    description: string | null;
+  } | null>(null);
 
   const createOrder = trpc.order.create.useMutation();
 
@@ -61,7 +68,8 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     orderType === "DELIVERY"
       ? tenant.deliverySettings?.deliveryFee ?? 0
       : 0;
-  const total = subtotal + deliveryFee;
+  const discount = appliedPromo?.discountAmount ?? 0;
+  const total = subtotal + deliveryFee - discount;
 
   const paymentMethods = tenant.paymentMethodsAccepted ?? [
     "PIX",
@@ -69,6 +77,44 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     "CREDIT_CARD",
     "DEBIT_CARD",
   ];
+
+  const validatePromo = trpc.promotion.validate.useQuery(
+    {
+      tenantId: tenant.id,
+      code: promoCode.trim(),
+      subtotal,
+      deliveryFee,
+      customerPhone: customerPhone || undefined,
+    },
+    { enabled: false }
+  );
+
+  async function handleApplyPromo() {
+    if (!promoCode.trim()) return;
+    setPromoError("");
+
+    const result = await validatePromo.refetch();
+    const data = result.data;
+
+    if (!data || !data.valid) {
+      setPromoError(data?.error ?? "Código inválido");
+      setAppliedPromo(null);
+      return;
+    }
+
+    setAppliedPromo({
+      code: promoCode.trim().toUpperCase(),
+      discountAmount: data.discountAmount ?? 0,
+      description: data.description ?? null,
+    });
+    setPromoError("");
+  }
+
+  function handleRemovePromo() {
+    setAppliedPromo(null);
+    setPromoCode("");
+    setPromoError("");
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -97,6 +143,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
         paymentMethod: paymentMethod as "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD",
         changeFor: paymentMethod === "CASH" && changeFor ? changeFor : null,
         notes: notes || undefined,
+        promoCode: appliedPromo?.code || undefined,
         items: items.map((item) => ({
           productId: item.productId,
           productVariantId: item.variantId,
@@ -314,6 +361,62 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
           )}
         </section>
 
+        {/* Cupom de Desconto */}
+        <section className="rounded-xl bg-white p-4 shadow-sm">
+          <h2 className="mb-3 font-semibold">Cupom de desconto</h2>
+          {appliedPromo ? (
+            <div className="flex items-center justify-between rounded-lg border-2 border-green-200 bg-green-50 p-3">
+              <div className="flex items-center gap-2">
+                <Check className="h-5 w-5 text-green-600" />
+                <div>
+                  <p className="text-sm font-medium text-green-700">
+                    Cupom {appliedPromo.code} aplicado!
+                  </p>
+                  <p className="text-xs text-green-600">
+                    -{formatCurrency(appliedPromo.discountAmount)} de desconto
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleRemovePromo}
+                className="text-green-600 hover:text-green-800"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <Tag className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="text"
+                    value={promoCode}
+                    onChange={(e) => {
+                      setPromoCode(e.target.value.toUpperCase());
+                      setPromoError("");
+                    }}
+                    placeholder="Código do cupom"
+                    className="w-full rounded-lg border border-gray-200 py-2.5 pl-9 pr-3 text-sm font-mono uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={handleApplyPromo}
+                  disabled={!promoCode.trim() || validatePromo.isFetching}
+                  className="rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-white hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {validatePromo.isFetching ? "..." : "Aplicar"}
+                </button>
+              </div>
+              {promoError && (
+                <p className="mt-2 text-xs text-red-500">{promoError}</p>
+              )}
+            </div>
+          )}
+        </section>
+
         {/* Observações */}
         <section className="rounded-xl bg-white p-4 shadow-sm">
           <h2 className="mb-3 font-semibold">Observações</h2>
@@ -352,6 +455,12 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                       ? "Grátis"
                       : formatCurrency(deliveryFee)}
                   </span>
+                </div>
+              )}
+              {discount > 0 && (
+                <div className="flex justify-between text-green-600">
+                  <span>Desconto ({appliedPromo?.code})</span>
+                  <span>-{formatCurrency(discount)}</span>
                 </div>
               )}
               <div className="mt-1 flex justify-between text-lg font-bold">

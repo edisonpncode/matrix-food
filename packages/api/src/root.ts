@@ -5,10 +5,10 @@ import { categoryRouter } from "./routers/category";
 import { productRouter } from "./routers/product";
 import { orderRouter } from "./routers/order";
 import { cashRegisterRouter } from "./routers/cashRegister";
+import { promotionRouter } from "./routers/promotion";
 
 /**
  * Router raiz que combina todos os sub-routers.
- * Cada novo módulo (orders, promotions, etc.) será adicionado aqui.
  */
 export const appRouter = createTRPCRouter({
   health: healthRouter,
@@ -17,6 +17,7 @@ export const appRouter = createTRPCRouter({
   product: productRouter,
   order: orderRouter,
   cashRegister: cashRegisterRouter,
+  promotion: promotionRouter,
 });
 
 export type AppRouter = typeof appRouter;

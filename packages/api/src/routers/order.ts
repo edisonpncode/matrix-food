@@ -11,6 +11,8 @@ import {
   customizationOptions,
   cashRegisterSessions,
   cashRegisterTransactions,
+  promotions,
+  promotionUsage,
   eq,
   and,
   desc,
@@ -60,6 +62,7 @@ export const orderRouter = createTRPCRouter({
         paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]),
         changeFor: z.string().nullable().optional(),
         notes: z.string().optional(),
+        promoCode: z.string().optional(),
         items: z.array(orderItemInput).min(1),
       })
     )
@@ -165,10 +168,79 @@ export const orderRouter = createTRPCRouter({
       // 3. Taxa de entrega (TODO: pegar das configurações do tenant)
       const deliveryFee = input.type === "DELIVERY" ? 0 : 0;
 
-      // 4. Total
-      const total = subtotal + deliveryFee;
+      // 4. Validar e calcular desconto de promoção
+      let discount = 0;
+      let promotionId: string | null = null;
 
-      // 5. Gerar número do pedido (sequencial por tenant)
+      if (input.promoCode) {
+        const [promo] = await db
+          .select()
+          .from(promotions)
+          .where(
+            and(
+              eq(promotions.tenantId, input.tenantId),
+              eq(promotions.code, input.promoCode.toUpperCase().trim()),
+              eq(promotions.isActive, true)
+            )
+          )
+          .limit(1);
+
+        if (promo) {
+          const now = new Date();
+          const isValid =
+            (!promo.startDate || now >= promo.startDate) &&
+            (!promo.endDate || now <= promo.endDate) &&
+            (!promo.minOrderValue || subtotal >= parseFloat(promo.minOrderValue));
+
+          if (isValid) {
+            // Verificar limites de uso
+            let withinLimits = true;
+
+            if (promo.maxUses) {
+              const [usageCount] = await db
+                .select({ count: sql<number>`count(*)::int` })
+                .from(promotionUsage)
+                .where(eq(promotionUsage.promotionId, promo.id));
+              if ((usageCount?.count ?? 0) >= promo.maxUses) withinLimits = false;
+            }
+
+            if (withinLimits && input.customerPhone && promo.maxUsesPerCustomer) {
+              const [customerUsage] = await db
+                .select({ count: sql<number>`count(*)::int` })
+                .from(promotionUsage)
+                .where(
+                  and(
+                    eq(promotionUsage.promotionId, promo.id),
+                    eq(promotionUsage.customerPhone, input.customerPhone)
+                  )
+                );
+              if ((customerUsage?.count ?? 0) >= promo.maxUsesPerCustomer) withinLimits = false;
+            }
+
+            if (withinLimits) {
+              promotionId = promo.id;
+              switch (promo.type) {
+                case "PERCENTAGE":
+                  discount = subtotal * (parseFloat(promo.value) / 100);
+                  if (promo.maxDiscount) discount = Math.min(discount, parseFloat(promo.maxDiscount));
+                  break;
+                case "FIXED_AMOUNT":
+                  discount = Math.min(parseFloat(promo.value), subtotal);
+                  break;
+                case "FREE_DELIVERY":
+                  discount = deliveryFee;
+                  break;
+              }
+              discount = Math.round(discount * 100) / 100;
+            }
+          }
+        }
+      }
+
+      // 5. Total
+      const total = subtotal + deliveryFee - discount;
+
+      // 6. Gerar número do pedido (sequencial por tenant)
       const [lastOrder] = await db
         .select({ orderNumber: orders.orderNumber })
         .from(orders)
@@ -179,7 +251,7 @@ export const orderRouter = createTRPCRouter({
       const nextOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
       const displayNumber = generateOrderNumber(nextOrderNumber);
 
-      // 6. Criar pedido + itens em transação
+      // 7. Criar pedido + itens em transação
       const [order] = await db
         .insert(orders)
         .values({
@@ -192,10 +264,12 @@ export const orderRouter = createTRPCRouter({
           deliveryAddress: input.deliveryAddress,
           subtotal: subtotal.toFixed(2),
           deliveryFee: deliveryFee.toFixed(2),
+          discount: discount.toFixed(2),
           total: total.toFixed(2),
           paymentMethod: input.paymentMethod,
           changeFor: input.changeFor,
           notes: input.notes,
+          promotionId,
         })
         .returning();
 
@@ -234,6 +308,17 @@ export const orderRouter = createTRPCRouter({
             }))
           );
         }
+      }
+
+      // 9. Registrar uso da promoção
+      if (promotionId && order) {
+        await db.insert(promotionUsage).values({
+          promotionId,
+          orderId: order.id,
+          tenantId: input.tenantId,
+          customerPhone: input.customerPhone || null,
+          discountAmount: discount.toFixed(2),
+        });
       }
 
       return {
@@ -378,6 +463,7 @@ export const orderRouter = createTRPCRouter({
         paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]),
         changeFor: z.string().nullable().optional(),
         notes: z.string().optional(),
+        promoCode: z.string().optional(),
         items: z.array(orderItemInput).min(1),
       })
     )
@@ -474,7 +560,51 @@ export const orderRouter = createTRPCRouter({
         (sum, item) => sum + parseFloat(item.totalPrice),
         0
       );
-      const total = subtotal;
+
+      // Validar promoção (se houver código)
+      let discount = 0;
+      let promotionId: string | null = null;
+
+      if (input.promoCode) {
+        const [promo] = await db
+          .select()
+          .from(promotions)
+          .where(
+            and(
+              eq(promotions.tenantId, ctx.tenantId),
+              eq(promotions.code, input.promoCode.toUpperCase().trim()),
+              eq(promotions.isActive, true)
+            )
+          )
+          .limit(1);
+
+        if (promo) {
+          const now = new Date();
+          const isValid =
+            (!promo.startDate || now >= promo.startDate) &&
+            (!promo.endDate || now <= promo.endDate) &&
+            (!promo.minOrderValue || subtotal >= parseFloat(promo.minOrderValue));
+
+          if (isValid) {
+            promotionId = promo.id;
+            switch (promo.type) {
+              case "PERCENTAGE":
+                discount = subtotal * (parseFloat(promo.value) / 100);
+                if (promo.maxDiscount) discount = Math.min(discount, parseFloat(promo.maxDiscount));
+                break;
+              case "FIXED_AMOUNT":
+                discount = Math.min(parseFloat(promo.value), subtotal);
+                break;
+              case "FREE_DELIVERY":
+                discount = 0; // POS geralmente não tem taxa de entrega
+                break;
+            }
+            discount = Math.round(discount * 100) / 100;
+          }
+        }
+      }
+
+      const total = subtotal - discount;
 
       // Gerar número do pedido
       const [lastOrder] = await db
@@ -501,11 +631,13 @@ export const orderRouter = createTRPCRouter({
           customerPhone: input.customerPhone,
           subtotal: subtotal.toFixed(2),
           deliveryFee: "0",
+          discount: discount.toFixed(2),
           total: total.toFixed(2),
           paymentMethod: input.paymentMethod,
           paymentStatus: "PAID",
           changeFor: input.changeFor,
           notes: input.notes,
+          promotionId,
         })
         .returning();
 
@@ -543,6 +675,17 @@ export const orderRouter = createTRPCRouter({
             }))
           );
         }
+      }
+
+      // Registrar uso da promoção
+      if (promotionId && order) {
+        await db.insert(promotionUsage).values({
+          promotionId,
+          orderId: order.id,
+          tenantId: ctx.tenantId,
+          customerPhone: input.customerPhone || null,
+          discountAmount: discount.toFixed(2),
+        });
       }
 
       // Registrar venda no caixa automaticamente (se sessão aberta)

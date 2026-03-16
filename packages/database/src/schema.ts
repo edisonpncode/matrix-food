@@ -72,6 +72,12 @@ export const cashSessionStatusEnum = pgEnum("cash_session_status", [
   "CLOSED",
 ]);
 
+export const promotionTypeEnum = pgEnum("promotion_type", [
+  "PERCENTAGE",
+  "FIXED_AMOUNT",
+  "FREE_DELIVERY",
+]);
+
 // ============================================
 // TENANTS (Restaurantes)
 // ============================================
@@ -349,6 +355,8 @@ export const orders = pgTable("orders", {
   discount: decimal("discount", { precision: 10, scale: 2 })
     .notNull()
     .default("0"),
+  /** Promoção aplicada (se houver) */
+  promotionId: uuid("promotion_id"),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
   paymentMethod: paymentMethodEnum("payment_method").notNull(),
   paymentStatus: paymentStatusEnum("payment_status")
@@ -412,6 +420,60 @@ export const orderItemCustomizations = pgTable("order_item_customizations", {
 });
 
 // ============================================
+// PROMOTIONS (Promoções)
+// ============================================
+
+export const promotions = pgTable("promotions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** Código do cupom (ex: DESCONTO10) */
+  code: varchar("code", { length: 50 }).notNull(),
+  description: varchar("description", { length: 500 }),
+  type: promotionTypeEnum("type").notNull(),
+  /** Valor: percentual (ex: 10 = 10%) ou fixo (ex: 5.00 = R$5) */
+  value: decimal("value", { precision: 10, scale: 2 }).notNull(),
+  /** Valor mínimo do pedido para aplicar */
+  minOrderValue: decimal("min_order_value", { precision: 10, scale: 2 }),
+  /** Teto de desconto para promoções percentuais */
+  maxDiscount: decimal("max_discount", { precision: 10, scale: 2 }),
+  /** Limite total de usos (null = ilimitado) */
+  maxUses: integer("max_uses"),
+  /** Limite de usos por cliente/telefone */
+  maxUsesPerCustomer: integer("max_uses_per_customer").notNull().default(1),
+  startDate: timestamp("start_date").notNull().defaultNow(),
+  endDate: timestamp("end_date"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// ============================================
+// PROMOTION USAGE (Registro de uso de promoções)
+// ============================================
+
+export const promotionUsage = pgTable("promotion_usage", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  promotionId: uuid("promotion_id")
+    .notNull()
+    .references(() => promotions.id, { onDelete: "cascade" }),
+  orderId: uuid("order_id")
+    .notNull()
+    .references(() => orders.id, { onDelete: "cascade" }),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** Telefone do cliente (para rastrear uso por cliente anônimo) */
+  customerPhone: varchar("customer_phone", { length: 20 }),
+  discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ============================================
 // CASH REGISTER SESSIONS (Sessões de Caixa)
 // ============================================
 
@@ -468,6 +530,7 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   categories: many(categories),
   products: many(products),
   orders: many(orders),
+  promotions: many(promotions),
 }));
 
 export const tenantUsersRelations = relations(tenantUsers, ({ one }) => ({
@@ -560,6 +623,10 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     fields: [orders.customerId],
     references: [customers.id],
   }),
+  promotion: one(promotions, {
+    fields: [orders.promotionId],
+    references: [promotions.id],
+  }),
   items: many(orderItems),
 }));
 
@@ -616,6 +683,34 @@ export const cashRegisterTransactionsRelations = relations(
     order: one(orders, {
       fields: [cashRegisterTransactions.orderId],
       references: [orders.id],
+    }),
+  })
+);
+
+// --- Promotion Relations ---
+
+export const promotionsRelations = relations(promotions, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [promotions.tenantId],
+    references: [tenants.id],
+  }),
+  usage: many(promotionUsage),
+}));
+
+export const promotionUsageRelations = relations(
+  promotionUsage,
+  ({ one }) => ({
+    promotion: one(promotions, {
+      fields: [promotionUsage.promotionId],
+      references: [promotions.id],
+    }),
+    order: one(orders, {
+      fields: [promotionUsage.orderId],
+      references: [orders.id],
+    }),
+    tenant: one(tenants, {
+      fields: [promotionUsage.tenantId],
+      references: [tenants.id],
     }),
   })
 );
