@@ -615,6 +615,32 @@ export const loyaltyTransactions = pgTable("loyalty_transactions", {
 });
 
 // ============================================
+// REVIEWS (Avaliações de pedidos)
+// ============================================
+
+export const reviews = pgTable("reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  orderId: uuid("order_id")
+    .notNull()
+    .references(() => orders.id, { onDelete: "cascade" }),
+  /** Nota de 1 a 5 estrelas */
+  rating: integer("rating").notNull(),
+  /** Comentário opcional */
+  comment: text("comment"),
+  /** Nome do cliente */
+  customerName: varchar("customer_name", { length: 255 }),
+  /** Telefone do cliente */
+  customerPhone: varchar("customer_phone", { length: 20 }),
+  /** Resposta do restaurante */
+  reply: text("reply"),
+  repliedAt: timestamp("replied_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ============================================
 // RELATIONS
 // ============================================
 
@@ -845,3 +871,16 @@ export const loyaltyTransactionsRelations = relations(
     }),
   })
 );
+
+// --- Review Relations ---
+
+export const reviewsRelations = relations(reviews, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [reviews.tenantId],
+    references: [tenants.id],
+  }),
+  order: one(orders, {
+    fields: [reviews.orderId],
+    references: [orders.id],
+  }),
+}));

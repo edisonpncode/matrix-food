@@ -7,6 +7,9 @@ import { orderRouter } from "./routers/order";
 import { cashRegisterRouter } from "./routers/cashRegister";
 import { promotionRouter } from "./routers/promotion";
 import { loyaltyRouter } from "./routers/loyalty";
+import { analyticsRouter } from "./routers/analytics";
+import { reviewRouter } from "./routers/review";
+import { superadminRouter } from "./routers/superadmin";
 
 /**
  * Router raiz que combina todos os sub-routers.
@@ -20,6 +23,9 @@ export const appRouter = createTRPCRouter({
   cashRegister: cashRegisterRouter,
   promotion: promotionRouter,
   loyalty: loyaltyRouter,
+  analytics: analyticsRouter,
+  review: reviewRouter,
+  superadmin: superadminRouter,
 });
 
 export type AppRouter = typeof appRouter;

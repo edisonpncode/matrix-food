@@ -4,28 +4,16 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
-  FolderOpen,
-  ShoppingBag,
-  ClipboardList,
-  Settings,
+  Store,
   ChevronLeft,
   ChevronRight,
-  Store,
-  Tag,
-  Star,
-  MessageSquare,
+  Shield,
 } from "lucide-react";
 import { useState } from "react";
 
 const menuItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/categorias", label: "Categorias", icon: FolderOpen },
-  { href: "/produtos", label: "Produtos", icon: ShoppingBag },
-  { href: "/pedidos", label: "Pedidos", icon: ClipboardList },
-  { href: "/promocoes", label: "Promoções", icon: Tag },
-  { href: "/fidelidade", label: "Fidelidade", icon: Star },
-  { href: "/avaliacoes", label: "Avaliações", icon: MessageSquare },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
+  { href: "/restaurantes", label: "Restaurantes", icon: Store },
 ];
 
 export function Sidebar() {
@@ -40,7 +28,7 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className="flex h-16 items-center gap-3 border-b border-border px-4">
-        <Store className="h-7 w-7 shrink-0 text-primary" />
+        <Shield className="h-7 w-7 shrink-0 text-primary" />
         {!collapsed && (
           <span className="text-lg font-bold text-foreground">Matrix Food</span>
         )}

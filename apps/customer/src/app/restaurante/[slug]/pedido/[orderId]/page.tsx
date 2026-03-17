@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CheckCircle, Clock, ArrowLeft } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
+import { ReviewForm } from "@/components/review-form";
 
 interface PageProps {
   params: Promise<{ slug: string; orderId: string }>;
@@ -117,6 +118,23 @@ export default function OrderConfirmationPage({ params }: PageProps) {
             </div>
           </div>
         </div>
+
+        {/* Avaliação */}
+        {order.status === "DELIVERED" || order.status === "PICKED_UP" ? (
+          <div className="mt-5">
+            <ReviewForm orderId={order.id} tenantId={order.tenantId} />
+          </div>
+        ) : null}
+
+        {/* Pontos ganhos */}
+        {order.loyaltyPointsEarned > 0 && (
+          <div className="mt-5 flex items-center gap-3 rounded-xl bg-yellow-50 border border-yellow-200 p-4">
+            <span className="text-2xl">⭐</span>
+            <p className="text-sm text-yellow-800">
+              Você ganhou <strong>{order.loyaltyPointsEarned} pontos</strong> de fidelidade neste pedido!
+            </p>
+          </div>
+        )}
 
         {/* Voltar */}
         <Link
