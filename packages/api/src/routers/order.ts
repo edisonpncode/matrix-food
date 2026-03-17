@@ -13,6 +13,8 @@ import {
   cashRegisterTransactions,
   promotions,
   promotionUsage,
+  loyaltyConfig,
+  loyaltyTransactions,
   eq,
   and,
   desc,
@@ -63,6 +65,7 @@ export const orderRouter = createTRPCRouter({
         changeFor: z.string().nullable().optional(),
         notes: z.string().optional(),
         promoCode: z.string().optional(),
+        loyaltyRewardDiscount: z.number().optional(),
         items: z.array(orderItemInput).min(1),
       })
     )
@@ -237,10 +240,39 @@ export const orderRouter = createTRPCRouter({
         }
       }
 
-      // 5. Total
-      const total = subtotal + deliveryFee - discount;
+      // 5. Desconto de fidelidade
+      const loyaltyDiscount = input.loyaltyRewardDiscount
+        ? Math.min(input.loyaltyRewardDiscount, subtotal - discount)
+        : 0;
 
-      // 6. Gerar número do pedido (sequencial por tenant)
+      // 6. Total
+      const total = subtotal + deliveryFee - discount - loyaltyDiscount;
+
+      // 7. Calcular pontos de fidelidade a ganhar
+      let loyaltyPointsEarned = 0;
+      const [loyaltyConf] = await db
+        .select()
+        .from(loyaltyConfig)
+        .where(
+          and(
+            eq(loyaltyConfig.tenantId, input.tenantId),
+            eq(loyaltyConfig.isActive, true)
+          )
+        )
+        .limit(1);
+
+      if (loyaltyConf && input.customerPhone) {
+        const minOrder = loyaltyConf.minOrderForPoints
+          ? parseFloat(loyaltyConf.minOrderForPoints)
+          : 0;
+        if (total >= minOrder) {
+          loyaltyPointsEarned = Math.floor(
+            total * parseFloat(loyaltyConf.pointsPerReal)
+          );
+        }
+      }
+
+      // 8. Gerar número do pedido (sequencial por tenant)
       const [lastOrder] = await db
         .select({ orderNumber: orders.orderNumber })
         .from(orders)
@@ -251,7 +283,7 @@ export const orderRouter = createTRPCRouter({
       const nextOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
       const displayNumber = generateOrderNumber(nextOrderNumber);
 
-      // 7. Criar pedido + itens em transação
+      // 9. Criar pedido + itens em transação
       const [order] = await db
         .insert(orders)
         .values({
@@ -270,6 +302,8 @@ export const orderRouter = createTRPCRouter({
           changeFor: input.changeFor,
           notes: input.notes,
           promotionId,
+          loyaltyPointsEarned,
+          loyaltyDiscount: loyaltyDiscount.toFixed(2),
         })
         .returning();
 
@@ -310,7 +344,7 @@ export const orderRouter = createTRPCRouter({
         }
       }
 
-      // 9. Registrar uso da promoção
+      // 10. Registrar uso da promoção
       if (promotionId && order) {
         await db.insert(promotionUsage).values({
           promotionId,
@@ -321,11 +355,24 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
+      // 11. Creditar pontos de fidelidade
+      if (loyaltyPointsEarned > 0 && input.customerPhone && order) {
+        await db.insert(loyaltyTransactions).values({
+          tenantId: input.tenantId,
+          customerPhone: input.customerPhone,
+          type: "EARNED",
+          points: loyaltyPointsEarned,
+          description: `Pedido ${displayNumber}`,
+          orderId: order.id,
+        });
+      }
+
       return {
         id: order.id,
         displayNumber: order.displayNumber,
         total: order.total,
         status: order.status,
+        loyaltyPointsEarned,
       };
     }),
 
@@ -606,6 +653,30 @@ export const orderRouter = createTRPCRouter({
 
       const total = subtotal - discount;
 
+      // Calcular pontos de fidelidade
+      let loyaltyPointsEarned = 0;
+      const [loyaltyConf] = await db
+        .select()
+        .from(loyaltyConfig)
+        .where(
+          and(
+            eq(loyaltyConfig.tenantId, ctx.tenantId),
+            eq(loyaltyConfig.isActive, true)
+          )
+        )
+        .limit(1);
+
+      if (loyaltyConf && input.customerPhone) {
+        const minOrder = loyaltyConf.minOrderForPoints
+          ? parseFloat(loyaltyConf.minOrderForPoints)
+          : 0;
+        if (total >= minOrder) {
+          loyaltyPointsEarned = Math.floor(
+            total * parseFloat(loyaltyConf.pointsPerReal)
+          );
+        }
+      }
+
       // Gerar número do pedido
       const [lastOrder] = await db
         .select({ orderNumber: orders.orderNumber })
@@ -638,6 +709,7 @@ export const orderRouter = createTRPCRouter({
           changeFor: input.changeFor,
           notes: input.notes,
           promotionId,
+          loyaltyPointsEarned,
         })
         .returning();
 
@@ -688,6 +760,18 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
+      // Creditar pontos de fidelidade
+      if (loyaltyPointsEarned > 0 && input.customerPhone && order) {
+        await db.insert(loyaltyTransactions).values({
+          tenantId: ctx.tenantId,
+          customerPhone: input.customerPhone,
+          type: "EARNED",
+          points: loyaltyPointsEarned,
+          description: `Pedido ${displayNumber}`,
+          orderId: order.id,
+        });
+      }
+
       // Registrar venda no caixa automaticamente (se sessão aberta)
       const [activeSession] = await db
         .select()
@@ -717,6 +801,7 @@ export const orderRouter = createTRPCRouter({
         displayNumber: order.displayNumber,
         total: order.total,
         status: order.status,
+        loyaltyPointsEarned,
       };
     }),
 });

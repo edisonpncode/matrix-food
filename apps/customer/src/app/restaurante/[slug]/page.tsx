@@ -11,6 +11,7 @@ import { CartFab } from "@/components/cart-fab";
 import { CartDrawer } from "@/components/cart-drawer";
 import { CheckoutForm } from "@/components/checkout-form";
 import { PromoBanner } from "@/components/promo-banner";
+import { LoyaltyBanner } from "@/components/loyalty-banner";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -88,6 +89,9 @@ export default function RestaurantPage({ params }: PageProps) {
 
       {/* Banner de Promoções */}
       <PromoBanner tenantId={tenant.id} />
+
+      {/* Banner de Fidelidade */}
+      <LoyaltyBanner tenantId={tenant.id} />
 
       {categories.length > 0 && (
         <CategoryTabs

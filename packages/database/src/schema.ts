@@ -78,6 +78,13 @@ export const promotionTypeEnum = pgEnum("promotion_type", [
   "FREE_DELIVERY",
 ]);
 
+export const loyaltyTransactionTypeEnum = pgEnum("loyalty_transaction_type", [
+  "EARNED",
+  "REDEEMED",
+  "ADJUSTMENT",
+  "EXPIRED",
+]);
+
 // ============================================
 // TENANTS (Restaurantes)
 // ============================================
@@ -357,6 +364,10 @@ export const orders = pgTable("orders", {
     .default("0"),
   /** Promoção aplicada (se houver) */
   promotionId: uuid("promotion_id"),
+  /** Pontos de fidelidade ganhos neste pedido */
+  loyaltyPointsEarned: integer("loyalty_points_earned").notNull().default(0),
+  /** Desconto de recompensa aplicado */
+  loyaltyDiscount: decimal("loyalty_discount", { precision: 10, scale: 2 }).notNull().default("0"),
   total: decimal("total", { precision: 10, scale: 2 }).notNull(),
   paymentMethod: paymentMethodEnum("payment_method").notNull(),
   paymentStatus: paymentStatusEnum("payment_status")
@@ -517,6 +528,89 @@ export const cashRegisterTransactions = pgTable("cash_register_transactions", {
     onDelete: "set null",
   }),
   createdBy: varchar("created_by", { length: 255 }).notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// ============================================
+// LOYALTY CONFIG (Configuração de fidelidade por restaurante)
+// ============================================
+
+export const loyaltyConfig = pgTable("loyalty_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" })
+    .unique(),
+  /** Se o sistema de fidelidade está ativo */
+  isActive: boolean("is_active").notNull().default(false),
+  /** Quantos pontos o cliente ganha por R$1 gasto */
+  pointsPerReal: decimal("points_per_real", { precision: 10, scale: 2 })
+    .notNull()
+    .default("1"),
+  /** Nome dos pontos (ex: "Pontos", "Estrelas", "Moedas") */
+  pointsName: varchar("points_name", { length: 50 }).notNull().default("Pontos"),
+  /** Valor mínimo do pedido para ganhar pontos */
+  minOrderForPoints: decimal("min_order_for_points", { precision: 10, scale: 2 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// ============================================
+// LOYALTY REWARDS (Recompensas resgatáveis)
+// ============================================
+
+export const loyaltyRewards = pgTable("loyalty_rewards", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** Nome da recompensa (ex: "Desconto de R$10", "Refrigerante grátis") */
+  name: varchar("name", { length: 255 }).notNull(),
+  description: varchar("description", { length: 500 }),
+  /** Custo em pontos para resgatar */
+  pointsCost: integer("points_cost").notNull(),
+  /** Valor do desconto em R$ que a recompensa dá */
+  discountValue: decimal("discount_value", { precision: 10, scale: 2 }).notNull(),
+  /** Limite total de resgates (null = ilimitado) */
+  maxRedemptions: integer("max_redemptions"),
+  /** Quantas vezes já foi resgatada */
+  totalRedemptions: integer("total_redemptions").notNull().default(0),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// ============================================
+// LOYALTY TRANSACTIONS (Histórico de pontos)
+// ============================================
+
+export const loyaltyTransactions = pgTable("loyalty_transactions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" }),
+  /** Telefone do cliente (identificador anônimo) */
+  customerPhone: varchar("customer_phone", { length: 20 }).notNull(),
+  type: loyaltyTransactionTypeEnum("type").notNull(),
+  /** Pontos ganhos (positivo) ou gastos (negativo) */
+  points: integer("points").notNull(),
+  /** Descrição (ex: "Pedido #0042", "Resgate: Desconto R$10") */
+  description: varchar("description", { length: 500 }),
+  /** Referência ao pedido (se ganho por pedido) */
+  orderId: uuid("order_id").references(() => orders.id, {
+    onDelete: "set null",
+  }),
+  /** Referência à recompensa (se resgate) */
+  rewardId: uuid("reward_id").references(() => loyaltyRewards.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -711,6 +805,43 @@ export const promotionUsageRelations = relations(
     tenant: one(tenants, {
       fields: [promotionUsage.tenantId],
       references: [tenants.id],
+    }),
+  })
+);
+
+// --- Loyalty Relations ---
+
+export const loyaltyConfigRelations = relations(loyaltyConfig, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [loyaltyConfig.tenantId],
+    references: [tenants.id],
+  }),
+}));
+
+export const loyaltyRewardsRelations = relations(
+  loyaltyRewards,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [loyaltyRewards.tenantId],
+      references: [tenants.id],
+    }),
+  })
+);
+
+export const loyaltyTransactionsRelations = relations(
+  loyaltyTransactions,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [loyaltyTransactions.tenantId],
+      references: [tenants.id],
+    }),
+    order: one(orders, {
+      fields: [loyaltyTransactions.orderId],
+      references: [orders.id],
+    }),
+    reward: one(loyaltyRewards, {
+      fields: [loyaltyTransactions.rewardId],
+      references: [loyaltyRewards.id],
     }),
   })
 );

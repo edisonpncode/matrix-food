@@ -6,6 +6,7 @@ import { ArrowLeft, Tag, X, Check } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
 import { formatCurrency } from "@matrix-food/utils";
+import { LoyaltySection } from "./loyalty-section";
 
 interface Tenant {
   id: string;
@@ -61,6 +62,10 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     discountAmount: number;
     description: string | null;
   } | null>(null);
+  const [appliedReward, setAppliedReward] = useState<{
+    name: string;
+    discount: number;
+  } | null>(null);
 
   const createOrder = trpc.order.create.useMutation();
 
@@ -69,7 +74,8 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
       ? tenant.deliverySettings?.deliveryFee ?? 0
       : 0;
   const discount = appliedPromo?.discountAmount ?? 0;
-  const total = subtotal + deliveryFee - discount;
+  const loyaltyDiscount = appliedReward?.discount ?? 0;
+  const total = subtotal + deliveryFee - discount - loyaltyDiscount;
 
   const paymentMethods = tenant.paymentMethodsAccepted ?? [
     "PIX",
@@ -144,6 +150,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
         changeFor: paymentMethod === "CASH" && changeFor ? changeFor : null,
         notes: notes || undefined,
         promoCode: appliedPromo?.code || undefined,
+        loyaltyRewardDiscount: loyaltyDiscount > 0 ? loyaltyDiscount : undefined,
         items: items.map((item) => ({
           productId: item.productId,
           productVariantId: item.variantId,
@@ -417,6 +424,17 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
           )}
         </section>
 
+        {/* Fidelidade */}
+        <LoyaltySection
+          tenantId={tenant.id}
+          customerPhone={customerPhone}
+          appliedReward={appliedReward}
+          onRewardApplied={(discount, rewardName) =>
+            setAppliedReward({ name: rewardName, discount })
+          }
+          onRewardRemoved={() => setAppliedReward(null)}
+        />
+
         {/* Observações */}
         <section className="rounded-xl bg-white p-4 shadow-sm">
           <h2 className="mb-3 font-semibold">Observações</h2>
@@ -461,6 +479,12 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 <div className="flex justify-between text-green-600">
                   <span>Desconto ({appliedPromo?.code})</span>
                   <span>-{formatCurrency(discount)}</span>
+                </div>
+              )}
+              {loyaltyDiscount > 0 && (
+                <div className="flex justify-between text-yellow-600">
+                  <span>Fidelidade ({appliedReward?.name})</span>
+                  <span>-{formatCurrency(loyaltyDiscount)}</span>
                 </div>
               )}
               <div className="mt-1 flex justify-between text-lg font-bold">

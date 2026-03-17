@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Store,
   Tag,
+  Star,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -21,6 +22,7 @@ const menuItems = [
   { href: "/produtos", label: "Produtos", icon: ShoppingBag },
   { href: "/pedidos", label: "Pedidos", icon: ClipboardList },
   { href: "/promocoes", label: "Promoções", icon: Tag },
+  { href: "/fidelidade", label: "Fidelidade", icon: Star },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 
