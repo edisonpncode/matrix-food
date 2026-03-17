@@ -5,6 +5,8 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Store,
+  CreditCard,
+  Receipt,
   ChevronLeft,
   ChevronRight,
   Shield,
@@ -14,6 +16,8 @@ import { useState } from "react";
 const menuItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/restaurantes", label: "Restaurantes", icon: Store },
+  { href: "/planos", label: "Planos", icon: CreditCard },
+  { href: "/cobrancas", label: "Cobranças", icon: Receipt },
 ];
 
 export function Sidebar() {

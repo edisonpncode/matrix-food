@@ -10,6 +10,7 @@ import {
   pgEnum,
   uuid,
   uniqueIndex,
+  index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 
@@ -85,6 +86,19 @@ export const loyaltyTransactionTypeEnum = pgEnum("loyalty_transaction_type", [
   "EXPIRED",
 ]);
 
+export const billingStatusEnum = pgEnum("billing_status", [
+  "PENDING",
+  "PAID",
+  "OVERDUE",
+  "CANCELLED",
+]);
+
+export const subscriptionStatusEnum = pgEnum("subscription_status", [
+  "ACTIVE",
+  "SUSPENDED",
+  "CANCELLED",
+]);
+
 // ============================================
 // TENANTS (Restaurantes)
 // ============================================
@@ -136,24 +150,28 @@ export const tenants = pgTable(
 // TENANT USERS (Funcionários do Restaurante)
 // ============================================
 
-export const tenantUsers = pgTable("tenant_users", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  firebaseUid: varchar("firebase_uid", { length: 128 }).notNull(),
-  name: varchar("name", { length: 255 }).notNull(),
-  email: varchar("email", { length: 255 }),
-  phone: varchar("phone", { length: 20 }),
-  role: userRoleEnum("role").notNull().default("CASHIER"),
-  isActive: boolean("is_active").notNull().default(true),
-  permissions: jsonb("permissions").$type<Record<string, boolean>>(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const tenantUsers = pgTable(
+  "tenant_users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    firebaseUid: varchar("firebase_uid", { length: 128 }).notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    email: varchar("email", { length: 255 }),
+    phone: varchar("phone", { length: 20 }),
+    role: userRoleEnum("role").notNull().default("CASHIER"),
+    isActive: boolean("is_active").notNull().default(true),
+    permissions: jsonb("permissions").$type<Record<string, boolean>>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [index("tenant_users_firebase_uid_idx").on(table.firebaseUid)]
+);
 
 // ============================================
 // CUSTOMERS (Clientes)
@@ -211,61 +229,74 @@ export const customerTenants = pgTable("customer_tenants", {
 // CATEGORIES (Categorias do Cardápio)
 // ============================================
 
-export const categories = pgTable("categories", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  imageUrl: text("image_url"),
-  sortOrder: integer("sort_order").notNull().default(0),
-  isActive: boolean("is_active").notNull().default(true),
-  /** Horário em que a categoria fica visível (ex: "Almoço" só aparece 11h-15h) */
-  schedule: jsonb("schedule").$type<{
-    enabled: boolean;
-    days: number[]; // 0=Dom, 1=Seg, ..., 6=Sab
-    startTime: string; // "11:00"
-    endTime: string; // "15:00"
-  }>(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const categories = pgTable(
+  "categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    imageUrl: text("image_url"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    /** Horário em que a categoria fica visível (ex: "Almoço" só aparece 11h-15h) */
+    schedule: jsonb("schedule").$type<{
+      enabled: boolean;
+      days: number[]; // 0=Dom, 1=Seg, ..., 6=Sab
+      startTime: string; // "11:00"
+      endTime: string; // "15:00"
+    }>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("categories_tenant_sort_idx").on(table.tenantId, table.sortOrder),
+  ]
+);
 
 // ============================================
 // PRODUCTS (Produtos)
 // ============================================
 
-export const products = pgTable("products", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  categoryId: uuid("category_id")
-    .notNull()
-    .references(() => categories.id, { onDelete: "cascade" }),
-  name: varchar("name", { length: 255 }).notNull(),
-  description: text("description"),
-  /** Preço base (quando não tem variantes) */
-  price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
-  /** Preço riscado (para mostrar desconto visual) */
-  originalPrice: decimal("original_price", { precision: 10, scale: 2 }),
-  imageUrl: text("image_url"),
-  /** Tag "Novo" para destacar produto */
-  isNew: boolean("is_new").notNull().default(false),
-  /** Se o produto tem variantes (P, M, G), o preço base é ignorado */
-  hasVariants: boolean("has_variants").notNull().default(false),
-  sortOrder: integer("sort_order").notNull().default(0),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const products = pgTable(
+  "products",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => categories.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    description: text("description"),
+    /** Preço base (quando não tem variantes) */
+    price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
+    /** Preço riscado (para mostrar desconto visual) */
+    originalPrice: decimal("original_price", { precision: 10, scale: 2 }),
+    imageUrl: text("image_url"),
+    /** Tag "Novo" para destacar produto */
+    isNew: boolean("is_new").notNull().default(false),
+    /** Se o produto tem variantes (P, M, G), o preço base é ignorado */
+    hasVariants: boolean("has_variants").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("products_tenant_category_idx").on(table.tenantId, table.categoryId),
+    index("products_tenant_active_idx").on(table.tenantId, table.isActive),
+  ]
+);
 
 // ============================================
 // PRODUCT VARIANTS (Variantes/Tamanhos)
@@ -327,89 +358,100 @@ export const customizationOptions = pgTable("customization_options", {
 // ORDERS (Pedidos)
 // ============================================
 
-export const orders = pgTable("orders", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  customerId: uuid("customer_id").references(() => customers.id, {
-    onDelete: "set null",
-  }),
-  /** Número sequencial por tenant (para controle interno) */
-  orderNumber: integer("order_number").notNull(),
-  /** Número exibido ao cliente (ex: #0042) */
-  displayNumber: varchar("display_number", { length: 20 }).notNull(),
-  status: orderStatusEnum("status").notNull().default("PENDING"),
-  type: orderTypeEnum("type").notNull(),
-  source: orderSourceEnum("source").notNull().default("ONLINE"),
-  /** Dados do cliente denormalizados (para pedidos anônimos) */
-  customerName: varchar("customer_name", { length: 255 }).notNull(),
-  customerPhone: varchar("customer_phone", { length: 20 }).notNull(),
-  /** Endereço de entrega (null se retirada) */
-  deliveryAddress: jsonb("delivery_address").$type<{
-    street: string;
-    number: string;
-    complement?: string;
-    neighborhood: string;
-    city: string;
-    state: string;
-    zipCode: string;
-  }>(),
-  subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
-  deliveryFee: decimal("delivery_fee", { precision: 10, scale: 2 })
-    .notNull()
-    .default("0"),
-  discount: decimal("discount", { precision: 10, scale: 2 })
-    .notNull()
-    .default("0"),
-  /** Promoção aplicada (se houver) */
-  promotionId: uuid("promotion_id"),
-  /** Pontos de fidelidade ganhos neste pedido */
-  loyaltyPointsEarned: integer("loyalty_points_earned").notNull().default(0),
-  /** Desconto de recompensa aplicado */
-  loyaltyDiscount: decimal("loyalty_discount", { precision: 10, scale: 2 }).notNull().default("0"),
-  total: decimal("total", { precision: 10, scale: 2 }).notNull(),
-  paymentMethod: paymentMethodEnum("payment_method").notNull(),
-  paymentStatus: paymentStatusEnum("payment_status")
-    .notNull()
-    .default("PENDING"),
-  /** Troco para (se pagamento em dinheiro) */
-  changeFor: decimal("change_for", { precision: 10, scale: 2 }),
-  notes: text("notes"),
-  estimatedMinutes: integer("estimated_minutes"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const orders = pgTable(
+  "orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    customerId: uuid("customer_id").references(() => customers.id, {
+      onDelete: "set null",
+    }),
+    /** Número sequencial por tenant (para controle interno) */
+    orderNumber: integer("order_number").notNull(),
+    /** Número exibido ao cliente (ex: #0042) */
+    displayNumber: varchar("display_number", { length: 20 }).notNull(),
+    status: orderStatusEnum("status").notNull().default("PENDING"),
+    type: orderTypeEnum("type").notNull(),
+    source: orderSourceEnum("source").notNull().default("ONLINE"),
+    /** Dados do cliente denormalizados (para pedidos anônimos) */
+    customerName: varchar("customer_name", { length: 255 }).notNull(),
+    customerPhone: varchar("customer_phone", { length: 20 }).notNull(),
+    /** Endereço de entrega (null se retirada) */
+    deliveryAddress: jsonb("delivery_address").$type<{
+      street: string;
+      number: string;
+      complement?: string;
+      neighborhood: string;
+      city: string;
+      state: string;
+      zipCode: string;
+    }>(),
+    subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
+    deliveryFee: decimal("delivery_fee", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    discount: decimal("discount", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    /** Promoção aplicada (se houver) */
+    promotionId: uuid("promotion_id"),
+    /** Pontos de fidelidade ganhos neste pedido */
+    loyaltyPointsEarned: integer("loyalty_points_earned").notNull().default(0),
+    /** Desconto de recompensa aplicado */
+    loyaltyDiscount: decimal("loyalty_discount", { precision: 10, scale: 2 }).notNull().default("0"),
+    total: decimal("total", { precision: 10, scale: 2 }).notNull(),
+    paymentMethod: paymentMethodEnum("payment_method").notNull(),
+    paymentStatus: paymentStatusEnum("payment_status")
+      .notNull()
+      .default("PENDING"),
+    /** Troco para (se pagamento em dinheiro) */
+    changeFor: decimal("change_for", { precision: 10, scale: 2 }),
+    notes: text("notes"),
+    estimatedMinutes: integer("estimated_minutes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("orders_tenant_created_idx").on(table.tenantId, table.createdAt),
+    index("orders_tenant_status_idx").on(table.tenantId, table.status),
+  ]
+);
 
 // ============================================
 // ORDER ITEMS (Itens do Pedido - snapshot)
 // ============================================
 
-export const orderItems = pgTable("order_items", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  orderId: uuid("order_id")
-    .notNull()
-    .references(() => orders.id, { onDelete: "cascade" }),
-  /** Referência ao produto original (nullable se produto foi deletado) */
-  productId: uuid("product_id").references(() => products.id, {
-    onDelete: "set null",
-  }),
-  productVariantId: uuid("product_variant_id").references(
-    () => productVariants.id,
-    { onDelete: "set null" }
-  ),
-  /** Snapshots dos nomes no momento do pedido */
-  productName: varchar("product_name", { length: 255 }).notNull(),
-  variantName: varchar("variant_name", { length: 100 }),
-  unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
-  quantity: integer("quantity").notNull().default(1),
-  totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
-  notes: text("notes"),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const orderItems = pgTable(
+  "order_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** Referência ao produto original (nullable se produto foi deletado) */
+    productId: uuid("product_id").references(() => products.id, {
+      onDelete: "set null",
+    }),
+    productVariantId: uuid("product_variant_id").references(
+      () => productVariants.id,
+      { onDelete: "set null" }
+    ),
+    /** Snapshots dos nomes no momento do pedido */
+    productName: varchar("product_name", { length: 255 }).notNull(),
+    variantName: varchar("variant_name", { length: 100 }),
+    unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
+    quantity: integer("quantity").notNull().default(1),
+    totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("order_items_order_id_idx").on(table.orderId)]
+);
 
 // ============================================
 // ORDER ITEM CUSTOMIZATIONS (Personalizações do Item)
@@ -434,79 +476,97 @@ export const orderItemCustomizations = pgTable("order_item_customizations", {
 // PROMOTIONS (Promoções)
 // ============================================
 
-export const promotions = pgTable("promotions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  /** Código do cupom (ex: DESCONTO10) */
-  code: varchar("code", { length: 50 }).notNull(),
-  description: varchar("description", { length: 500 }),
-  type: promotionTypeEnum("type").notNull(),
-  /** Valor: percentual (ex: 10 = 10%) ou fixo (ex: 5.00 = R$5) */
-  value: decimal("value", { precision: 10, scale: 2 }).notNull(),
-  /** Valor mínimo do pedido para aplicar */
-  minOrderValue: decimal("min_order_value", { precision: 10, scale: 2 }),
-  /** Teto de desconto para promoções percentuais */
-  maxDiscount: decimal("max_discount", { precision: 10, scale: 2 }),
-  /** Limite total de usos (null = ilimitado) */
-  maxUses: integer("max_uses"),
-  /** Limite de usos por cliente/telefone */
-  maxUsesPerCustomer: integer("max_uses_per_customer").notNull().default(1),
-  startDate: timestamp("start_date").notNull().defaultNow(),
-  endDate: timestamp("end_date"),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const promotions = pgTable(
+  "promotions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Código do cupom (ex: DESCONTO10) */
+    code: varchar("code", { length: 50 }).notNull(),
+    description: varchar("description", { length: 500 }),
+    type: promotionTypeEnum("type").notNull(),
+    /** Valor: percentual (ex: 10 = 10%) ou fixo (ex: 5.00 = R$5) */
+    value: decimal("value", { precision: 10, scale: 2 }).notNull(),
+    /** Valor mínimo do pedido para aplicar */
+    minOrderValue: decimal("min_order_value", { precision: 10, scale: 2 }),
+    /** Teto de desconto para promoções percentuais */
+    maxDiscount: decimal("max_discount", { precision: 10, scale: 2 }),
+    /** Limite total de usos (null = ilimitado) */
+    maxUses: integer("max_uses"),
+    /** Limite de usos por cliente/telefone */
+    maxUsesPerCustomer: integer("max_uses_per_customer").notNull().default(1),
+    startDate: timestamp("start_date").notNull().defaultNow(),
+    endDate: timestamp("end_date"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("promotions_tenant_active_idx").on(table.tenantId, table.isActive),
+  ]
+);
 
 // ============================================
 // PROMOTION USAGE (Registro de uso de promoções)
 // ============================================
 
-export const promotionUsage = pgTable("promotion_usage", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  promotionId: uuid("promotion_id")
-    .notNull()
-    .references(() => promotions.id, { onDelete: "cascade" }),
-  orderId: uuid("order_id")
-    .notNull()
-    .references(() => orders.id, { onDelete: "cascade" }),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  /** Telefone do cliente (para rastrear uso por cliente anônimo) */
-  customerPhone: varchar("customer_phone", { length: 20 }),
-  discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }).notNull(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const promotionUsage = pgTable(
+  "promotion_usage",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    promotionId: uuid("promotion_id")
+      .notNull()
+      .references(() => promotions.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Telefone do cliente (para rastrear uso por cliente anônimo) */
+    customerPhone: varchar("customer_phone", { length: 20 }),
+    discountAmount: decimal("discount_amount", { precision: 10, scale: 2 }).notNull(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("promotion_usage_promo_phone_idx").on(table.promotionId, table.customerPhone),
+  ]
+);
 
 // ============================================
 // CASH REGISTER SESSIONS (Sessões de Caixa)
 // ============================================
 
-export const cashRegisterSessions = pgTable("cash_register_sessions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  /** Quem abriu o caixa */
-  openedBy: varchar("opened_by", { length: 255 }).notNull(),
-  /** Quem fechou o caixa */
-  closedBy: varchar("closed_by", { length: 255 }),
-  openingBalance: decimal("opening_balance", { precision: 10, scale: 2 })
-    .notNull()
-    .default("0"),
-  closingBalance: decimal("closing_balance", { precision: 10, scale: 2 }),
-  expectedBalance: decimal("expected_balance", { precision: 10, scale: 2 }),
-  status: cashSessionStatusEnum("status").notNull().default("OPEN"),
-  openedAt: timestamp("opened_at").notNull().defaultNow(),
-  closedAt: timestamp("closed_at"),
-  notes: text("notes"),
-});
+export const cashRegisterSessions = pgTable(
+  "cash_register_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Quem abriu o caixa */
+    openedBy: varchar("opened_by", { length: 255 }).notNull(),
+    /** Quem fechou o caixa */
+    closedBy: varchar("closed_by", { length: 255 }),
+    openingBalance: decimal("opening_balance", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    closingBalance: decimal("closing_balance", { precision: 10, scale: 2 }),
+    expectedBalance: decimal("expected_balance", { precision: 10, scale: 2 }),
+    status: cashSessionStatusEnum("status").notNull().default("OPEN"),
+    openedAt: timestamp("opened_at").notNull().defaultNow(),
+    closedAt: timestamp("closed_at"),
+    notes: text("notes"),
+  },
+  (table) => [
+    index("cash_sessions_tenant_status_idx").on(table.tenantId, table.status),
+  ]
+);
 
 // ============================================
 // CASH REGISTER TRANSACTIONS (Movimentações do Caixa)
@@ -591,54 +651,149 @@ export const loyaltyRewards = pgTable("loyalty_rewards", {
 // LOYALTY TRANSACTIONS (Histórico de pontos)
 // ============================================
 
-export const loyaltyTransactions = pgTable("loyalty_transactions", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  /** Telefone do cliente (identificador anônimo) */
-  customerPhone: varchar("customer_phone", { length: 20 }).notNull(),
-  type: loyaltyTransactionTypeEnum("type").notNull(),
-  /** Pontos ganhos (positivo) ou gastos (negativo) */
-  points: integer("points").notNull(),
-  /** Descrição (ex: "Pedido #0042", "Resgate: Desconto R$10") */
-  description: varchar("description", { length: 500 }),
-  /** Referência ao pedido (se ganho por pedido) */
-  orderId: uuid("order_id").references(() => orders.id, {
-    onDelete: "set null",
-  }),
-  /** Referência à recompensa (se resgate) */
-  rewardId: uuid("reward_id").references(() => loyaltyRewards.id, {
-    onDelete: "set null",
-  }),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const loyaltyTransactions = pgTable(
+  "loyalty_transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Telefone do cliente (identificador anônimo) */
+    customerPhone: varchar("customer_phone", { length: 20 }).notNull(),
+    type: loyaltyTransactionTypeEnum("type").notNull(),
+    /** Pontos ganhos (positivo) ou gastos (negativo) */
+    points: integer("points").notNull(),
+    /** Descrição (ex: "Pedido #0042", "Resgate: Desconto R$10") */
+    description: varchar("description", { length: 500 }),
+    /** Referência ao pedido (se ganho por pedido) */
+    orderId: uuid("order_id").references(() => orders.id, {
+      onDelete: "set null",
+    }),
+    /** Referência à recompensa (se resgate) */
+    rewardId: uuid("reward_id").references(() => loyaltyRewards.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("loyalty_tx_tenant_phone_idx").on(table.tenantId, table.customerPhone),
+  ]
+);
 
 // ============================================
 // REVIEWS (Avaliações de pedidos)
 // ============================================
 
-export const reviews = pgTable("reviews", {
+export const reviews = pgTable(
+  "reviews",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** Nota de 1 a 5 estrelas */
+    rating: integer("rating").notNull(),
+    /** Comentário opcional */
+    comment: text("comment"),
+    /** Nome do cliente */
+    customerName: varchar("customer_name", { length: 255 }),
+    /** Telefone do cliente */
+    customerPhone: varchar("customer_phone", { length: 20 }),
+    /** Resposta do restaurante */
+    reply: text("reply"),
+    repliedAt: timestamp("replied_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("reviews_tenant_created_idx").on(table.tenantId, table.createdAt),
+  ]
+);
+
+// ============================================
+// BILLING PLANS (Planos de cobrança)
+// ============================================
+
+export const billingPlans = pgTable("billing_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: varchar("name", { length: 255 }).notNull(),
+  description: text("description"),
+  /** Quantidade de pedidos grátis por mês */
+  freeOrdersLimit: integer("free_orders_limit").notNull().default(0),
+  /** Percentual cobrado sobre vendas acima do limite */
+  percentageFee: decimal("percentage_fee", { precision: 5, scale: 2 }).notNull().default("5"),
+  /** Mensalidade mínima (null = sem mínimo) */
+  minMonthlyFee: decimal("min_monthly_fee", { precision: 10, scale: 2 }),
+  isActive: boolean("is_active").notNull().default(true),
+  isDefault: boolean("is_default").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+// ============================================
+// TENANT SUBSCRIPTIONS (Assinatura do restaurante)
+// ============================================
+
+export const tenantSubscriptions = pgTable("tenant_subscriptions", {
   id: uuid("id").primaryKey().defaultRandom(),
   tenantId: uuid("tenant_id")
     .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  orderId: uuid("order_id")
+    .references(() => tenants.id, { onDelete: "cascade" })
+    .unique(),
+  planId: uuid("plan_id")
     .notNull()
-    .references(() => orders.id, { onDelete: "cascade" }),
-  /** Nota de 1 a 5 estrelas */
-  rating: integer("rating").notNull(),
-  /** Comentário opcional */
-  comment: text("comment"),
-  /** Nome do cliente */
-  customerName: varchar("customer_name", { length: 255 }),
-  /** Telefone do cliente */
-  customerPhone: varchar("customer_phone", { length: 20 }),
-  /** Resposta do restaurante */
-  reply: text("reply"),
-  repliedAt: timestamp("replied_at"),
+    .references(() => billingPlans.id),
+  status: subscriptionStatusEnum("status").notNull().default("ACTIVE"),
+  startedAt: timestamp("started_at").notNull().defaultNow(),
+  cancelledAt: timestamp("cancelled_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
 });
+
+// ============================================
+// BILLING RECORDS (Cobranças mensais)
+// ============================================
+
+export const billingRecords = pgTable(
+  "billing_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => tenantSubscriptions.id),
+    /** Período de referência */
+    periodStart: timestamp("period_start").notNull(),
+    periodEnd: timestamp("period_end").notNull(),
+    /** Métricas do período */
+    totalOrders: integer("total_orders").notNull().default(0),
+    totalRevenue: decimal("total_revenue", { precision: 10, scale: 2 }).notNull().default("0"),
+    freeOrders: integer("free_orders").notNull().default(0),
+    billedOrders: integer("billed_orders").notNull().default(0),
+    /** Cálculo da cobrança */
+    percentageFee: decimal("percentage_fee", { precision: 5, scale: 2 }).notNull(),
+    calculatedAmount: decimal("calculated_amount", { precision: 10, scale: 2 }).notNull(),
+    finalAmount: decimal("final_amount", { precision: 10, scale: 2 }).notNull(),
+    status: billingStatusEnum("status").notNull().default("PENDING"),
+    paidAt: timestamp("paid_at"),
+    dueDate: timestamp("due_date").notNull(),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("billing_records_tenant_period_idx").on(table.tenantId, table.periodStart),
+  ]
+);
 
 // ============================================
 // RELATIONS
@@ -884,3 +1039,38 @@ export const reviewsRelations = relations(reviews, ({ one }) => ({
     references: [orders.id],
   }),
 }));
+
+// --- Billing Relations ---
+
+export const billingPlansRelations = relations(billingPlans, ({ many }) => ({
+  subscriptions: many(tenantSubscriptions),
+}));
+
+export const tenantSubscriptionsRelations = relations(
+  tenantSubscriptions,
+  ({ one, many }) => ({
+    tenant: one(tenants, {
+      fields: [tenantSubscriptions.tenantId],
+      references: [tenants.id],
+    }),
+    plan: one(billingPlans, {
+      fields: [tenantSubscriptions.planId],
+      references: [billingPlans.id],
+    }),
+    billingRecords: many(billingRecords),
+  })
+);
+
+export const billingRecordsRelations = relations(
+  billingRecords,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [billingRecords.tenantId],
+      references: [tenants.id],
+    }),
+    subscription: one(tenantSubscriptions, {
+      fields: [billingRecords.subscriptionId],
+      references: [tenantSubscriptions.id],
+    }),
+  })
+);

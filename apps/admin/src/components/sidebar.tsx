@@ -14,6 +14,7 @@ import {
   Tag,
   Star,
   MessageSquare,
+  CreditCard,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -25,6 +26,7 @@ const menuItems = [
   { href: "/promocoes", label: "Promoções", icon: Tag },
   { href: "/fidelidade", label: "Fidelidade", icon: Star },
   { href: "/avaliacoes", label: "Avaliações", icon: MessageSquare },
+  { href: "/assinatura", label: "Assinatura", icon: CreditCard },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
 

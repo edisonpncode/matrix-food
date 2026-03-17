@@ -10,6 +10,7 @@ import { loyaltyRouter } from "./routers/loyalty";
 import { analyticsRouter } from "./routers/analytics";
 import { reviewRouter } from "./routers/review";
 import { superadminRouter } from "./routers/superadmin";
+import { billingRouter } from "./routers/billing";
 
 /**
  * Router raiz que combina todos os sub-routers.
@@ -26,6 +27,7 @@ export const appRouter = createTRPCRouter({
   analytics: analyticsRouter,
   review: reviewRouter,
   superadmin: superadminRouter,
+  billing: billingRouter,
 });
 
 export type AppRouter = typeof appRouter;

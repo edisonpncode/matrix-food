@@ -55,6 +55,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
   const [changeFor, setChangeFor] = useState("");
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [promoCode, setPromoCode] = useState("");
   const [promoError, setPromoError] = useState("");
   const [appliedPromo, setAppliedPromo] = useState<{
@@ -179,6 +180,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     customerName.trim() !== "" &&
     customerPhone.trim() !== "" &&
     paymentMethod !== "" &&
+    acceptedTerms &&
     (orderType === "PICKUP" ||
       (address.street && address.number && address.neighborhood && address.city && address.state && address.zipCode));
 
@@ -493,6 +495,36 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
               </div>
             </div>
           </div>
+        </section>
+
+        {/* Termos e Privacidade */}
+        <section className="rounded-xl bg-white p-4 shadow-sm">
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={acceptedTerms}
+              onChange={(e) => setAcceptedTerms(e.target.checked)}
+              className="mt-0.5 accent-primary"
+            />
+            <span className="text-xs text-gray-600">
+              Li e aceito os{" "}
+              <a
+                href="/termos"
+                target="_blank"
+                className="text-primary underline"
+              >
+                Termos de Uso
+              </a>{" "}
+              e a{" "}
+              <a
+                href="/privacidade"
+                target="_blank"
+                className="text-primary underline"
+              >
+                Política de Privacidade
+              </a>
+            </span>
+          </label>
         </section>
 
         {/* Botão */}
