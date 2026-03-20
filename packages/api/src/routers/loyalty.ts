@@ -34,6 +34,7 @@ export const loyaltyRouter = createTRPCRouter({
     .input(
       z.object({
         isActive: z.boolean(),
+        spendingBase: z.string().default("1"),
         pointsPerReal: z.string().default("1"),
         pointsName: z.string().min(1).max(50).default("Pontos"),
         minOrderForPoints: z.string().nullable().optional(),
@@ -54,6 +55,7 @@ export const loyaltyRouter = createTRPCRouter({
           .update(loyaltyConfig)
           .set({
             isActive: input.isActive,
+            spendingBase: input.spendingBase,
             pointsPerReal: input.pointsPerReal,
             pointsName: input.pointsName,
             minOrderForPoints: input.minOrderForPoints ?? null,
@@ -68,6 +70,7 @@ export const loyaltyRouter = createTRPCRouter({
         .values({
           tenantId: ctx.tenantId,
           isActive: input.isActive,
+          spendingBase: input.spendingBase,
           pointsPerReal: input.pointsPerReal,
           pointsName: input.pointsName,
           minOrderForPoints: input.minOrderForPoints ?? null,
@@ -206,6 +209,7 @@ export const loyaltyRouter = createTRPCRouter({
 
       if (!config) return null;
       return {
+        spendingBase: config.spendingBase,
         pointsPerReal: config.pointsPerReal,
         pointsName: config.pointsName,
         minOrderForPoints: config.minOrderForPoints,

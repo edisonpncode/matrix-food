@@ -23,4 +23,4 @@ export function getDb() {
 
 export { createDb };
 export * from "./schema";
-export { eq, and, or, desc, asc, sql, count, sum } from "drizzle-orm";
+export { eq, and, or, desc, asc, sql, count, sum, inArray } from "drizzle-orm";

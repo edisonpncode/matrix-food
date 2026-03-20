@@ -77,6 +77,8 @@ export const promotionTypeEnum = pgEnum("promotion_type", [
   "PERCENTAGE",
   "FIXED_AMOUNT",
   "FREE_DELIVERY",
+  "COMBO",
+  "BUY_X_GET_Y",
 ]);
 
 export const loyaltyTransactionTypeEnum = pgEnum("loyalty_transaction_type", [
@@ -241,6 +243,8 @@ export const categories = pgTable(
     imageUrl: text("image_url"),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
+    /** Se true, a categoria tem tamanhos (ex: Pizza P, M, G) e os produtos usam preço por tamanho */
+    hasSizes: boolean("has_sizes").notNull().default(false),
     /** Horário em que a categoria fica visível (ex: "Almoço" só aparece 11h-15h) */
     schedule: jsonb("schedule").$type<{
       enabled: boolean;
@@ -258,6 +262,23 @@ export const categories = pgTable(
     index("categories_tenant_sort_idx").on(table.tenantId, table.sortOrder),
   ]
 );
+
+// ============================================
+// CATEGORY SIZES (Tamanhos da Categoria)
+// Ex: Pizza → Pequena (2 sabores), Média (2 sabores), Grande (3 sabores), Gigante (4 sabores)
+// ============================================
+
+export const categorySizes = pgTable("category_sizes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  categoryId: uuid("category_id")
+    .notNull()
+    .references(() => categories.id, { onDelete: "cascade" }),
+  name: varchar("name", { length: 100 }).notNull(),
+  /** Número máximo de sabores que podem ser mixados nesse tamanho */
+  maxFlavors: integer("max_flavors").notNull().default(1),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+});
 
 // ============================================
 // PRODUCTS (Produtos)
@@ -315,6 +336,28 @@ export const productVariants = pgTable("product_variants", {
   sortOrder: integer("sort_order").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
 });
+
+// ============================================
+// PRODUCT SIZE PRICES (Preço por Tamanho)
+// Ex: Pizza Margherita → Pequena R$29, Média R$39, Grande R$49
+// ============================================
+
+export const productSizePrices = pgTable(
+  "product_size_prices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    sizeId: uuid("size_id")
+      .notNull()
+      .references(() => categorySizes.id, { onDelete: "cascade" }),
+    price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("product_size_price_unique_idx").on(table.productId, table.sizeId),
+  ]
+);
 
 // ============================================
 // CUSTOMIZATION GROUPS (Grupos de Personalização)
@@ -499,6 +542,18 @@ export const promotions = pgTable(
     maxUsesPerCustomer: integer("max_uses_per_customer").notNull().default(1),
     startDate: timestamp("start_date").notNull().defaultNow(),
     endDate: timestamp("end_date"),
+    /** Preço fixo do combo (para tipos COMBO e BUY_X_GET_Y) */
+    bundlePrice: decimal("bundle_price", { precision: 10, scale: 2 }),
+    /** Dias da semana válidos (0=Dom, 1=Seg, ..., 6=Sáb). null = todos */
+    daysOfWeek: jsonb("days_of_week").$type<number[]>(),
+    /** Horário início (formato "HH:mm"). null = sem restrição */
+    timeStart: varchar("time_start", { length: 5 }),
+    /** Horário fim (formato "HH:mm"). null = sem restrição */
+    timeEnd: varchar("time_end", { length: 5 }),
+    /** Quantidade máxima de escolhas para combos tipo "Escolha X" */
+    maxChoices: integer("max_choices"),
+    /** URL da imagem/banner da promoção */
+    imageUrl: text("image_url"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")
@@ -508,6 +563,38 @@ export const promotions = pgTable(
   },
   (table) => [
     index("promotions_tenant_active_idx").on(table.tenantId, table.isActive),
+  ]
+);
+
+// ============================================
+// PROMOTION ITEMS (Itens do combo/promoção)
+// ============================================
+
+export const promotionItems = pgTable(
+  "promotion_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    promotionId: uuid("promotion_id")
+      .notNull()
+      .references(() => promotions.id, { onDelete: "cascade" }),
+    /** Produto vinculado (pode ser null se for uma categoria inteira) */
+    productId: uuid("product_id").references(() => products.id, {
+      onDelete: "cascade",
+    }),
+    /** Categoria vinculada (alternativa ao productId) */
+    categoryId: uuid("category_id").references(() => categories.id, {
+      onDelete: "cascade",
+    }),
+    /** Quantidade necessária deste item no combo */
+    quantity: integer("quantity").notNull().default(1),
+    /** Tipo: REQUIRED = obrigatório no combo, FREE = item grátis (BUY_X_GET_Y) */
+    role: varchar("role", { length: 20 }).notNull().default("REQUIRED"),
+    /** Preço especial deste item no combo (null = usa preço original) */
+    specialPrice: decimal("special_price", { precision: 10, scale: 2 }),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => [
+    index("promo_items_promotion_idx").on(table.promotionId),
   ]
 );
 
@@ -603,7 +690,11 @@ export const loyaltyConfig = pgTable("loyalty_config", {
     .unique(),
   /** Se o sistema de fidelidade está ativo */
   isActive: boolean("is_active").notNull().default(false),
-  /** Quantos pontos o cliente ganha por R$1 gasto */
+  /** Base de valor em R$ para ganhar pontos (ex: a cada R$10 gastos) */
+  spendingBase: decimal("spending_base", { precision: 10, scale: 2 })
+    .notNull()
+    .default("1"),
+  /** Quantos pontos o cliente ganha por spendingBase gasto */
   pointsPerReal: decimal("points_per_real", { precision: 10, scale: 2 })
     .notNull()
     .default("1"),
@@ -841,6 +932,15 @@ export const categoriesRelations = relations(categories, ({ one, many }) => ({
     references: [tenants.id],
   }),
   products: many(products),
+  sizes: many(categorySizes),
+}));
+
+export const categorySizesRelations = relations(categorySizes, ({ one, many }) => ({
+  category: one(categories, {
+    fields: [categorySizes.categoryId],
+    references: [categories.id],
+  }),
+  productPrices: many(productSizePrices),
 }));
 
 export const productsRelations = relations(products, ({ one, many }) => ({
@@ -853,7 +953,19 @@ export const productsRelations = relations(products, ({ one, many }) => ({
     references: [categories.id],
   }),
   variants: many(productVariants),
+  sizePrices: many(productSizePrices),
   customizationGroups: many(customizationGroups),
+}));
+
+export const productSizePricesRelations = relations(productSizePrices, ({ one }) => ({
+  product: one(products, {
+    fields: [productSizePrices.productId],
+    references: [products.id],
+  }),
+  size: one(categorySizes, {
+    fields: [productSizePrices.sizeId],
+    references: [categorySizes.id],
+  }),
 }));
 
 export const productVariantsRelations = relations(
@@ -969,8 +1081,27 @@ export const promotionsRelations = relations(promotions, ({ one, many }) => ({
     fields: [promotions.tenantId],
     references: [tenants.id],
   }),
+  items: many(promotionItems),
   usage: many(promotionUsage),
 }));
+
+export const promotionItemsRelations = relations(
+  promotionItems,
+  ({ one }) => ({
+    promotion: one(promotions, {
+      fields: [promotionItems.promotionId],
+      references: [promotions.id],
+    }),
+    product: one(products, {
+      fields: [promotionItems.productId],
+      references: [products.id],
+    }),
+    category: one(categories, {
+      fields: [promotionItems.categoryId],
+      references: [categories.id],
+    }),
+  })
+);
 
 export const promotionUsageRelations = relations(
   promotionUsage,

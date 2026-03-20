@@ -33,7 +33,7 @@ export const analyticsRouter = createTRPCRouter({
       .where(
         and(
           eq(orders.tenantId, tenantId),
-          sql`${orders.createdAt} >= ${startOfToday}`
+          sql`${orders.createdAt} >= ${startOfToday.toISOString()}`
         )
       );
 
@@ -47,7 +47,7 @@ export const analyticsRouter = createTRPCRouter({
       .where(
         and(
           eq(orders.tenantId, tenantId),
-          sql`${orders.createdAt} >= ${startOfWeek}`
+          sql`${orders.createdAt} >= ${startOfWeek.toISOString()}`
         )
       );
 
@@ -61,7 +61,7 @@ export const analyticsRouter = createTRPCRouter({
       .where(
         and(
           eq(orders.tenantId, tenantId),
-          sql`${orders.createdAt} >= ${startOfMonth}`
+          sql`${orders.createdAt} >= ${startOfMonth.toISOString()}`
         )
       );
 
@@ -73,7 +73,7 @@ export const analyticsRouter = createTRPCRouter({
         and(
           eq(orders.tenantId, tenantId),
           eq(orders.status, "CANCELLED"),
-          sql`${orders.createdAt} >= ${startOfToday}`
+          sql`${orders.createdAt} >= ${startOfToday.toISOString()}`
         )
       );
 

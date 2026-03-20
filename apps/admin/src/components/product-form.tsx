@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
-import { Plus, Trash2, Loader2, GripVertical } from "lucide-react";
+import { Plus, Trash2, Loader2, Ruler } from "lucide-react";
 import { ImageUploader } from "./image-uploader";
 
 interface Variant {
@@ -12,6 +12,12 @@ interface Variant {
   originalPrice: string | null;
   sortOrder: number;
   isActive: boolean;
+}
+
+interface SizePriceInput {
+  sizeId: string;
+  sizeName: string;
+  price: string;
 }
 
 interface CustomizationOption {
@@ -43,13 +49,14 @@ interface ProductData {
   hasVariants: boolean;
   isActive: boolean;
   variants: Variant[];
+  sizePrices?: { sizeId: string; sizeName?: string; price: string }[];
   customizationGroups: (CustomizationGroup & { id?: string })[];
 }
 
 export function ProductForm({ product }: { product?: ProductData }) {
   const router = useRouter();
   const utils = trpc.useUtils();
-  const categories = trpc.category.listAll.useQuery();
+  const categoriesQuery = trpc.category.listAllWithSizes.useQuery();
 
   const isEditing = !!product;
 
@@ -69,6 +76,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
   const [variants, setVariants] = useState<Variant[]>(
     product?.variants ?? []
   );
+  const [sizePrices, setSizePrices] = useState<SizePriceInput[]>([]);
   const [groups, setGroups] = useState<CustomizationGroup[]>(
     (product?.customizationGroups ?? []).map((g) => ({
       name: g.name,
@@ -85,6 +93,32 @@ export function ProductForm({ product }: { product?: ProductData }) {
       })),
     }))
   );
+
+  // Detectar se a categoria selecionada tem tamanhos
+  const selectedCategory = categoriesQuery.data?.find(
+    (c) => c.id === categoryId
+  );
+  const categoryHasSizes =
+    selectedCategory?.hasSizes && (selectedCategory?.sizes?.length ?? 0) > 0;
+
+  // Quando a categoria muda, inicializar os preços por tamanho
+  useEffect(() => {
+    if (categoryHasSizes && selectedCategory?.sizes) {
+      const existingPrices = product?.sizePrices ?? [];
+      setSizePrices(
+        selectedCategory.sizes.map((s) => {
+          const existing = existingPrices.find((ep) => ep.sizeId === s.id);
+          return {
+            sizeId: s.id,
+            sizeName: s.name,
+            price: existing?.price ?? "0",
+          };
+        })
+      );
+    } else {
+      setSizePrices([]);
+    }
+  }, [categoryId, categoriesQuery.data]);
 
   const createMutation = trpc.product.create.useMutation({
     onSuccess: () => {
@@ -104,6 +138,10 @@ export function ProductForm({ product }: { product?: ProductData }) {
     onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
   });
 
+  const syncSizePricesMutation = trpc.product.syncSizePrices.useMutation({
+    onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
+  });
+
   const syncCustomizationsMutation =
     trpc.product.syncCustomizations.useMutation({
       onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
@@ -113,6 +151,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
     createMutation.isPending ||
     updateMutation.isPending ||
     syncVariantsMutation.isPending ||
+    syncSizePricesMutation.isPending ||
     syncCustomizationsMutation.isPending;
 
   function handleSubmit(e: React.FormEvent) {
@@ -129,13 +168,26 @@ export function ProductForm({ product }: { product?: ProductData }) {
         originalPrice: originalPrice || null,
         imageUrl,
         isNew,
-        hasVariants,
+        hasVariants: categoryHasSizes ? false : hasVariants,
       });
-      // Sincronizar variantes
-      syncVariantsMutation.mutate({
-        productId: product.id,
-        variants,
-      });
+
+      if (categoryHasSizes) {
+        // Sincronizar preços por tamanho
+        syncSizePricesMutation.mutate({
+          productId: product.id,
+          sizePrices: sizePrices.map((sp) => ({
+            sizeId: sp.sizeId,
+            price: sp.price,
+          })),
+        });
+      } else if (hasVariants) {
+        // Sincronizar variantes
+        syncVariantsMutation.mutate({
+          productId: product.id,
+          variants,
+        });
+      }
+
       // Sincronizar personalizações
       const groupsForApi = groups.map((g) => ({
         ...g,
@@ -158,8 +210,11 @@ export function ProductForm({ product }: { product?: ProductData }) {
         originalPrice: originalPrice || undefined,
         imageUrl: imageUrl ?? undefined,
         isNew,
-        hasVariants,
-        variants,
+        hasVariants: categoryHasSizes ? false : hasVariants,
+        variants: categoryHasSizes ? [] : variants,
+        sizePrices: categoryHasSizes
+          ? sizePrices.map((sp) => ({ sizeId: sp.sizeId, price: sp.price }))
+          : [],
         customizationGroups: groupsForApi,
       });
     }
@@ -179,8 +234,14 @@ export function ProductForm({ product }: { product?: ProductData }) {
     ]);
   }
 
-  function updateVariant(index: number, field: keyof Variant, value: string | number | boolean) {
-    setVariants(variants.map((v, i) => i === index ? { ...v, [field]: value } : v));
+  function updateVariant(
+    index: number,
+    field: keyof Variant,
+    value: string | number | boolean
+  ) {
+    setVariants(
+      variants.map((v, i) => (i === index ? { ...v, [field]: value } : v))
+    );
   }
 
   function removeVariant(index: number) {
@@ -208,7 +269,9 @@ export function ProductForm({ product }: { product?: ProductData }) {
     field: keyof CustomizationGroup,
     value: string | number | boolean | CustomizationOption[]
   ) {
-    setGroups(groups.map((g, i) => i === index ? { ...g, [field]: value } : g));
+    setGroups(
+      groups.map((g, i) => (i === index ? { ...g, [field]: value } : g))
+    );
   }
 
   function removeGroup(index: number) {
@@ -216,10 +279,24 @@ export function ProductForm({ product }: { product?: ProductData }) {
   }
 
   function addOption(groupIndex: number) {
-    setGroups(groups.map((g, i) => i === groupIndex ? {
-      ...g,
-      options: [...g.options, { name: "", price: "0", sortOrder: g.options.length, isActive: true }],
-    } : g));
+    setGroups(
+      groups.map((g, i) =>
+        i === groupIndex
+          ? {
+              ...g,
+              options: [
+                ...g.options,
+                {
+                  name: "",
+                  price: "0",
+                  sortOrder: g.options.length,
+                  isActive: true,
+                },
+              ],
+            }
+          : g
+      )
+    );
   }
 
   function updateOption(
@@ -228,17 +305,31 @@ export function ProductForm({ product }: { product?: ProductData }) {
     field: keyof CustomizationOption,
     value: string | number | boolean
   ) {
-    setGroups(groups.map((g, gi) => gi === groupIndex ? {
-      ...g,
-      options: g.options.map((o, oi) => oi === optIndex ? { ...o, [field]: value } : o),
-    } : g));
+    setGroups(
+      groups.map((g, gi) =>
+        gi === groupIndex
+          ? {
+              ...g,
+              options: g.options.map((o, oi) =>
+                oi === optIndex ? { ...o, [field]: value } : o
+              ),
+            }
+          : g
+      )
+    );
   }
 
   function removeOption(groupIndex: number, optIndex: number) {
-    setGroups(groups.map((g, gi) => gi === groupIndex ? {
-      ...g,
-      options: g.options.filter((_, i) => i !== optIndex),
-    } : g));
+    setGroups(
+      groups.map((g, gi) =>
+        gi === groupIndex
+          ? {
+              ...g,
+              options: g.options.filter((_, i) => i !== optIndex),
+            }
+          : g
+      )
+    );
   }
 
   return (
@@ -257,7 +348,11 @@ export function ProductForm({ product }: { product?: ProductData }) {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Ex: X-Burger Clássico"
+              placeholder={
+                categoryHasSizes
+                  ? "Ex: Margherita, Calabresa, 4 Queijos"
+                  : "Ex: X-Burger Clássico"
+              }
               required
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
@@ -269,7 +364,11 @@ export function ProductForm({ product }: { product?: ProductData }) {
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Descreva o produto..."
+              placeholder={
+                categoryHasSizes
+                  ? "Ex: Molho de tomate, mussarela e manjericão fresco"
+                  : "Descreva o produto..."
+              }
               rows={2}
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
@@ -295,9 +394,10 @@ export function ProductForm({ product }: { product?: ProductData }) {
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             >
               <option value="">Selecione...</option>
-              {categories.data?.map((cat) => (
+              {categoriesQuery.data?.map((cat) => (
                 <option key={cat.id} value={cat.id}>
                   {cat.name}
+                  {cat.hasSizes ? " (com tamanhos)" : ""}
                 </option>
               ))}
             </select>
@@ -310,27 +410,97 @@ export function ProductForm({ product }: { product?: ProductData }) {
                 onChange={(e) => setIsNew(e.target.checked)}
                 className="rounded border-input"
               />
-              <span className="font-medium text-foreground">
-                Tag "Novo"
-              </span>
+              <span className="font-medium text-foreground">Tag "Novo"</span>
             </label>
-            <label className="flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={hasVariants}
-                onChange={(e) => setHasVariants(e.target.checked)}
-                className="rounded border-input"
-              />
-              <span className="font-medium text-foreground">
-                Tem tamanhos/variantes
-              </span>
-            </label>
+            {!categoryHasSizes && (
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={hasVariants}
+                  onChange={(e) => setHasVariants(e.target.checked)}
+                  className="rounded border-input"
+                />
+                <span className="font-medium text-foreground">
+                  Tem tamanhos/variantes
+                </span>
+              </label>
+            )}
           </div>
         </div>
       </section>
 
-      {/* Preço (só se não tem variantes) */}
-      {!hasVariants && (
+      {/* Info: categoria com tamanhos */}
+      {categoryHasSizes && (
+        <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 p-4">
+          <Ruler className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
+          <div>
+            <p className="text-sm font-medium text-amber-800">
+              Categoria com tamanhos
+            </p>
+            <p className="text-xs text-amber-600">
+              Esta categoria ({selectedCategory?.name}) tem tamanhos
+              pré-definidos. Defina o preço deste sabor para cada tamanho
+              abaixo. Não é necessário criar variantes manualmente.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Preço por tamanho (categoria com sizes) */}
+      {categoryHasSizes && sizePrices.length > 0 && (
+        <section className="rounded-lg border border-amber-300 bg-card p-5">
+          <h2 className="mb-4 flex items-center gap-2 text-lg font-semibold text-foreground">
+            <Ruler className="h-5 w-5 text-amber-600" />
+            Preço por Tamanho
+          </h2>
+          <div className="space-y-3">
+            {sizePrices.map((sp, i) => {
+              const sizeInfo = selectedCategory?.sizes?.find(
+                (s) => s.id === sp.sizeId
+              );
+              return (
+                <div
+                  key={sp.sizeId}
+                  className="flex items-center gap-4 rounded-md border border-amber-200 bg-amber-50/30 p-3"
+                >
+                  <div className="flex-1">
+                    <span className="text-sm font-medium text-foreground">
+                      {sp.sizeName}
+                    </span>
+                    {sizeInfo && sizeInfo.maxFlavors > 1 && (
+                      <span className="ml-2 text-xs text-amber-600">
+                        (até {sizeInfo.maxFlavors} sabores)
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-sm text-muted-foreground">R$</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={sp.price}
+                      onChange={(e) => {
+                        const updated = [...sizePrices];
+                        updated[i] = { ...sp, price: e.target.value };
+                        setSizePrices(updated);
+                      }}
+                      className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <p className="mt-3 text-xs text-muted-foreground">
+            Quando o cliente pedir uma pizza com vários sabores, o preço será o
+            do sabor mais caro selecionado.
+          </p>
+        </section>
+      )}
+
+      {/* Preço simples (sem variantes e sem sizes) */}
+      {!hasVariants && !categoryHasSizes && (
         <section className="rounded-lg border border-border bg-card p-5">
           <h2 className="mb-4 text-lg font-semibold text-foreground">Preço</h2>
           <div className="grid gap-4 sm:grid-cols-2">
@@ -368,8 +538,8 @@ export function ProductForm({ product }: { product?: ProductData }) {
         </section>
       )}
 
-      {/* Variantes */}
-      {hasVariants && (
+      {/* Variantes manuais (só se não é categoria com sizes) */}
+      {hasVariants && !categoryHasSizes && (
         <section className="rounded-lg border border-border bg-card p-5">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="text-lg font-semibold text-foreground">

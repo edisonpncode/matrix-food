@@ -4,6 +4,8 @@ import {
   getDb,
   products,
   productVariants,
+  productSizePrices,
+  categorySizes,
   customizationGroups,
   customizationOptions,
   eq,
@@ -107,6 +109,85 @@ export const productRouter = createTRPCRouter({
     }),
 
   /**
+   * Lista produtos com variantes e customizações (para POS/employee).
+   */
+  listForPOS: tenantProcedure.query(async ({ ctx }) => {
+    const db = getDb();
+    const items = await db
+      .select()
+      .from(products)
+      .where(
+        and(
+          eq(products.tenantId, ctx.tenantId),
+          eq(products.isActive, true)
+        )
+      )
+      .orderBy(asc(products.sortOrder));
+
+    const withDetails = await Promise.all(
+      items.map(async (product) => {
+        const variants = product.hasVariants
+          ? await db
+              .select()
+              .from(productVariants)
+              .where(
+                and(
+                  eq(productVariants.productId, product.id),
+                  eq(productVariants.isActive, true)
+                )
+              )
+              .orderBy(asc(productVariants.sortOrder))
+          : [];
+
+        const groups = await db
+          .select()
+          .from(customizationGroups)
+          .where(eq(customizationGroups.productId, product.id))
+          .orderBy(asc(customizationGroups.sortOrder));
+
+        const customizationGroupsList = await Promise.all(
+          groups.map(async (group) => {
+            const options = await db
+              .select()
+              .from(customizationOptions)
+              .where(
+                and(
+                  eq(customizationOptions.groupId, group.id),
+                  eq(customizationOptions.isActive, true)
+                )
+              )
+              .orderBy(asc(customizationOptions.sortOrder));
+            return { ...group, options };
+          })
+        );
+
+        // Buscar preços por tamanho
+        const sizePricesRaw = await db
+          .select({
+            id: productSizePrices.id,
+            sizeId: productSizePrices.sizeId,
+            price: productSizePrices.price,
+            sizeName: categorySizes.name,
+            maxFlavors: categorySizes.maxFlavors,
+          })
+          .from(productSizePrices)
+          .innerJoin(categorySizes, eq(productSizePrices.sizeId, categorySizes.id))
+          .where(eq(productSizePrices.productId, product.id))
+          .orderBy(asc(categorySizes.sortOrder));
+
+        return {
+          ...product,
+          variants,
+          sizePrices: sizePricesRaw,
+          customizationGroups: customizationGroupsList,
+        };
+      })
+    );
+
+    return withDetails;
+  }),
+
+  /**
    * Busca produto completo por ID (com variantes e personalizações).
    */
   getById: tenantProcedure
@@ -131,6 +212,19 @@ export const productRouter = createTRPCRouter({
         .where(eq(productVariants.productId, product.id))
         .orderBy(asc(productVariants.sortOrder));
 
+      // Buscar preços por tamanho (com nome do tamanho)
+      const sizePricesRaw = await db
+        .select({
+          id: productSizePrices.id,
+          sizeId: productSizePrices.sizeId,
+          price: productSizePrices.price,
+          sizeName: categorySizes.name,
+        })
+        .from(productSizePrices)
+        .innerJoin(categorySizes, eq(productSizePrices.sizeId, categorySizes.id))
+        .where(eq(productSizePrices.productId, product.id))
+        .orderBy(asc(categorySizes.sortOrder));
+
       // Buscar grupos de personalização com opções
       const groups = await db
         .select()
@@ -152,6 +246,7 @@ export const productRouter = createTRPCRouter({
       return {
         ...product,
         variants,
+        sizePrices: sizePricesRaw,
         customizationGroups: groupsWithOptions,
       };
     }),
@@ -239,12 +334,20 @@ export const productRouter = createTRPCRouter({
         sortOrder: z.number().int().min(0).default(0),
         isActive: z.boolean().default(true),
         variants: z.array(variantInput).default([]),
+        sizePrices: z
+          .array(
+            z.object({
+              sizeId: z.string().uuid(),
+              price: z.string(),
+            })
+          )
+          .default([]),
         customizationGroups: z.array(customizationGroupInput).default([]),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
-      const { variants, customizationGroups: groups, ...productData } = input;
+      const { variants, sizePrices, customizationGroups: groups, ...productData } = input;
 
       // Criar produto
       const [product] = await db
@@ -263,6 +366,17 @@ export const productRouter = createTRPCRouter({
           variants.map((v) => ({
             ...v,
             productId: product.id,
+          }))
+        );
+      }
+
+      // Criar preços por tamanho
+      if (sizePrices.length > 0) {
+        await db.insert(productSizePrices).values(
+          sizePrices.map((sp) => ({
+            productId: product.id,
+            sizeId: sp.sizeId,
+            price: sp.price,
           }))
         );
       }
@@ -438,6 +552,56 @@ export const productRouter = createTRPCRouter({
             }))
           );
         }
+      }
+
+      return { success: true };
+    }),
+
+  /**
+   * Sincroniza preços por tamanho de um produto (delete all + insert).
+   */
+  syncSizePrices: tenantProcedure
+    .input(
+      z.object({
+        productId: z.string().uuid(),
+        sizePrices: z.array(
+          z.object({
+            sizeId: z.string().uuid(),
+            price: z.string(),
+          })
+        ),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      // Verificar que o produto pertence ao tenant
+      const [product] = await db
+        .select({ id: products.id })
+        .from(products)
+        .where(
+          and(
+            eq(products.id, input.productId),
+            eq(products.tenantId, ctx.tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!product) return null;
+
+      // Deletar preços existentes e inserir novos
+      await db
+        .delete(productSizePrices)
+        .where(eq(productSizePrices.productId, input.productId));
+
+      if (input.sizePrices.length > 0) {
+        await db.insert(productSizePrices).values(
+          input.sizePrices.map((sp) => ({
+            productId: input.productId,
+            sizeId: sp.sizeId,
+            price: sp.price,
+          }))
+        );
       }
 
       return { success: true };

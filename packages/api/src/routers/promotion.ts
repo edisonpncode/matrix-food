@@ -4,11 +4,27 @@ import { createTRPCRouter, publicProcedure, tenantProcedure } from "../trpc";
 import {
   getDb,
   promotions,
+  promotionItems,
   promotionUsage,
+  products,
+  categories,
   eq,
   and,
   sql,
+  asc,
 } from "@matrix-food/database";
+
+const DAY_NAMES = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+
+// Schema para itens do combo
+const promotionItemInput = z.object({
+  productId: z.string().uuid().nullable().optional(),
+  categoryId: z.string().uuid().nullable().optional(),
+  quantity: z.number().int().min(1).default(1),
+  role: z.enum(["REQUIRED", "FREE", "CHOICE"]).default("REQUIRED"),
+  specialPrice: z.string().nullable().optional(),
+  sortOrder: z.number().int().min(0).default(0),
+});
 
 export const promotionRouter = createTRPCRouter({
   /**
@@ -24,6 +40,12 @@ export const promotionRouter = createTRPCRouter({
         description: promotions.description,
         type: promotions.type,
         value: promotions.value,
+        bundlePrice: promotions.bundlePrice,
+        daysOfWeek: promotions.daysOfWeek,
+        timeStart: promotions.timeStart,
+        timeEnd: promotions.timeEnd,
+        imageUrl: promotions.imageUrl,
+        maxChoices: promotions.maxChoices,
         minOrderValue: promotions.minOrderValue,
         maxDiscount: promotions.maxDiscount,
         maxUses: promotions.maxUses,
@@ -41,7 +63,36 @@ export const promotionRouter = createTRPCRouter({
       .where(eq(promotions.tenantId, ctx.tenantId))
       .orderBy(promotions.createdAt);
 
-    return promoList;
+    // Buscar itens de cada promoção combo
+    const withItems = await Promise.all(
+      promoList.map(async (promo) => {
+        if (promo.type !== "COMBO" && promo.type !== "BUY_X_GET_Y") {
+          return { ...promo, items: [] };
+        }
+
+        const items = await db
+          .select({
+            id: promotionItems.id,
+            productId: promotionItems.productId,
+            categoryId: promotionItems.categoryId,
+            quantity: promotionItems.quantity,
+            role: promotionItems.role,
+            specialPrice: promotionItems.specialPrice,
+            sortOrder: promotionItems.sortOrder,
+            productName: products.name,
+            categoryName: categories.name,
+          })
+          .from(promotionItems)
+          .leftJoin(products, eq(promotionItems.productId, products.id))
+          .leftJoin(categories, eq(promotionItems.categoryId, categories.id))
+          .where(eq(promotionItems.promotionId, promo.id))
+          .orderBy(asc(promotionItems.sortOrder));
+
+        return { ...promo, items };
+      })
+    );
+
+    return withItems;
   }),
 
   /**
@@ -50,16 +101,33 @@ export const promotionRouter = createTRPCRouter({
   create: tenantProcedure
     .input(
       z.object({
-        code: z.string().min(1).max(50).transform((v) => v.toUpperCase().trim()),
+        code: z
+          .string()
+          .min(1)
+          .max(50)
+          .transform((v) => v.toUpperCase().trim()),
         description: z.string().max(500).optional(),
-        type: z.enum(["PERCENTAGE", "FIXED_AMOUNT", "FREE_DELIVERY"]),
+        type: z.enum([
+          "PERCENTAGE",
+          "FIXED_AMOUNT",
+          "FREE_DELIVERY",
+          "COMBO",
+          "BUY_X_GET_Y",
+        ]),
         value: z.string().min(1),
+        bundlePrice: z.string().optional(),
+        daysOfWeek: z.array(z.number().int().min(0).max(6)).optional(),
+        timeStart: z.string().max(5).optional(),
+        timeEnd: z.string().max(5).optional(),
+        imageUrl: z.string().optional(),
+        maxChoices: z.number().int().positive().optional(),
         minOrderValue: z.string().optional(),
         maxDiscount: z.string().optional(),
         maxUses: z.number().int().positive().optional(),
         maxUsesPerCustomer: z.number().int().positive().default(1),
         startDate: z.string().optional(),
         endDate: z.string().optional(),
+        items: z.array(promotionItemInput).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -92,6 +160,12 @@ export const promotionRouter = createTRPCRouter({
           description: input.description,
           type: input.type,
           value: input.value,
+          bundlePrice: input.bundlePrice || null,
+          daysOfWeek: input.daysOfWeek?.length ? input.daysOfWeek : null,
+          timeStart: input.timeStart || null,
+          timeEnd: input.timeEnd || null,
+          imageUrl: input.imageUrl || null,
+          maxChoices: input.maxChoices || null,
           minOrderValue: input.minOrderValue || null,
           maxDiscount: input.maxDiscount || null,
           maxUses: input.maxUses,
@@ -100,6 +174,21 @@ export const promotionRouter = createTRPCRouter({
           endDate: input.endDate ? new Date(input.endDate) : null,
         })
         .returning();
+
+      // Inserir itens do combo se houver
+      if (input.items && input.items.length > 0 && promo) {
+        for (const item of input.items) {
+          await db.insert(promotionItems).values({
+            promotionId: promo.id,
+            productId: item.productId || null,
+            categoryId: item.categoryId || null,
+            quantity: item.quantity,
+            role: item.role,
+            specialPrice: item.specialPrice || null,
+            sortOrder: item.sortOrder,
+          });
+        }
+      }
 
       return promo;
     }),
@@ -111,10 +200,29 @@ export const promotionRouter = createTRPCRouter({
     .input(
       z.object({
         id: z.string().uuid(),
-        code: z.string().min(1).max(50).transform((v) => v.toUpperCase().trim()).optional(),
+        code: z
+          .string()
+          .min(1)
+          .max(50)
+          .transform((v) => v.toUpperCase().trim())
+          .optional(),
         description: z.string().max(500).optional(),
-        type: z.enum(["PERCENTAGE", "FIXED_AMOUNT", "FREE_DELIVERY"]).optional(),
+        type: z
+          .enum([
+            "PERCENTAGE",
+            "FIXED_AMOUNT",
+            "FREE_DELIVERY",
+            "COMBO",
+            "BUY_X_GET_Y",
+          ])
+          .optional(),
         value: z.string().optional(),
+        bundlePrice: z.string().nullable().optional(),
+        daysOfWeek: z.array(z.number().int().min(0).max(6)).nullable().optional(),
+        timeStart: z.string().max(5).nullable().optional(),
+        timeEnd: z.string().max(5).nullable().optional(),
+        imageUrl: z.string().nullable().optional(),
+        maxChoices: z.number().int().positive().nullable().optional(),
         minOrderValue: z.string().nullable().optional(),
         maxDiscount: z.string().nullable().optional(),
         maxUses: z.number().int().positive().nullable().optional(),
@@ -122,11 +230,12 @@ export const promotionRouter = createTRPCRouter({
         startDate: z.string().optional(),
         endDate: z.string().nullable().optional(),
         isActive: z.boolean().optional(),
+        items: z.array(promotionItemInput).optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
-      const { id, startDate, endDate, ...rest } = input;
+      const { id, startDate, endDate, items, ...rest } = input;
 
       // Se mudou o código, verificar unicidade
       if (rest.code) {
@@ -172,6 +281,27 @@ export const promotionRouter = createTRPCRouter({
         });
       }
 
+      // Se enviou itens, recria (delete + insert)
+      if (items !== undefined) {
+        await db
+          .delete(promotionItems)
+          .where(eq(promotionItems.promotionId, id));
+
+        if (items.length > 0) {
+          for (const item of items) {
+            await db.insert(promotionItems).values({
+              promotionId: id,
+              productId: item.productId || null,
+              categoryId: item.categoryId || null,
+              quantity: item.quantity,
+              role: item.role,
+              specialPrice: item.specialPrice || null,
+              sortOrder: item.sortOrder,
+            });
+          }
+        }
+      }
+
       return updated;
     }),
 
@@ -209,10 +339,23 @@ export const promotionRouter = createTRPCRouter({
     .input(
       z.object({
         tenantId: z.string().uuid(),
-        code: z.string().min(1).transform((v) => v.toUpperCase().trim()),
+        code: z
+          .string()
+          .min(1)
+          .transform((v) => v.toUpperCase().trim()),
         subtotal: z.number().positive(),
         deliveryFee: z.number().min(0).default(0),
         customerPhone: z.string().optional(),
+        /** IDs dos produtos no carrinho (para validar combos) */
+        cartProductIds: z
+          .array(
+            z.object({
+              productId: z.string().uuid(),
+              categoryId: z.string().uuid().optional(),
+              quantity: z.number().int().min(1),
+            })
+          )
+          .optional(),
       })
     )
     .query(async ({ input }) => {
@@ -232,22 +375,53 @@ export const promotionRouter = createTRPCRouter({
         .limit(1);
 
       if (!promo) {
-        return { valid: false, error: "Código de promoção inválido" };
+        return { valid: false as const, error: "Código de promoção inválido" };
       }
 
       // Verificar datas
       const now = new Date();
       if (promo.startDate && now < promo.startDate) {
-        return { valid: false, error: "Esta promoção ainda não começou" };
+        return {
+          valid: false as const,
+          error: "Esta promoção ainda não começou",
+        };
       }
       if (promo.endDate && now > promo.endDate) {
-        return { valid: false, error: "Esta promoção já expirou" };
+        return { valid: false as const, error: "Esta promoção já expirou" };
+      }
+
+      // Verificar dia da semana
+      if (promo.daysOfWeek && (promo.daysOfWeek as number[]).length > 0) {
+        const currentDay = now.getDay(); // 0=Dom, 1=Seg, etc
+        if (!(promo.daysOfWeek as number[]).includes(currentDay)) {
+          const validDays = (promo.daysOfWeek as number[])
+            .map((d) => DAY_NAMES[d])
+            .join(", ");
+          return {
+            valid: false as const,
+            error: `Esta promoção é válida apenas: ${validDays}`,
+          };
+        }
+      }
+
+      // Verificar horário
+      if (promo.timeStart && promo.timeEnd) {
+        const currentTime = `${now.getHours().toString().padStart(2, "0")}:${now.getMinutes().toString().padStart(2, "0")}`;
+        if (currentTime < promo.timeStart || currentTime > promo.timeEnd) {
+          return {
+            valid: false as const,
+            error: `Esta promoção é válida das ${promo.timeStart} às ${promo.timeEnd}`,
+          };
+        }
       }
 
       // Verificar valor mínimo do pedido
-      if (promo.minOrderValue && input.subtotal < parseFloat(promo.minOrderValue)) {
+      if (
+        promo.minOrderValue &&
+        input.subtotal < parseFloat(promo.minOrderValue)
+      ) {
         return {
-          valid: false,
+          valid: false as const,
           error: `Pedido mínimo de R$ ${parseFloat(promo.minOrderValue).toFixed(2)} para esta promoção`,
         };
       }
@@ -260,7 +434,10 @@ export const promotionRouter = createTRPCRouter({
           .where(eq(promotionUsage.promotionId, promo.id));
 
         if ((usageCount?.count ?? 0) >= promo.maxUses) {
-          return { valid: false, error: "Esta promoção esgotou o limite de usos" };
+          return {
+            valid: false as const,
+            error: "Esta promoção esgotou o limite de usos",
+          };
         }
       }
 
@@ -278,7 +455,7 @@ export const promotionRouter = createTRPCRouter({
 
         if ((customerUsage?.count ?? 0) >= promo.maxUsesPerCustomer) {
           return {
-            valid: false,
+            valid: false as const,
             error: "Você já usou esta promoção o número máximo de vezes",
           };
         }
@@ -290,7 +467,6 @@ export const promotionRouter = createTRPCRouter({
       switch (promo.type) {
         case "PERCENTAGE": {
           discountAmount = input.subtotal * (parseFloat(promo.value) / 100);
-          // Aplicar teto de desconto se existir
           if (promo.maxDiscount) {
             discountAmount = Math.min(
               discountAmount,
@@ -307,17 +483,99 @@ export const promotionRouter = createTRPCRouter({
           discountAmount = input.deliveryFee;
           break;
         }
+        case "COMBO": {
+          // Para combos, o desconto é: subtotal dos itens - bundlePrice
+          if (promo.bundlePrice) {
+            // Verificar se o carrinho contém os itens do combo
+            const comboItems = await db
+              .select()
+              .from(promotionItems)
+              .where(eq(promotionItems.promotionId, promo.id));
+
+            if (input.cartProductIds) {
+              const allItemsPresent = comboItems.every((comboItem) => {
+                if (comboItem.productId) {
+                  const cartItem = input.cartProductIds!.find(
+                    (c) => c.productId === comboItem.productId
+                  );
+                  return cartItem && cartItem.quantity >= comboItem.quantity;
+                }
+                if (comboItem.categoryId) {
+                  const categoryItems = input.cartProductIds!.filter(
+                    (c) => c.categoryId === comboItem.categoryId
+                  );
+                  const totalQty = categoryItems.reduce(
+                    (s, c) => s + c.quantity,
+                    0
+                  );
+                  return totalQty >= comboItem.quantity;
+                }
+                return true;
+              });
+
+              if (!allItemsPresent) {
+                return {
+                  valid: false as const,
+                  error:
+                    "Seu carrinho não contém todos os itens necessários para este combo",
+                };
+              }
+            }
+
+            discountAmount = Math.max(
+              0,
+              input.subtotal - parseFloat(promo.bundlePrice)
+            );
+          }
+          break;
+        }
+        case "BUY_X_GET_Y": {
+          // Item grátis: o desconto é o valor do item FREE
+          const freeItems = await db
+            .select({
+              productId: promotionItems.productId,
+              specialPrice: promotionItems.specialPrice,
+            })
+            .from(promotionItems)
+            .where(
+              and(
+                eq(promotionItems.promotionId, promo.id),
+                eq(promotionItems.role, "FREE")
+              )
+            );
+
+          if (freeItems.length > 0) {
+            // Buscar preço dos produtos grátis
+            for (const freeItem of freeItems) {
+              if (freeItem.productId) {
+                const [product] = await db
+                  .select({ price: products.price })
+                  .from(products)
+                  .where(eq(products.id, freeItem.productId))
+                  .limit(1);
+                if (product) {
+                  discountAmount += parseFloat(product.price);
+                }
+              }
+            }
+          } else {
+            // Fallback para valor fixo
+            discountAmount = parseFloat(promo.value);
+          }
+          break;
+        }
       }
 
       discountAmount = Math.round(discountAmount * 100) / 100;
 
       return {
-        valid: true,
+        valid: true as const,
         promotionId: promo.id,
         code: promo.code,
         type: promo.type,
         description: promo.description,
         discountAmount,
+        bundlePrice: promo.bundlePrice,
       };
     }),
 
@@ -332,10 +590,17 @@ export const promotionRouter = createTRPCRouter({
 
       const promoList = await db
         .select({
+          id: promotions.id,
           code: promotions.code,
           description: promotions.description,
           type: promotions.type,
           value: promotions.value,
+          bundlePrice: promotions.bundlePrice,
+          daysOfWeek: promotions.daysOfWeek,
+          timeStart: promotions.timeStart,
+          timeEnd: promotions.timeEnd,
+          imageUrl: promotions.imageUrl,
+          maxChoices: promotions.maxChoices,
           minOrderValue: promotions.minOrderValue,
         })
         .from(promotions)
@@ -348,6 +613,32 @@ export const promotionRouter = createTRPCRouter({
           )
         );
 
-      return promoList;
+      // Buscar itens para combos
+      const withItems = await Promise.all(
+        promoList.map(async (promo) => {
+          if (promo.type !== "COMBO" && promo.type !== "BUY_X_GET_Y") {
+            return { ...promo, items: [] };
+          }
+
+          const items = await db
+            .select({
+              productId: promotionItems.productId,
+              categoryId: promotionItems.categoryId,
+              quantity: promotionItems.quantity,
+              role: promotionItems.role,
+              productName: products.name,
+              categoryName: categories.name,
+            })
+            .from(promotionItems)
+            .leftJoin(products, eq(promotionItems.productId, products.id))
+            .leftJoin(categories, eq(promotionItems.categoryId, categories.id))
+            .where(eq(promotionItems.promotionId, promo.id))
+            .orderBy(asc(promotionItems.sortOrder));
+
+          return { ...promo, items };
+        })
+      );
+
+      return withItems;
     }),
 });

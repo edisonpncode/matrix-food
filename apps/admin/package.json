@@ -35,9 +35,11 @@
   "devDependencies": {
     "@matrix-food/tsconfig": "workspace:*",
     "@playwright/test": "^1.52.0",
+    "@tailwindcss/postcss": "^4.2.1",
     "@types/node": "^22.15.30",
     "@types/react": "^19.1.6",
     "@types/react-dom": "^19.1.6",
+    "tailwindcss": "^4.2.1",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

@@ -17,6 +17,7 @@ import {
   CreditCard,
 } from "lucide-react";
 import { useState } from "react";
+import { trpc } from "@/lib/trpc";
 
 const menuItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -33,6 +34,9 @@ const menuItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const { data: tenant } = trpc.tenant.getById.useQuery();
+
+  const restaurantName = tenant?.name || "Meu Restaurante";
 
   return (
     <aside
@@ -44,7 +48,7 @@ export function Sidebar() {
       <div className="flex h-16 items-center gap-3 border-b border-border px-4">
         <Store className="h-7 w-7 shrink-0 text-primary" />
         {!collapsed && (
-          <span className="text-lg font-bold text-foreground">Matrix Food</span>
+          <span className="text-lg font-bold text-foreground truncate">{restaurantName}</span>
         )}
       </div>
 
