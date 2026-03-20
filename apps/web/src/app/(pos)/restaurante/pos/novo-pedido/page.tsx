@@ -47,24 +47,6 @@ interface Product {
   sizePrices: SizePrice[];
 }
 
-interface ComboPromo {
-  id: string;
-  code: string;
-  description: string | null;
-  type: string;
-  bundlePrice: string | null;
-  daysOfWeek: number[] | null;
-  timeStart: string | null;
-  timeEnd: string | null;
-  items: {
-    productId: string | null;
-    categoryId: string | null;
-    quantity: number;
-    role: string;
-    productName: string | null;
-    categoryName: string | null;
-  }[];
-}
 
 const DAY_NAMES = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
@@ -412,16 +394,6 @@ export default function NovoPedidoPage() {
     }
   }
 
-  // Pular personalização (adicionar sem customizações)
-  function skipComboItemCustomization() {
-    if (!comboCustomizing || !comboQueue) return;
-    // Limpar customizações e confirmar
-    setComboCustomizing((prev) =>
-      prev ? { ...prev, selectedCustomizations: {} } : null
-    );
-    // Pequeno delay para o state atualizar — ou chamar direto
-    confirmComboItem();
-  }
 
   function toggleComboCustomization(
     groupId: string,
@@ -468,7 +440,8 @@ export default function NovoPedidoPage() {
       if (newQty < 0) return prev;
       if (delta > 0 && currentTotal >= maxChoices) return prev;
       if (newQty === 0) {
-        const { [productId]: _, ...rest } = prev;
+        const rest = { ...prev };
+        delete rest[productId];
         return rest;
       }
       return { ...prev, [productId]: newQty };

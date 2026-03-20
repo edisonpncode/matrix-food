@@ -39,7 +39,7 @@ export function POSProductGrid({
   onSelectProduct,
 }: POSProductGridProps) {
   const filteredProducts = selectedCategory
-    ? products.filter((p) => {
+    ? products.filter(() => {
         // Products come with categoryId from the query
         return true; // Will be filtered by the parent
       })
