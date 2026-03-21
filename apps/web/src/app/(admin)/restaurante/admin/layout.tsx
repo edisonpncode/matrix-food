@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { AdminSidebar } from "@/components/admin/sidebar";
 
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Matrix Food - Painel Administrativo",
   description: "Painel de administração para restaurantes",
