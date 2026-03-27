@@ -16,7 +16,9 @@ import {
   User,
   Phone,
   MapPin,
+  Plus,
 } from "lucide-react";
+import Link from "next/link";
 import { DeliveryPersonSelector } from "@/components/admin/delivery-person-selector";
 
 // --- Types ---
@@ -275,12 +277,21 @@ export default function PedidosPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Pedidos</h1>
-        <button
-          onClick={() => refetch()}
-          className="rounded-lg border px-3 py-1.5 text-sm hover:bg-accent"
-        >
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/restaurante/pos/novo-pedido"
+            className="flex items-center gap-2 rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white hover:bg-green-700 transition-colors"
+          >
+            <Plus className="h-4 w-4" />
+            Novo Pedido
+          </Link>
+          <button
+            onClick={() => refetch()}
+            className="rounded-lg border px-3 py-1.5 text-sm hover:bg-accent"
+          >
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {/* View Mode Tabs: Pedidos / Mesas */}

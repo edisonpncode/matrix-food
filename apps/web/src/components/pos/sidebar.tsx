@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Store,
+  ArrowLeft,
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -63,6 +64,17 @@ export function POSSidebar() {
           );
         })}
       </nav>
+
+      <div className="border-t border-border p-2">
+        <Link
+          href="/restaurante/admin"
+          className="flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground transition-colors"
+          title={collapsed ? "Voltar ao Admin" : undefined}
+        >
+          <ArrowLeft className="h-5 w-5 shrink-0" />
+          {!collapsed && <span>Voltar ao Admin</span>}
+        </Link>
+      </div>
 
       <button
         onClick={() => setCollapsed(!collapsed)}

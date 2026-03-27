@@ -17,15 +17,17 @@ import {
   CreditCard,
   Users,
   UserCircle,
+  Monitor,
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 
 const menuItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/pos", label: "Ponto de Venda", icon: Monitor, highlight: true },
+  { href: "/pedidos", label: "Pedidos", icon: ClipboardList },
   { href: "/categorias", label: "Categorias", icon: FolderOpen },
   { href: "/produtos", label: "Produtos", icon: ShoppingBag },
-  { href: "/pedidos", label: "Pedidos", icon: ClipboardList },
   { href: "/clientes", label: "Clientes", icon: UserCircle },
   { href: "/promocoes", label: "Promoções", icon: Tag },
   { href: "/fidelidade", label: "Fidelidade", icon: Star },
@@ -64,14 +66,18 @@ export function Sidebar() {
               ? pathname === "/"
               : pathname.startsWith(item.href);
 
+          const isHighlight = "highlight" in item && item.highlight;
+
           return (
             <Link
               key={item.href}
               href={item.href}
               className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-primary text-primary-foreground"
-                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                isHighlight && !isActive
+                  ? "bg-green-600 text-white hover:bg-green-700"
+                  : isActive
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               }`}
               title={collapsed ? item.label : undefined}
             >
