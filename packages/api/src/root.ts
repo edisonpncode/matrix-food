@@ -11,6 +11,11 @@ import { analyticsRouter } from "./routers/analytics";
 import { reviewRouter } from "./routers/review";
 import { superadminRouter } from "./routers/superadmin";
 import { billingRouter } from "./routers/billing";
+import { userTypeRouter } from "./routers/userType";
+import { staffRouter } from "./routers/staff";
+import { activityLogRouter } from "./routers/activityLog";
+import { customerRouter } from "./routers/customer";
+import { deliveryAreaRouter } from "./routers/deliveryArea";
 
 /**
  * Router raiz que combina todos os sub-routers.
@@ -28,6 +33,11 @@ export const appRouter = createTRPCRouter({
   review: reviewRouter,
   superadmin: superadminRouter,
   billing: billingRouter,
+  userType: userTypeRouter,
+  staff: staffRouter,
+  activityLog: activityLogRouter,
+  customer: customerRouter,
+  deliveryArea: deliveryAreaRouter,
 });
 
 export type AppRouter = typeof appRouter;

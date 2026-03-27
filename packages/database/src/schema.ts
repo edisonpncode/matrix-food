@@ -25,6 +25,34 @@ export const userRoleEnum = pgEnum("user_role", [
   "DELIVERY",
 ]);
 
+export const activityActionEnum = pgEnum("activity_action", [
+  "LOGIN",
+  "LOGOUT",
+  "ORDER_CREATED",
+  "ORDER_CONFIRMED",
+  "ORDER_CANCELLED",
+  "ORDER_STATUS_CHANGED",
+  "CASH_OPENED",
+  "CASH_CLOSED",
+  "CASH_WITHDRAWAL",
+  "PRODUCT_CREATED",
+  "PRODUCT_UPDATED",
+  "PRODUCT_DELETED",
+  "CATEGORY_CREATED",
+  "CATEGORY_UPDATED",
+  "PROMOTION_CREATED",
+  "PROMOTION_UPDATED",
+  "SETTINGS_UPDATED",
+  "STAFF_CREATED",
+  "STAFF_UPDATED",
+  "STAFF_DEACTIVATED",
+  "USER_TYPE_CREATED",
+  "USER_TYPE_UPDATED",
+  "USER_TYPE_DELETED",
+  "PIN_SWITCH",
+  "STAFF_LOGIN",
+]);
+
 export const orderStatusEnum = pgEnum("order_status", [
   "PENDING",
   "CONFIRMED",
@@ -40,6 +68,8 @@ export const orderTypeEnum = pgEnum("order_type", [
   "DELIVERY",
   "PICKUP",
   "DINE_IN",
+  "COUNTER",
+  "TABLE",
 ]);
 
 export const orderSourceEnum = pgEnum("order_source", [
@@ -149,6 +179,36 @@ export const tenants = pgTable(
 );
 
 // ============================================
+// USER TYPES (Tipos de Usuário / Perfis de Acesso)
+// ============================================
+
+export const userTypes = pgTable(
+  "user_types",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 100 }).notNull(),
+    description: varchar("description", { length: 500 }),
+    /** Permissões granulares: { "dashboard.view": true, "orders.manage": true, ... } */
+    permissions: jsonb("permissions")
+      .notNull()
+      .$type<Record<string, boolean>>()
+      .default({}),
+    /** Tipo do sistema (não pode ser editado/excluído) */
+    isSystem: boolean("is_system").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [index("user_types_tenant_idx").on(table.tenantId)]
+);
+
+// ============================================
 // TENANT USERS (Funcionários do Restaurante)
 // ============================================
 
@@ -159,11 +219,19 @@ export const tenantUsers = pgTable(
     tenantId: uuid("tenant_id")
       .notNull()
       .references(() => tenants.id, { onDelete: "cascade" }),
-    firebaseUid: varchar("firebase_uid", { length: 128 }).notNull(),
+    firebaseUid: varchar("firebase_uid", { length: 128 }),
     name: varchar("name", { length: 255 }).notNull(),
     email: varchar("email", { length: 255 }),
     phone: varchar("phone", { length: 20 }),
+    /** Tipo de usuário (perfil de acesso) */
+    userTypeId: uuid("user_type_id").references(() => userTypes.id, {
+      onDelete: "set null",
+    }),
     role: userRoleEnum("role").notNull().default("CASHIER"),
+    /** Foto do funcionário (URL Cloudinary) */
+    photoUrl: text("photo_url"),
+    /** PIN de 4-6 dígitos para troca rápida de operador */
+    pin: varchar("pin", { length: 6 }),
     isActive: boolean("is_active").notNull().default(true),
     permissions: jsonb("permissions").$type<Record<string, boolean>>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -172,37 +240,87 @@ export const tenantUsers = pgTable(
       .defaultNow()
       .$onUpdate(() => new Date()),
   },
-  (table) => [index("tenant_users_firebase_uid_idx").on(table.firebaseUid)]
+  (table) => [
+    index("tenant_users_firebase_uid_idx").on(table.firebaseUid),
+    index("tenant_users_tenant_idx").on(table.tenantId),
+    index("tenant_users_pin_idx").on(table.tenantId, table.pin),
+  ]
+);
+
+// ============================================
+// ACTIVITY LOGS (Log de Atividades)
+// ============================================
+
+export const activityLogs = pgTable(
+  "activity_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Quem realizou a ação */
+    userId: uuid("user_id").references(() => tenantUsers.id, {
+      onDelete: "set null",
+    }),
+    userName: varchar("user_name", { length: 255 }).notNull(),
+    action: activityActionEnum("action").notNull(),
+    /** Descrição legível da ação */
+    description: varchar("description", { length: 500 }).notNull(),
+    /** Dados extras (ex: ID do pedido, valor, etc.) */
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    /** IP de onde a ação foi realizada */
+    ipAddress: varchar("ip_address", { length: 45 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("activity_logs_tenant_created_idx").on(
+      table.tenantId,
+      table.createdAt
+    ),
+    index("activity_logs_tenant_user_idx").on(table.tenantId, table.userId),
+  ]
 );
 
 // ============================================
 // CUSTOMERS (Clientes)
 // ============================================
 
-export const customers = pgTable("customers", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  firebaseUid: varchar("firebase_uid", { length: 128 }),
-  name: varchar("name", { length: 255 }).notNull(),
-  email: varchar("email", { length: 255 }),
-  phone: varchar("phone", { length: 20 }),
-  addresses: jsonb("addresses").$type<
-    Array<{
-      label: string;
-      street: string;
-      number: string;
-      complement?: string;
-      neighborhood: string;
-      city: string;
-      state: string;
-      zipCode: string;
-    }>
-  >(),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
+export const customers = pgTable(
+  "customers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    firebaseUid: varchar("firebase_uid", { length: 128 }),
+    name: varchar("name", { length: 255 }).notNull(),
+    email: varchar("email", { length: 255 }),
+    phone: varchar("phone", { length: 20 }),
+    /** CPF do cliente (formato: 123.456.789-00) */
+    cpf: varchar("cpf", { length: 14 }),
+    addresses: jsonb("addresses").$type<
+      Array<{
+        label: string;
+        street: string;
+        number: string;
+        complement?: string;
+        neighborhood: string;
+        city: string;
+        state: string;
+        zipCode: string;
+        referencePoint?: string;
+        lat?: number;
+        lng?: number;
+      }>
+    >(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("customers_phone_idx").on(table.phone),
+    index("customers_cpf_idx").on(table.cpf),
+  ]
+);
 
 // ============================================
 // CUSTOMER-TENANT (Relação cliente ↔ restaurante)
@@ -398,6 +516,51 @@ export const customizationOptions = pgTable("customization_options", {
 });
 
 // ============================================
+// DELIVERY AREAS (Áreas de Entrega)
+// ============================================
+
+export const deliveryAreas = pgTable(
+  "delivery_areas",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    /** Polígono da área: array de coordenadas lat/lng */
+    polygon: jsonb("polygon")
+      .notNull()
+      .$type<Array<{ lat: number; lng: number }>>(),
+    /** Taxa de entrega para esta área */
+    deliveryFee: decimal("delivery_fee", { precision: 10, scale: 2 }).notNull(),
+    /** Tempo estimado de entrega em minutos */
+    estimatedMinutes: integer("estimated_minutes"),
+    /** Valor acima do qual a entrega é grátis (null = sem frete grátis) */
+    freeDeliveryAbove: decimal("free_delivery_above", {
+      precision: 10,
+      scale: 2,
+    }),
+    /** Restrição de horário (opcional) */
+    schedule: jsonb("schedule").$type<{
+      enabled: boolean;
+      days: number[];
+      startTime: string;
+      endTime: string;
+    }>(),
+    /** Cor do polígono no mapa */
+    color: varchar("color", { length: 7 }).notNull().default("#3b82f6"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [index("delivery_areas_tenant_idx").on(table.tenantId)]
+);
+
+// ============================================
 // ORDERS (Pedidos)
 // ============================================
 
@@ -421,6 +584,18 @@ export const orders = pgTable(
     /** Dados do cliente denormalizados (para pedidos anônimos) */
     customerName: varchar("customer_name", { length: 255 }).notNull(),
     customerPhone: varchar("customer_phone", { length: 20 }).notNull(),
+    /** Número da mesa (para pedidos tipo TABLE) */
+    tableNumber: integer("table_number"),
+    /** Entregador atribuído (para pedidos tipo DELIVERY) */
+    deliveryPersonId: uuid("delivery_person_id").references(
+      () => tenantUsers.id,
+      { onDelete: "set null" }
+    ),
+    /** Área de entrega detectada */
+    deliveryAreaId: uuid("delivery_area_id").references(
+      () => deliveryAreas.id,
+      { onDelete: "set null" }
+    ),
     /** Endereço de entrega (null se retirada) */
     deliveryAddress: jsonb("delivery_address").$type<{
       street: string;
@@ -430,6 +605,9 @@ export const orders = pgTable(
       city: string;
       state: string;
       zipCode: string;
+      referencePoint?: string;
+      lat?: number;
+      lng?: number;
     }>(),
     subtotal: decimal("subtotal", { precision: 10, scale: 2 }).notNull(),
     deliveryFee: decimal("delivery_fee", { precision: 10, scale: 2 })
@@ -892,17 +1070,43 @@ export const billingRecords = pgTable(
 
 export const tenantsRelations = relations(tenants, ({ many }) => ({
   users: many(tenantUsers),
+  userTypes: many(userTypes),
+  activityLogs: many(activityLogs),
   customerTenants: many(customerTenants),
   categories: many(categories),
   products: many(products),
   orders: many(orders),
   promotions: many(promotions),
+  deliveryAreas: many(deliveryAreas),
+}));
+
+export const userTypesRelations = relations(userTypes, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [userTypes.tenantId],
+    references: [tenants.id],
+  }),
+  users: many(tenantUsers),
 }));
 
 export const tenantUsersRelations = relations(tenantUsers, ({ one }) => ({
   tenant: one(tenants, {
     fields: [tenantUsers.tenantId],
     references: [tenants.id],
+  }),
+  userType: one(userTypes, {
+    fields: [tenantUsers.userTypeId],
+    references: [userTypes.id],
+  }),
+}));
+
+export const activityLogsRelations = relations(activityLogs, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [activityLogs.tenantId],
+    references: [tenants.id],
+  }),
+  user: one(tenantUsers, {
+    fields: [activityLogs.userId],
+    references: [tenantUsers.id],
   }),
 }));
 
@@ -1001,6 +1205,16 @@ export const customizationOptionsRelations = relations(
 
 // --- Order Relations ---
 
+export const deliveryAreasRelations = relations(
+  deliveryAreas,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [deliveryAreas.tenantId],
+      references: [tenants.id],
+    }),
+  })
+);
+
 export const ordersRelations = relations(orders, ({ one, many }) => ({
   tenant: one(tenants, {
     fields: [orders.tenantId],
@@ -1013,6 +1227,14 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   promotion: one(promotions, {
     fields: [orders.promotionId],
     references: [promotions.id],
+  }),
+  deliveryPerson: one(tenantUsers, {
+    fields: [orders.deliveryPersonId],
+    references: [tenantUsers.id],
+  }),
+  deliveryArea: one(deliveryAreas, {
+    fields: [orders.deliveryAreaId],
+    references: [deliveryAreas.id],
   }),
   items: many(orderItems),
 }));

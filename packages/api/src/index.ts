@@ -7,3 +7,4 @@ export {
   createCallerFactory,
   type TRPCContext,
 } from "./trpc";
+export { AVAILABLE_PERMISSIONS } from "./routers/userType";

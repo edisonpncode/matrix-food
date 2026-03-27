@@ -5,6 +5,10 @@ import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
 import { POSCart, type POSCartItem } from "@/components/pos/pos-cart";
 import { POSCheckoutModal } from "@/components/pos/pos-checkout-modal";
+import {
+  OrderTypeHeader,
+  type OrderHeaderData,
+} from "@/components/pos/order-type-header";
 import { Minus, Plus, X, Package, Tag, Gift, Calendar, Clock } from "lucide-react";
 
 interface ProductVariant {
@@ -51,6 +55,13 @@ interface Product {
 const DAY_NAMES = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
 export default function NovoPedidoPage() {
+  const [orderHeaderData, setOrderHeaderData] = useState<OrderHeaderData>({
+    orderType: "COUNTER",
+    customerName: "Balcão",
+    customerPhone: "",
+    quickSale: false,
+    deliveryFee: 0,
+  });
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<POSCartItem[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
@@ -565,17 +576,21 @@ export default function NovoPedidoPage() {
   }, []);
 
   function handleCheckout(data: {
-    type: "DELIVERY" | "PICKUP" | "DINE_IN";
     paymentMethod: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD";
-    customerName: string;
     changeFor: string | null;
   }) {
+    const h = orderHeaderData;
     createOrder.mutate({
-      type: data.type,
-      customerName: data.customerName,
-      customerPhone: "",
-      paymentMethod: data.paymentMethod,
+      type: h.orderType,
+      customerName: h.customerName || "Balcão",
+      customerPhone: h.customerPhone || "",
+      paymentMethod: data.paymentMethod || "CASH",
       changeFor: data.changeFor,
+      customerId: h.customerId,
+      tableNumber: h.tableNumber,
+      deliveryAddress: h.deliveryAddress || null,
+      deliveryAreaId: h.deliveryAreaId,
+      manualDeliveryFee: h.manualDeliveryFee,
       items: cartItems.map((item) => ({
         productId: item.productId,
         productVariantId: item.variantId,
@@ -608,10 +623,17 @@ export default function NovoPedidoPage() {
     return total + (promo.bundlePrice ?? 0) + extrasTotal;
   }, 0);
 
-  const finalTotal = promosTotal + regularSubtotal;
+  const subtotal = promosTotal + regularSubtotal;
+  const finalTotal = subtotal + (orderHeaderData.deliveryFee || 0);
 
   return (
-    <div className="-m-6 flex h-screen">
+    <div className="-m-6 flex h-screen flex-col">
+      {/* Order Type Header - Always visible at top */}
+      <div className="flex-shrink-0 border-b border-border px-4 py-3">
+        <OrderTypeHeader onDataChange={setOrderHeaderData} />
+      </div>
+
+      <div className="flex flex-1 overflow-hidden">
       {/* Products Area */}
       <div className="flex-1 overflow-auto p-6">
         <div className="mb-4 flex items-center justify-between">
@@ -1410,12 +1432,16 @@ export default function NovoPedidoPage() {
       {/* Checkout Modal */}
       {showCheckout && (
         <POSCheckoutModal
+          subtotal={subtotal}
+          deliveryFee={orderHeaderData.deliveryFee || 0}
           total={finalTotal}
+          orderHeader={orderHeaderData}
           onConfirm={handleCheckout}
           onClose={() => setShowCheckout(false)}
           isLoading={createOrder.isPending}
         />
       )}
+      </div>{/* end flex row */}
     </div>
   );
 }

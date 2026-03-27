@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Tag, X, Check } from "lucide-react";
+import { ArrowLeft, Tag, X, Check, MapPin, Loader2, CheckCircle, AlertTriangle, Clock } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
 import { formatCurrency } from "@matrix-food/utils";
@@ -68,11 +68,77 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     discount: number;
   } | null>(null);
 
+  // --- Delivery area states ---
+  const [areaChecked, setAreaChecked] = useState(false);
+  const [geocodedCoords, setGeocodedCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [deliveryArea, setDeliveryArea] = useState<{
+    id: string;
+    name: string;
+    deliveryFee: string;
+    estimatedMinutes?: number | null;
+    freeDeliveryAbove?: string | null;
+  } | null>(null);
+  const [outsideArea, setOutsideArea] = useState(false);
+
+  // --- Delivery area queries ---
+  const geocodeQuery = trpc.deliveryArea.geocodeAddress.useQuery(
+    { street: address.street, number: address.number, city: address.city, state: address.state },
+    { enabled: false }
+  );
+
+  const checkQuery = trpc.deliveryArea.checkAddressPublic.useQuery(
+    { tenantId: tenant.id, lat: geocodedCoords?.lat ?? 0, lng: geocodedCoords?.lng ?? 0 },
+    { enabled: false }
+  );
+
+  const isCheckingArea = geocodeQuery.isFetching || checkQuery.isFetching;
+  const canCheckArea = address.street.trim() && address.number.trim() && address.city.trim() && address.state.trim();
+
+  async function handleCheckArea() {
+    setAreaChecked(false);
+    setDeliveryArea(null);
+    setOutsideArea(false);
+
+    try {
+      const geoResult = await geocodeQuery.refetch();
+      if (geoResult.data) {
+        const coords = { lat: geoResult.data.lat, lng: geoResult.data.lng };
+        setGeocodedCoords(coords);
+
+        const areaResult = await checkQuery.refetch();
+        setAreaChecked(true);
+
+        if (areaResult.data) {
+          setDeliveryArea(areaResult.data);
+          setOutsideArea(false);
+        } else {
+          setDeliveryArea(null);
+          setOutsideArea(true);
+        }
+      } else {
+        setAreaChecked(true);
+        setOutsideArea(true);
+        setGeocodedCoords(null);
+      }
+    } catch {
+      setAreaChecked(true);
+      setOutsideArea(true);
+    }
+  }
+
   const createOrder = trpc.order.create.useMutation();
 
+  // Dynamic delivery fee from area check, fallback to tenant settings
+  const areaFeeRaw = deliveryArea ? parseFloat(deliveryArea.deliveryFee) : null;
+  const isFreeDelivery =
+    deliveryArea?.freeDeliveryAbove && subtotal >= parseFloat(deliveryArea.freeDeliveryAbove);
   const deliveryFee =
     orderType === "DELIVERY"
-      ? tenant.deliverySettings?.deliveryFee ?? 0
+      ? areaFeeRaw !== null
+        ? isFreeDelivery
+          ? 0
+          : areaFeeRaw
+        : tenant.deliverySettings?.deliveryFee ?? 0
       : 0;
   const discount = appliedPromo?.discountAmount ?? 0;
   const loyaltyDiscount = appliedReward?.discount ?? 0;
@@ -147,6 +213,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 zipCode: address.zipCode,
               }
             : null,
+        deliveryAreaId: deliveryArea?.id ?? undefined,
         paymentMethod: paymentMethod as "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD",
         changeFor: paymentMethod === "CASH" && changeFor ? changeFor : null,
         notes: notes || undefined,
@@ -253,20 +320,22 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 type="text"
                 placeholder="Rua"
                 value={address.street}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, street: e.target.value }))
-                }
+                onChange={(e) => {
+                  setAddress((a) => ({ ...a, street: e.target.value }));
+                  setAreaChecked(false);
+                }}
                 required
                 className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
               <div className="flex gap-3">
                 <input
                   type="text"
-                  placeholder="Número"
+                  placeholder="Numero"
                   value={address.number}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, number: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setAddress((a) => ({ ...a, number: e.target.value }));
+                    setAreaChecked(false);
+                  }}
                   required
                   className="w-28 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
@@ -295,9 +364,10 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                   type="text"
                   placeholder="Cidade"
                   value={address.city}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, city: e.target.value }))
-                  }
+                  onChange={(e) => {
+                    setAddress((a) => ({ ...a, city: e.target.value }));
+                    setAreaChecked(false);
+                  }}
                   required
                   className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
@@ -306,12 +376,13 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                   placeholder="UF"
                   maxLength={2}
                   value={address.state}
-                  onChange={(e) =>
+                  onChange={(e) => {
                     setAddress((a) => ({
                       ...a,
                       state: e.target.value.toUpperCase(),
-                    }))
-                  }
+                    }));
+                    setAreaChecked(false);
+                  }}
                   required
                   className="w-16 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
@@ -326,6 +397,78 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 required
                 className="w-36 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
+
+              {/* Verificar endereco button */}
+              {!areaChecked && (
+                <button
+                  type="button"
+                  onClick={handleCheckArea}
+                  disabled={!canCheckArea || isCheckingArea}
+                  className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/30 py-2.5 text-sm font-medium text-primary hover:border-primary/60 hover:bg-primary/5 disabled:opacity-50"
+                >
+                  {isCheckingArea ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Verificando...
+                    </>
+                  ) : (
+                    <>
+                      <MapPin className="h-4 w-4" />
+                      Verificar endereco
+                    </>
+                  )}
+                </button>
+              )}
+
+              {/* Area result: found */}
+              {areaChecked && deliveryArea && (
+                <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                  <div className="flex items-start gap-2">
+                    <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-green-800">
+                        Area: {deliveryArea.name}
+                      </p>
+                      <p className="text-sm text-green-700">
+                        {isFreeDelivery ? (
+                          <span className="font-semibold">Frete gratis!</span>
+                        ) : (
+                          <>Taxa: {formatCurrency(parseFloat(deliveryArea.deliveryFee))}</>
+                        )}
+                      </p>
+                      {deliveryArea.estimatedMinutes && (
+                        <p className="flex items-center gap-1 text-xs text-green-600">
+                          <Clock className="h-3 w-3" />
+                          Tempo estimado: {deliveryArea.estimatedMinutes} min
+                        </p>
+                      )}
+                      {deliveryArea.freeDeliveryAbove && !isFreeDelivery && (
+                        <p className="mt-1 text-xs text-green-600">
+                          Frete gratis acima de{" "}
+                          {formatCurrency(parseFloat(deliveryArea.freeDeliveryAbove))}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Area result: not found */}
+              {areaChecked && outsideArea && (
+                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-600" />
+                    <div>
+                      <p className="text-sm font-semibold text-yellow-800">
+                        Endereco fora da area de entrega
+                      </p>
+                      <p className="text-xs text-yellow-600">
+                        Seu pedido pode ser feito, mas a taxa de entrega sera combinada com o restaurante.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -468,11 +611,13 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 <span>{formatCurrency(subtotal)}</span>
               </div>
               {orderType === "DELIVERY" && (
-                <div className="flex justify-between text-gray-500">
+                <div className={`flex justify-between ${isFreeDelivery ? "text-green-600" : "text-gray-500"}`}>
                   <span>Taxa de entrega</span>
                   <span>
                     {deliveryFee === 0
-                      ? "Grátis"
+                      ? isFreeDelivery
+                        ? "Frete gratis!"
+                        : "Gratis"
                       : formatCurrency(deliveryFee)}
                   </span>
                 </div>

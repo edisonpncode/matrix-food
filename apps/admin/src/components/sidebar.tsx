@@ -15,6 +15,8 @@ import {
   Star,
   MessageSquare,
   CreditCard,
+  Users,
+  UserCircle,
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -24,9 +26,11 @@ const menuItems = [
   { href: "/categorias", label: "Categorias", icon: FolderOpen },
   { href: "/produtos", label: "Produtos", icon: ShoppingBag },
   { href: "/pedidos", label: "Pedidos", icon: ClipboardList },
+  { href: "/clientes", label: "Clientes", icon: UserCircle },
   { href: "/promocoes", label: "Promoções", icon: Tag },
   { href: "/fidelidade", label: "Fidelidade", icon: Star },
   { href: "/avaliacoes", label: "Avaliações", icon: MessageSquare },
+  { href: "/equipe", label: "Equipe", icon: Users },
   { href: "/assinatura", label: "Assinatura", icon: CreditCard },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
