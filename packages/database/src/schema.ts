@@ -163,6 +163,8 @@ export const tenants = pgTable(
       maxRadius: number;
       estimatedMinutes: { min: number; max: number };
     }>(),
+    /** Tipos de comida que o restaurante vende (ex: ["hamburguer", "pizza"]) */
+    foodTypes: jsonb("food_types").$type<string[]>(),
     paymentMethodsAccepted: jsonb("payment_methods_accepted").$type<string[]>(),
     themeSettings: jsonb("theme_settings").$type<{
       primaryColor: string;

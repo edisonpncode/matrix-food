@@ -1,17 +1,78 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   UtensilsCrossed,
-  ShieldCheck,
-  Headset,
   ArrowLeft,
-  ChevronRight,
+  Loader2,
+  Eye,
+  EyeOff,
+  Mail,
+  Lock,
 } from "lucide-react";
 
 export default function LoginPage() {
   const router = useRouter();
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const canSubmit = email.trim() && password.trim();
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError("");
+
+    try {
+      const { initializeApp, getApps } = await import("firebase/app");
+      const { getAuth, signInWithEmailAndPassword } = await import(
+        "firebase/auth"
+      );
+
+      const firebaseConfig = {
+        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      };
+
+      const app =
+        getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
+
+      const auth = getAuth(app);
+      await signInWithEmailAndPassword(auth, email, password);
+
+      // Redirecionar para o admin (o middleware vai verificar a sessão)
+      router.push("/restaurante/admin");
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        if (
+          err.message.includes("user-not-found") ||
+          err.message.includes("wrong-password") ||
+          err.message.includes("invalid-credential")
+        ) {
+          setError("Email ou senha incorretos.");
+        } else if (err.message.includes("too-many-requests")) {
+          setError(
+            "Muitas tentativas. Aguarde alguns minutos e tente novamente."
+          );
+        } else {
+          setError("Ocorreu um erro. Tente novamente.");
+        }
+      } else {
+        setError("Ocorreu um erro. Tente novamente.");
+      }
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const inputClass =
+    "w-full rounded-xl border border-[#e2e8f0] bg-[#fafafa] pl-11 pr-4 py-3 text-sm text-[#1a1a2e] outline-none transition-colors placeholder:text-[#94a3b8] focus:border-[#7c3aed] focus:ring-2 focus:ring-[#7c3aed]/10";
 
   return (
     <main className="relative flex min-h-screen flex-col items-center justify-center overflow-hidden bg-[#fafafa] px-5 py-12">
@@ -38,48 +99,87 @@ export default function LoginPage() {
             Entrar no sistema
           </h1>
           <p className="text-sm text-[#64748b]">
-            Selecione como deseja acessar
+            Acesse o painel do seu restaurante
           </p>
         </div>
 
-        {/* Role selection cards */}
-        <div className="flex flex-col gap-4">
-          <button
-            onClick={() => router.push("/restaurante/admin")}
-            className="group flex items-center gap-4 rounded-2xl border border-black/5 bg-white p-5 text-left shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-[#7c3aed]/30 hover:shadow-lg hover:shadow-purple-500/5"
-          >
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#6d28d9] text-white shadow-md shadow-purple-500/20">
-              <ShieldCheck className="h-6 w-6" />
+        {/* Login form */}
+        <form
+          onSubmit={handleLogin}
+          className="rounded-2xl border border-black/5 bg-white p-6 shadow-sm sm:p-8"
+        >
+          <div className="space-y-4">
+            {/* Email */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-[#1a1a2e]">
+                Email
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#94a3b8]" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="seu@email.com"
+                  autoComplete="email"
+                  className={inputClass}
+                />
+              </div>
             </div>
-            <div className="flex-1">
-              <span className="block text-base font-bold text-[#1a1a2e]">
-                Administrador
-              </span>
-              <span className="block text-sm text-[#64748b]">
-                Gerenciar cardápio, pedidos e configurações
-              </span>
-            </div>
-            <ChevronRight className="h-5 w-5 text-[#c4b5fd] transition-transform group-hover:translate-x-1 group-hover:text-[#7c3aed]" />
-          </button>
 
-          <button
-            onClick={() => router.push("/restaurante/pos")}
-            className="group flex items-center gap-4 rounded-2xl border border-black/5 bg-white p-5 text-left shadow-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-[#f97316]/30 hover:shadow-lg hover:shadow-orange-500/5"
-          >
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-[#f97316] to-[#ea580c] text-white shadow-md shadow-orange-500/20">
-              <Headset className="h-6 w-6" />
+            {/* Senha */}
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-[#1a1a2e]">
+                Senha
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#94a3b8]" />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Sua senha"
+                  autoComplete="current-password"
+                  className={`${inputClass} pr-10`}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[#94a3b8] hover:text-[#64748b]"
+                >
+                  {showPassword ? (
+                    <EyeOff className="h-4 w-4" />
+                  ) : (
+                    <Eye className="h-4 w-4" />
+                  )}
+                </button>
+              </div>
             </div>
-            <div className="flex-1">
-              <span className="block text-base font-bold text-[#1a1a2e]">
-                Funcionário
-              </span>
-              <span className="block text-sm text-[#64748b]">
-                Tirar pedidos, atender clientes e caixa
-              </span>
-            </div>
-            <ChevronRight className="h-5 w-5 text-[#fed7aa] transition-transform group-hover:translate-x-1 group-hover:text-[#f97316]" />
-          </button>
-        </div>
+
+            {/* Erro */}
+            {error && (
+              <div className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-600">
+                {error}
+              </div>
+            )}
+
+            {/* Botão */}
+            <button
+              type="submit"
+              disabled={!canSubmit || loading}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#7c3aed] to-[#6d28d9] px-6 py-3 text-sm font-semibold text-white shadow-md shadow-purple-500/20 transition-all hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Entrando...
+                </>
+              ) : (
+                "Entrar"
+              )}
+            </button>
+          </div>
+        </form>
 
         {/* Register link */}
         <p className="mt-8 text-center text-sm text-[#64748b]">
@@ -88,7 +188,7 @@ export default function LoginPage() {
             href="/restaurante/cadastro"
             className="font-semibold text-[#7c3aed] hover:underline"
           >
-            Cadastre-se
+            Cadastre-se grátis
           </Link>
         </p>
       </div>

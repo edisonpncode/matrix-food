@@ -1,0 +1,436 @@
+"use client";
+
+import { useState } from "react";
+import { trpc } from "@/lib/trpc";
+import {
+  Plus,
+  Pencil,
+  UserCheck,
+  UserX,
+  Loader2,
+  Search,
+  User,
+  Phone,
+  Mail,
+  Hash,
+  Shield,
+  Camera,
+} from "lucide-react";
+import { ImageUploader } from "@/components/image-uploader";
+
+export default function FuncionariosPage() {
+  const utils = trpc.useUtils();
+  const staffList = trpc.staff.list.useQuery();
+  const userTypes = trpc.userType.list.useQuery();
+
+  const createMutation = trpc.staff.create.useMutation({
+    onSuccess: () => {
+      utils.staff.list.invalidate();
+      utils.userType.list.invalidate();
+      setShowForm(false);
+      resetForm();
+    },
+  });
+  const updateMutation = trpc.staff.update.useMutation({
+    onSuccess: () => {
+      utils.staff.list.invalidate();
+      utils.userType.list.invalidate();
+      setEditingId(null);
+      setShowForm(false);
+      resetForm();
+    },
+  });
+
+  const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  // Form fields
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [userTypeId, setUserTypeId] = useState<string | null>(null);
+  const [photoUrl, setPhotoUrl] = useState<string | null>(null);
+  const [pin, setPin] = useState("");
+
+  function resetForm() {
+    setName("");
+    setEmail("");
+    setPhone("");
+    setUserTypeId(null);
+    setPhotoUrl(null);
+    setPin("");
+  }
+
+  function startEdit(staff: {
+    id: string;
+    name: string;
+    email: string | null;
+    phone: string | null;
+    userTypeId: string | null;
+    photoUrl: string | null;
+    pin: string | null;
+  }) {
+    setEditingId(staff.id);
+    setName(staff.name);
+    setEmail(staff.email ?? "");
+    setPhone(staff.phone ?? "");
+    setUserTypeId(staff.userTypeId);
+    setPhotoUrl(staff.photoUrl);
+    setPin(staff.pin ?? "");
+    setShowForm(true);
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editingId) {
+      updateMutation.mutate({
+        id: editingId,
+        name,
+        email: email || null,
+        phone: phone || null,
+        userTypeId,
+        photoUrl,
+        pin: pin || null,
+      });
+    } else {
+      createMutation.mutate({
+        name,
+        email,
+        phone: phone || undefined,
+        userTypeId,
+        photoUrl,
+        pin,
+      });
+    }
+  }
+
+  function handleToggleActive(id: string, isActive: boolean, staffName: string) {
+    const action = isActive ? "desativar" : "reativar";
+    if (confirm(`Tem certeza que deseja ${action} "${staffName}"?`)) {
+      updateMutation.mutate({ id, isActive: !isActive });
+    }
+  }
+
+  const filteredStaff = staffList.data?.filter(
+    (s) =>
+      s.name.toLowerCase().includes(search.toLowerCase()) ||
+      s.email?.toLowerCase().includes(search.toLowerCase()) ||
+      s.phone?.includes(search)
+  );
+
+  const isLoading = createMutation.isPending || updateMutation.isPending;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Funcionários</h1>
+          <p className="mt-1 text-muted-foreground">
+            Gerencie sua equipe e atribua perfis de acesso
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            setShowForm(!showForm);
+            setEditingId(null);
+            resetForm();
+          }}
+          className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          <Plus className="h-4 w-4" />
+          Novo Funcionário
+        </button>
+      </div>
+
+      {/* Busca */}
+      <div className="mt-4 relative">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por nome, email ou telefone..."
+          className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+        />
+      </div>
+
+      {/* Formulário */}
+      {showForm && (
+        <form
+          onSubmit={handleSubmit}
+          className="mt-4 rounded-lg border border-border bg-card p-4"
+        >
+          <h3 className="mb-3 font-semibold text-foreground">
+            {editingId ? "Editar Funcionário" : "Novo Funcionário"}
+          </h3>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {/* Nome */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Nome *
+              </label>
+              <div className="relative">
+                <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="Nome completo"
+                  required
+                  className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            </div>
+
+            {/* Email */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Email *
+              </label>
+              <div className="relative">
+                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="email@exemplo.com"
+                  className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            </div>
+
+            {/* Telefone */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Telefone
+              </label>
+              <div className="relative">
+                <Phone className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="(11) 99999-9999"
+                  className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+            </div>
+
+            {/* Tipo de Usuário */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Tipo de Usuário (Perfil de Acesso) *
+              </label>
+              <div className="relative">
+                <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <select
+                  value={userTypeId ?? ""}
+                  onChange={(e) =>
+                    setUserTypeId(e.target.value || null)
+                  }
+                  className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  <option value="">Selecionar tipo...</option>
+                  {userTypes.data
+                    ?.filter((ut) => ut.isActive)
+                    .map((ut) => (
+                      <option key={ut.id} value={ut.id}>
+                        {ut.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              {userTypes.data?.length === 0 && (
+                <p className="mt-1 text-xs text-amber-600">
+                  Crie um tipo de usuário primeiro em "Tipos de Usuário".
+                </p>
+              )}
+            </div>
+
+            {/* PIN */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                PIN *
+              </label>
+              <div className="relative">
+                <Hash className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type="text"
+                  value={pin}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/\D/g, "").slice(0, 6);
+                    setPin(val);
+                  }}
+                  placeholder="4 a 6 dígitos"
+                  required
+                  maxLength={6}
+                  className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                PIN para login e troca rápida de operador
+              </p>
+            </div>
+
+            {/* Foto */}
+            <div className="sm:col-span-2 lg:col-span-3">
+              <label className="mb-1 flex items-center gap-2 text-sm font-medium text-foreground">
+                <Camera className="h-4 w-4" />
+                Foto do Funcionário (opcional)
+              </label>
+              <ImageUploader
+                value={photoUrl}
+                onChange={setPhotoUrl}
+                folder="matrix-food/staff"
+              />
+            </div>
+          </div>
+
+          {/* Erros */}
+          {(createMutation.error || updateMutation.error) && (
+            <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {createMutation.error?.message || updateMutation.error?.message}
+            </div>
+          )}
+
+          <div className="mt-4 flex gap-2">
+            <button
+              type="submit"
+              disabled={isLoading || !name.trim() || !email.trim() || (!editingId && pin.length < 4)}
+              className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}
+              {editingId ? "Salvar" : "Criar"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowForm(false);
+                setEditingId(null);
+                resetForm();
+              }}
+              className="rounded-md border border-border px-4 py-2 text-sm font-medium text-foreground hover:bg-accent"
+            >
+              Cancelar
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* Lista */}
+      <div className="mt-6 space-y-2">
+        {staffList.isLoading && (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        )}
+
+        {filteredStaff?.length === 0 && !staffList.isLoading && (
+          <div className="rounded-lg border border-dashed border-border py-12 text-center">
+            <User className="mx-auto h-10 w-10 text-muted-foreground" />
+            <p className="mt-2 text-muted-foreground">
+              {search
+                ? "Nenhum funcionário encontrado com essa busca."
+                : "Nenhum funcionário cadastrado ainda."}
+            </p>
+          </div>
+        )}
+
+        {filteredStaff?.map((staff) => (
+          <div
+            key={staff.id}
+            className={`flex items-center gap-4 rounded-lg border border-border bg-card p-4 ${
+              !staff.isActive ? "opacity-60" : ""
+            }`}
+          >
+            {/* Avatar */}
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-primary/10">
+              {staff.photoUrl ? (
+                <img
+                  src={staff.photoUrl}
+                  alt={staff.name}
+                  className="h-full w-full object-cover"
+                />
+              ) : (
+                <User className="h-6 w-6 text-primary" />
+              )}
+            </div>
+
+            {/* Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="font-medium text-foreground truncate">
+                  {staff.name}
+                </h3>
+                {staff.userTypeName && (
+                  <span className="flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    <Shield className="h-3 w-3" />
+                    {staff.userTypeName}
+                  </span>
+                )}
+                {!staff.isActive && (
+                  <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
+                    Inativo
+                  </span>
+                )}
+                {staff.pin && (
+                  <span className="rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                    PIN
+                  </span>
+                )}
+              </div>
+              <div className="mt-1 flex items-center gap-4 text-xs text-muted-foreground">
+                {staff.email && (
+                  <span className="flex items-center gap-1 truncate">
+                    <Mail className="h-3 w-3" />
+                    {staff.email}
+                  </span>
+                )}
+                {staff.phone && (
+                  <span className="flex items-center gap-1">
+                    <Phone className="h-3 w-3" />
+                    {staff.phone}
+                  </span>
+                )}
+              </div>
+            </div>
+
+            {/* Ações */}
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => handleToggleActive(staff.id, staff.isActive, staff.name)}
+                className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title={staff.isActive ? "Desativar" : "Reativar"}
+              >
+                {staff.isActive ? (
+                  <UserCheck className="h-4 w-4 text-green-600" />
+                ) : (
+                  <UserX className="h-4 w-4 text-red-500" />
+                )}
+              </button>
+              <button
+                onClick={() =>
+                  startEdit({
+                    id: staff.id,
+                    name: staff.name,
+                    email: staff.email,
+                    phone: staff.phone,
+                    userTypeId: staff.userTypeId,
+                    photoUrl: staff.photoUrl,
+                    pin: staff.pin,
+                  })
+                }
+                className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                title="Editar"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
