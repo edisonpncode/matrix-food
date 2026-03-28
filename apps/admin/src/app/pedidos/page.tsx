@@ -47,9 +47,14 @@ const FILTER_TABS: { label: string; value: OrderStatus | "ALL" }[] = [
 export default function PedidosPage() {
   const [filter, setFilter] = useState<OrderStatus | "ALL">("ALL");
 
-  const { data: orders, refetch } = trpc.order.listByTenant.useQuery({
-    status: filter === "ALL" ? undefined : filter,
-  });
+  const { data: orders, refetch, isLoading, error } = trpc.order.listByTenant.useQuery(
+    { status: filter === "ALL" ? undefined : filter },
+    {
+      refetchInterval: 15_000, // Atualiza a cada 15 segundos
+      staleTime: 0,
+      refetchOnWindowFocus: true,
+    }
+  );
 
   const updateStatus = trpc.order.updateStatus.useMutation({
     onSuccess: () => refetch(),
@@ -104,7 +109,21 @@ export default function PedidosPage() {
       </div>
 
       {/* Lista de pedidos */}
-      {!orders || orders.length === 0 ? (
+      {isLoading ? (
+        <p className="py-8 text-center text-muted-foreground">
+          Carregando pedidos...
+        </p>
+      ) : error ? (
+        <div className="py-8 text-center">
+          <p className="text-red-500">Erro ao carregar pedidos: {error.message}</p>
+          <button
+            onClick={() => refetch()}
+            className="mt-2 rounded-lg bg-primary px-4 py-2 text-sm text-white hover:bg-primary/90"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      ) : !orders || orders.length === 0 ? (
         <p className="py-8 text-center text-muted-foreground">
           Nenhum pedido encontrado.
         </p>
