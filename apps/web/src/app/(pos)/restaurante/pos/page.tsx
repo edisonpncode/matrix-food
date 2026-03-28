@@ -13,7 +13,9 @@ import {
   RefreshCw,
   Volume2,
   VolumeX,
+  Printer,
 } from "lucide-react";
+import { usePrinterSettings } from "@/hooks/use-printer-settings";
 
 type OrderStatus =
   | "PENDING"
@@ -74,6 +76,8 @@ export default function PedidosPage() {
     { refetchInterval: 15000 }
   );
 
+  const { settings: printerSettings, printOrder, printAllTypes, getEnabledReceiptTypes } = usePrinterSettings();
+
   const updateStatus = trpc.order.updateStatus.useMutation({
     onSuccess: () => refetch(),
   });
@@ -126,6 +130,82 @@ export default function PedidosPage() {
     const next = STATUS_FLOW[currentStatus];
     if (!next) return;
     updateStatus.mutate({ id: orderId, status: next });
+
+    // Auto-print ao confirmar
+    if (
+      next === "CONFIRMED" &&
+      printerSettings.autoPrint.enabled &&
+      printerSettings.autoPrint.onOrderConfirmed
+    ) {
+      const order = orders?.find((o) => o.id === orderId);
+      if (order) {
+        const orderForPrint = {
+          id: order.id,
+          displayNumber: order.displayNumber ?? String(order.orderNumber),
+          type: order.type,
+          status: order.status,
+          customerName: order.customerName,
+          customerPhone: order.customerPhone,
+          tableNumber: order.tableNumber,
+          deliveryAddress: order.deliveryAddress as any,
+          subtotal: String(order.subtotal),
+          deliveryFee: String(order.deliveryFee),
+          discount: String(order.discount),
+          total: String(order.total),
+          paymentMethod: order.paymentMethod,
+          notes: order.notes,
+          createdAt: order.createdAt,
+          items: order.items?.map((item: any) => ({
+            productName: item.productName,
+            variantName: item.variantName,
+            quantity: item.quantity,
+            unitPrice: String(item.unitPrice),
+            totalPrice: String(item.totalPrice),
+            notes: item.notes,
+            customizations: item.customizations?.map((c: any) => ({
+              customizationOptionName: c.customizationOptionName,
+              price: String(c.price),
+            })),
+          })) ?? [],
+        };
+        printAllTypes(orderForPrint).catch(() => {});
+      }
+    }
+  }
+
+  function handlePrintOrder(orderId: string, receiptType: "CUSTOMER" | "KITCHEN" | "DELIVERY") {
+    const order = orders?.find((o) => o.id === orderId);
+    if (!order) return;
+    const orderForPrint = {
+      id: order.id,
+      displayNumber: order.displayNumber ?? String(order.orderNumber),
+      type: order.type,
+      status: order.status,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      tableNumber: order.tableNumber,
+      deliveryAddress: order.deliveryAddress as any,
+      subtotal: String(order.subtotal),
+      deliveryFee: String(order.deliveryFee),
+      discount: String(order.discount),
+      total: String(order.total),
+      paymentMethod: order.paymentMethod,
+      notes: order.notes,
+      createdAt: order.createdAt,
+      items: order.items?.map((item: any) => ({
+        productName: item.productName,
+        variantName: item.variantName,
+        quantity: item.quantity,
+        unitPrice: String(item.unitPrice),
+        totalPrice: String(item.totalPrice),
+        notes: item.notes,
+        customizations: item.customizations?.map((c: any) => ({
+          customizationOptionName: c.customizationOptionName,
+          price: String(c.price),
+        })),
+      })) ?? [],
+    };
+    printOrder(orderForPrint, receiptType).catch(() => {});
   }
 
   function handleCancel(orderId: string) {
@@ -291,6 +371,34 @@ export default function PedidosPage() {
 
                 {/* Actions */}
                 <div className="mt-4 flex gap-2">
+                  {/* Botao de impressao */}
+                  {getEnabledReceiptTypes().length > 0 && (
+                    <div className="relative group">
+                      <button
+                        className="rounded-lg border-2 border-border px-3 py-3 text-muted-foreground hover:bg-accent hover:text-foreground"
+                        title="Imprimir"
+                      >
+                        <Printer className="h-4 w-4" />
+                      </button>
+                      <div className="absolute bottom-full left-0 mb-1 hidden group-hover:block z-10">
+                        <div className="rounded-lg border border-border bg-card p-1 shadow-lg min-w-[140px]">
+                          {getEnabledReceiptTypes().map((type) => (
+                            <button
+                              key={type}
+                              onClick={() => handlePrintOrder(order.id, type)}
+                              className="block w-full rounded px-3 py-1.5 text-left text-xs hover:bg-accent"
+                            >
+                              {type === "CUSTOMER"
+                                ? "Recibo Cliente"
+                                : type === "KITCHEN"
+                                  ? "Ticket Cozinha"
+                                  : "Via Entrega"}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                   {order.status !== "DELIVERED" &&
                     order.status !== "PICKED_UP" &&
                     order.status !== "CANCELLED" && (

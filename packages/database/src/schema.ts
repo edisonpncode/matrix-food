@@ -170,6 +170,42 @@ export const tenants = pgTable(
       primaryColor: string;
       secondaryColor: string;
     }>(),
+    /** Configurações de impressão (impressoras, auto-print, layout do recibo) */
+    printerSettings: jsonb("printer_settings").$type<{
+      printers: Array<{
+        id: string;
+        name: string;
+        paperWidth: "80mm" | "58mm";
+        connectionMethod: "BROWSER" | "NETWORK";
+        networkConfig?: {
+          ipAddress: string;
+          port: number;
+        };
+        isDefault: boolean;
+        isActive: boolean;
+      }>;
+      autoPrint: {
+        enabled: boolean;
+        onNewOrder: boolean;
+        onOrderConfirmed: boolean;
+        copies: number;
+      };
+      receiptTypes: {
+        customer: boolean;
+        kitchen: boolean;
+        delivery: boolean;
+      };
+      receiptConfig: {
+        headerText: string;
+        footerText: string;
+        showCustomerInfo: boolean;
+        showDeliveryAddress: boolean;
+        showItemNotes: boolean;
+        showOrderNotes: boolean;
+        showPaymentMethod: boolean;
+        showTimestamp: boolean;
+      };
+    }>(),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")

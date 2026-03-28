@@ -130,6 +130,97 @@ export const tenantRouter = createTRPCRouter({
   }),
 
   /**
+   * Busca configurações de impressão do restaurante.
+   */
+  getPrinterSettings: tenantProcedure.query(async ({ ctx }) => {
+    const [tenant] = await getDb()
+      .select({ printerSettings: tenants.printerSettings })
+      .from(tenants)
+      .where(eq(tenants.id, ctx.tenantId))
+      .limit(1);
+
+    return tenant?.printerSettings ?? {
+      printers: [],
+      autoPrint: {
+        enabled: false,
+        onNewOrder: false,
+        onOrderConfirmed: false,
+        copies: 1,
+      },
+      receiptTypes: {
+        customer: true,
+        kitchen: false,
+        delivery: false,
+      },
+      receiptConfig: {
+        headerText: "",
+        footerText: "Obrigado pela preferencia!",
+        showCustomerInfo: true,
+        showDeliveryAddress: true,
+        showItemNotes: true,
+        showOrderNotes: true,
+        showPaymentMethod: true,
+        showTimestamp: true,
+      },
+    };
+  }),
+
+  /**
+   * Atualiza configurações de impressão do restaurante.
+   */
+  updatePrinterSettings: tenantProcedure
+    .input(
+      z.object({
+        printers: z.array(
+          z.object({
+            id: z.string().min(1),
+            name: z.string().min(1).max(100),
+            paperWidth: z.enum(["80mm", "58mm"]),
+            connectionMethod: z.enum(["BROWSER", "NETWORK"]),
+            networkConfig: z
+              .object({
+                ipAddress: z.string().min(7).max(45),
+                port: z.number().int().min(1).max(65535),
+              })
+              .optional(),
+            isDefault: z.boolean(),
+            isActive: z.boolean(),
+          })
+        ),
+        autoPrint: z.object({
+          enabled: z.boolean(),
+          onNewOrder: z.boolean(),
+          onOrderConfirmed: z.boolean(),
+          copies: z.number().int().min(1).max(3),
+        }),
+        receiptTypes: z.object({
+          customer: z.boolean(),
+          kitchen: z.boolean(),
+          delivery: z.boolean(),
+        }),
+        receiptConfig: z.object({
+          headerText: z.string().max(500),
+          footerText: z.string().max(500),
+          showCustomerInfo: z.boolean(),
+          showDeliveryAddress: z.boolean(),
+          showItemNotes: z.boolean(),
+          showOrderNotes: z.boolean(),
+          showPaymentMethod: z.boolean(),
+          showTimestamp: z.boolean(),
+        }),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [updated] = await getDb()
+        .update(tenants)
+        .set({ printerSettings: input })
+        .where(eq(tenants.id, ctx.tenantId))
+        .returning({ printerSettings: tenants.printerSettings });
+
+      return updated?.printerSettings;
+    }),
+
+  /**
    * Atualiza dados do restaurante.
    * Requer pertencer ao tenant.
    */

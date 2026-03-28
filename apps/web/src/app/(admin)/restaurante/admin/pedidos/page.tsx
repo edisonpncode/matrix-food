@@ -17,7 +17,9 @@ import {
   Phone,
   MapPin,
   Plus,
+  Printer,
 } from "lucide-react";
+import { usePrinterSettings } from "@/hooks/use-printer-settings";
 import Link from "next/link";
 import { DeliveryPersonSelector } from "@/components/admin/delivery-person-selector";
 
@@ -163,6 +165,8 @@ export default function PedidosPage() {
     enabled: deliveryModalOrderId !== null,
   });
 
+  const { printOrder, getEnabledReceiptTypes } = usePrinterSettings();
+
   // --- Mutations ---
 
   const updateStatus = trpc.order.updateStatus.useMutation({
@@ -214,6 +218,41 @@ export default function PedidosPage() {
     if (confirm("Tem certeza que deseja cancelar este pedido?")) {
       updateStatus.mutate({ id: orderId, status: "CANCELLED" });
     }
+  }
+
+  function handlePrintOrder(orderId: string, receiptType: "CUSTOMER" | "KITCHEN" | "DELIVERY") {
+    const order = orders?.find((o) => o.id === orderId);
+    if (!order) return;
+    const orderForPrint = {
+      id: order.id,
+      displayNumber: order.displayNumber ?? String(order.orderNumber),
+      type: order.type,
+      status: order.status,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      tableNumber: order.tableNumber,
+      deliveryAddress: order.deliveryAddress as any,
+      subtotal: String(order.subtotal),
+      deliveryFee: String(order.deliveryFee),
+      discount: String(order.discount),
+      total: String(order.total),
+      paymentMethod: order.paymentMethod,
+      notes: order.notes,
+      createdAt: order.createdAt,
+      items: order.items?.map((item: any) => ({
+        productName: item.productName,
+        variantName: item.variantName,
+        quantity: item.quantity,
+        unitPrice: String(item.unitPrice),
+        totalPrice: String(item.totalPrice),
+        notes: item.notes,
+        customizations: item.customizations?.map((c: any) => ({
+          customizationOptionName: c.customizationOptionName,
+          price: String(c.price),
+        })),
+      })) ?? [],
+    };
+    printOrder(orderForPrint, receiptType).catch(() => {});
   }
 
   function handleCloseTable() {
@@ -505,6 +544,34 @@ export default function PedidosPage() {
                       </span>
 
                       <div className="flex gap-2">
+                        {/* Botao de impressao */}
+                        {getEnabledReceiptTypes().length > 0 && (
+                          <div className="relative group">
+                            <button
+                              className="rounded-lg border border-border px-2 py-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
+                              title="Imprimir"
+                            >
+                              <Printer className="h-4 w-4" />
+                            </button>
+                            <div className="absolute bottom-full right-0 mb-1 hidden group-hover:block z-10">
+                              <div className="rounded-lg border border-border bg-card p-1 shadow-lg min-w-[140px]">
+                                {getEnabledReceiptTypes().map((type) => (
+                                  <button
+                                    key={type}
+                                    onClick={() => handlePrintOrder(order.id, type)}
+                                    className="block w-full rounded px-3 py-1.5 text-left text-xs hover:bg-accent"
+                                  >
+                                    {type === "CUSTOMER"
+                                      ? "Recibo Cliente"
+                                      : type === "KITCHEN"
+                                        ? "Ticket Cozinha"
+                                        : "Via Entrega"}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        )}
                         {!isTerminal && (
                           <button
                             onClick={() => handleCancel(order.id)}

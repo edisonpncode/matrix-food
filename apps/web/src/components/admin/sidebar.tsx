@@ -19,6 +19,7 @@ import {
   UserCircle,
   MapPin,
   Monitor,
+  Printer,
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -37,6 +38,7 @@ const menuItems = [
   { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users },
   { href: "/restaurante/admin/assinatura", label: "Assinatura", icon: CreditCard },
   { href: "/restaurante/admin/configuracoes", label: "Configurações", icon: Settings },
+  { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer },
 ];
 
 export function AdminSidebar() {

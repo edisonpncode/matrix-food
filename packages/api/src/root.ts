@@ -16,6 +16,7 @@ import { staffRouter } from "./routers/staff";
 import { activityLogRouter } from "./routers/activityLog";
 import { customerRouter } from "./routers/customer";
 import { deliveryAreaRouter } from "./routers/deliveryArea";
+import { printRouter } from "./routers/print";
 
 /**
  * Router raiz que combina todos os sub-routers.
@@ -38,6 +39,7 @@ export const appRouter = createTRPCRouter({
   activityLog: activityLogRouter,
   customer: customerRouter,
   deliveryArea: deliveryAreaRouter,
+  print: printRouter,
 });
 
 export type AppRouter = typeof appRouter;

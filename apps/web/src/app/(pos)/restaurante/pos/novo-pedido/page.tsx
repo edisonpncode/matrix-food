@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
+import { usePrinterSettings } from "@/hooks/use-printer-settings";
 import { POSCart, type POSCartItem } from "@/components/pos/pos-cart";
 import { POSCheckoutModal } from "@/components/pos/pos-checkout-modal";
 import {
@@ -106,9 +107,33 @@ export default function NovoPedidoPage() {
   const { data: categories } = trpc.category.listAll.useQuery();
   const { data: products } = trpc.product.listForPOS.useQuery();
   const { data: promos } = trpc.promotion.list.useQuery();
+  const { settings: printerSettings, printAllTypes } = usePrinterSettings();
 
   const createOrder = trpc.order.createFromPOS.useMutation({
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
+      // Auto-print se habilitado
+      if (printerSettings.autoPrint.enabled && printerSettings.autoPrint.onNewOrder) {
+        try {
+          const orderForPrint = {
+            id: data.id,
+            displayNumber: data.displayNumber,
+            type: "COUNTER" as const,
+            status: data.status,
+            customerName: "",
+            customerPhone: "",
+            subtotal: String(data.total),
+            deliveryFee: "0",
+            discount: "0",
+            total: String(data.total),
+            paymentMethod: "",
+            createdAt: new Date().toISOString(),
+            items: [],
+          };
+          await printAllTypes(orderForPrint);
+        } catch {
+          // Nao bloquear o fluxo se a impressao falhar
+        }
+      }
       alert(`Pedido ${data.displayNumber} criado com sucesso!`);
       setCartItems([]);
       setShowCheckout(false);
