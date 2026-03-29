@@ -6,11 +6,13 @@ import {
   productVariants,
   productSizePrices,
   categorySizes,
+  categories,
   customizationGroups,
   customizationOptions,
   eq,
   and,
   asc,
+  inArray,
 } from "@matrix-food/database";
 
 // --- Schemas de validação reutilizáveis ---
@@ -41,6 +43,81 @@ const customizationGroupInput = z.object({
 });
 
 export const productRouter = createTRPCRouter({
+  /**
+   * Lista TODOS os produtos ativos agrupados por categoria (público, para scrollspy).
+   * Retorna categorias com seus produtos e variantes em 1 query batch.
+   */
+  listAllPublic: publicProcedure
+    .input(z.object({ tenantId: z.string().uuid() }))
+    .query(async ({ input }) => {
+      const db = getDb();
+
+      // Buscar categorias ativas
+      const cats = await db
+        .select()
+        .from(categories)
+        .where(
+          and(
+            eq(categories.tenantId, input.tenantId),
+            eq(categories.isActive, true)
+          )
+        )
+        .orderBy(asc(categories.sortOrder));
+
+      // Buscar todos os produtos ativos do tenant
+      const allProducts = await db
+        .select()
+        .from(products)
+        .where(
+          and(
+            eq(products.tenantId, input.tenantId),
+            eq(products.isActive, true)
+          )
+        )
+        .orderBy(asc(products.sortOrder));
+
+      // Buscar variantes para produtos que têm variantes
+      const productIds = allProducts
+        .filter((p) => p.hasVariants)
+        .map((p) => p.id);
+
+      let allVariants: (typeof productVariants.$inferSelect)[] = [];
+      if (productIds.length > 0) {
+        allVariants = await db
+          .select()
+          .from(productVariants)
+          .where(
+            and(
+              inArray(productVariants.productId, productIds),
+              eq(productVariants.isActive, true)
+            )
+          )
+          .orderBy(asc(productVariants.sortOrder));
+      }
+
+      // Montar mapa de variantes por productId
+      const variantsByProduct = new Map<
+        string,
+        (typeof productVariants.$inferSelect)[]
+      >();
+      for (const v of allVariants) {
+        const list = variantsByProduct.get(v.productId) ?? [];
+        list.push(v);
+        variantsByProduct.set(v.productId, list);
+      }
+
+      // Agrupar produtos por categoria
+      return cats.map((cat) => ({
+        ...cat,
+        products: allProducts
+          .filter((p) => p.categoryId === cat.id)
+          .map((p) => ({
+            ...p,
+            variants: variantsByProduct.get(p.id) ?? [],
+          })),
+      }));
+    }),
+
   /**
    * Lista produtos de uma categoria (público, para clientes).
    */

@@ -1,12 +1,25 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Tag, X, Check, MapPin, Loader2, CheckCircle, AlertTriangle, Clock } from "lucide-react";
+import {
+  ArrowLeft,
+  Tag,
+  X,
+  Check,
+  MapPin,
+  Loader2,
+  CheckCircle,
+  AlertTriangle,
+  Clock,
+  Ban,
+} from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
 import { formatCurrency } from "@matrix-food/utils";
 import { LoyaltySection } from "./loyalty-section";
+import { formatBrazilianPhone, stripPhone } from "@/lib/format-phone";
+import { fetchAddressByCep, formatCep } from "@/lib/viacep";
 
 interface Tenant {
   id: string;
@@ -16,22 +29,24 @@ interface Tenant {
   deliverySettings: {
     deliveryFee: number;
     estimatedMinutes: { min: number; max: number };
+    minOrder?: number;
   } | null;
 }
 
 interface CheckoutFormProps {
   tenant: Tenant;
+  isOpen: boolean;
   onBack: () => void;
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
   PIX: "PIX",
   CASH: "Dinheiro",
-  CREDIT_CARD: "Cartão de Crédito",
-  DEBIT_CARD: "Cartão de Débito",
+  CREDIT_CARD: "Cartao de Credito",
+  DEBIT_CARD: "Cartao de Debito",
 };
 
-export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
+export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   const router = useRouter();
   const items = useCartStore((s) => s.items);
   const subtotal = useCartStore((s) => s.getSubtotal());
@@ -43,13 +58,13 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [address, setAddress] = useState({
+    zipCode: "",
     street: "",
     number: "",
     complement: "",
     neighborhood: "",
     city: "",
     state: "",
-    zipCode: "",
   });
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [changeFor, setChangeFor] = useState("");
@@ -68,9 +83,16 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     discount: number;
   } | null>(null);
 
+  // --- CEP auto-fill states ---
+  const [cepLoading, setCepLoading] = useState(false);
+  const [cepError, setCepError] = useState("");
+
   // --- Delivery area states ---
   const [areaChecked, setAreaChecked] = useState(false);
-  const [geocodedCoords, setGeocodedCoords] = useState<{ lat: number; lng: number } | null>(null);
+  const [geocodedCoords, setGeocodedCoords] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
   const [deliveryArea, setDeliveryArea] = useState<{
     id: string;
     name: string;
@@ -82,17 +104,56 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
 
   // --- Delivery area queries ---
   const geocodeQuery = trpc.deliveryArea.geocodeAddress.useQuery(
-    { street: address.street, number: address.number, city: address.city, state: address.state },
+    {
+      street: address.street,
+      number: address.number,
+      city: address.city,
+      state: address.state,
+    },
     { enabled: false }
   );
 
   const checkQuery = trpc.deliveryArea.checkAddressPublic.useQuery(
-    { tenantId: tenant.id, lat: geocodedCoords?.lat ?? 0, lng: geocodedCoords?.lng ?? 0 },
+    {
+      tenantId: tenant.id,
+      lat: geocodedCoords?.lat ?? 0,
+      lng: geocodedCoords?.lng ?? 0,
+    },
     { enabled: false }
   );
 
   const isCheckingArea = geocodeQuery.isFetching || checkQuery.isFetching;
-  const canCheckArea = address.street.trim() && address.number.trim() && address.city.trim() && address.state.trim();
+  const canCheckArea =
+    address.street.trim() &&
+    address.number.trim() &&
+    address.city.trim() &&
+    address.state.trim();
+
+  // --- CEP auto-fill ---
+  useEffect(() => {
+    const digits = address.zipCode.replace(/\D/g, "");
+    if (digits.length !== 8) return;
+
+    setCepLoading(true);
+    setCepError("");
+
+    fetchAddressByCep(digits).then((result) => {
+      setCepLoading(false);
+      if (result) {
+        setAddress((a) => ({
+          ...a,
+          street: result.street || a.street,
+          neighborhood: result.neighborhood || a.neighborhood,
+          city: result.city || a.city,
+          state: result.state || a.state,
+        }));
+        setAreaChecked(false);
+        setCepError("");
+      } else {
+        setCepError("CEP nao encontrado");
+      }
+    });
+  }, [address.zipCode]);
 
   async function handleCheckArea() {
     setAreaChecked(false);
@@ -129,20 +190,26 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
   const createOrder = trpc.order.create.useMutation();
 
   // Dynamic delivery fee from area check, fallback to tenant settings
-  const areaFeeRaw = deliveryArea ? parseFloat(deliveryArea.deliveryFee) : null;
+  const areaFeeRaw = deliveryArea
+    ? parseFloat(deliveryArea.deliveryFee)
+    : null;
   const isFreeDelivery =
-    deliveryArea?.freeDeliveryAbove && subtotal >= parseFloat(deliveryArea.freeDeliveryAbove);
+    deliveryArea?.freeDeliveryAbove &&
+    subtotal >= parseFloat(deliveryArea.freeDeliveryAbove);
   const deliveryFee =
     orderType === "DELIVERY"
       ? areaFeeRaw !== null
         ? isFreeDelivery
           ? 0
           : areaFeeRaw
-        : tenant.deliverySettings?.deliveryFee ?? 0
+        : (tenant.deliverySettings?.deliveryFee ?? 0)
       : 0;
   const discount = appliedPromo?.discountAmount ?? 0;
   const loyaltyDiscount = appliedReward?.discount ?? 0;
   const total = subtotal + deliveryFee - discount - loyaltyDiscount;
+
+  const minOrder = tenant.deliverySettings?.minOrder ?? 0;
+  const isBelowMinimum = minOrder > 0 && subtotal < minOrder;
 
   const paymentMethods = tenant.paymentMethodsAccepted ?? [
     "PIX",
@@ -157,7 +224,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
       code: promoCode.trim(),
       subtotal,
       deliveryFee,
-      customerPhone: customerPhone || undefined,
+      customerPhone: stripPhone(customerPhone) || undefined,
     },
     { enabled: false }
   );
@@ -170,7 +237,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     const data = result.data;
 
     if (!data || !data.valid) {
-      setPromoError(data?.error ?? "Código inválido");
+      setPromoError(data?.error ?? "Codigo invalido");
       setAppliedPromo(null);
       return;
     }
@@ -191,7 +258,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (items.length === 0 || isSubmitting) return;
+    if (items.length === 0 || isSubmitting || !isOpen || isBelowMinimum) return;
 
     setIsSubmitting(true);
 
@@ -200,7 +267,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
         tenantId: tenant.id,
         type: orderType,
         customerName,
-        customerPhone,
+        customerPhone: stripPhone(customerPhone),
         deliveryAddress:
           orderType === "DELIVERY"
             ? {
@@ -210,15 +277,20 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 neighborhood: address.neighborhood,
                 city: address.city,
                 state: address.state,
-                zipCode: address.zipCode,
+                zipCode: address.zipCode.replace(/\D/g, ""),
               }
             : null,
         deliveryAreaId: deliveryArea?.id ?? undefined,
-        paymentMethod: paymentMethod as "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD",
+        paymentMethod: paymentMethod as
+          | "PIX"
+          | "CASH"
+          | "CREDIT_CARD"
+          | "DEBIT_CARD",
         changeFor: paymentMethod === "CASH" && changeFor ? changeFor : null,
         notes: notes || undefined,
         promoCode: appliedPromo?.code || undefined,
-        loyaltyRewardDiscount: loyaltyDiscount > 0 ? loyaltyDiscount : undefined,
+        loyaltyRewardDiscount:
+          loyaltyDiscount > 0 ? loyaltyDiscount : undefined,
         items: items.map((item) => ({
           productId: item.productId,
           productVariantId: item.variantId,
@@ -233,9 +305,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
       });
 
       clearCart();
-      router.push(
-        `/restaurantes/${tenant.slug}/pedido/${result.id}`
-      );
+      router.push(`/restaurantes/${tenant.slug}/pedido/${result.id}`);
     } catch {
       alert("Erro ao criar pedido. Tente novamente.");
     } finally {
@@ -245,11 +315,18 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
 
   const isValid =
     customerName.trim() !== "" &&
-    customerPhone.trim() !== "" &&
+    stripPhone(customerPhone).length >= 10 &&
     paymentMethod !== "" &&
     acceptedTerms &&
+    !isBelowMinimum &&
+    isOpen &&
     (orderType === "PICKUP" ||
-      (address.street && address.number && address.neighborhood && address.city && address.state && address.zipCode));
+      (address.street &&
+        address.number &&
+        address.neighborhood &&
+        address.city &&
+        address.state &&
+        address.zipCode));
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -262,6 +339,18 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
           <h1 className="text-lg font-bold">Finalizar pedido</h1>
         </div>
       </div>
+
+      {/* Aviso restaurante fechado */}
+      {!isOpen && (
+        <div className="mx-auto max-w-lg px-4 pt-4">
+          <div className="flex items-center gap-3 rounded-xl border border-red-200 bg-red-50 p-4">
+            <Ban className="h-5 w-5 flex-shrink-0 text-red-500" />
+            <p className="text-sm font-medium text-red-700">
+              Restaurante fechado. Nao e possivel finalizar o pedido agora.
+            </p>
+          </div>
+        </div>
+      )}
 
       <form
         onSubmit={handleSubmit}
@@ -302,20 +391,46 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
             />
             <input
               type="tel"
-              placeholder="Telefone / WhatsApp"
+              placeholder="(11) 99999-9999"
               value={customerPhone}
-              onChange={(e) => setCustomerPhone(e.target.value)}
+              onChange={(e) =>
+                setCustomerPhone(formatBrazilianPhone(e.target.value))
+              }
               required
               className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
         </section>
 
-        {/* Endereço */}
+        {/* Endereco */}
         {orderType === "DELIVERY" && (
           <section className="rounded-xl bg-white p-4 shadow-sm">
-            <h2 className="mb-3 font-semibold">Endereço de entrega</h2>
+            <h2 className="mb-3 font-semibold">Endereco de entrega</h2>
             <div className="space-y-3">
+              {/* CEP primeiro */}
+              <div className="flex items-center gap-3">
+                <div className="relative flex-1">
+                  <input
+                    type="text"
+                    placeholder="CEP"
+                    value={address.zipCode}
+                    onChange={(e) => {
+                      const formatted = formatCep(e.target.value);
+                      setAddress((a) => ({ ...a, zipCode: formatted }));
+                      setCepError("");
+                    }}
+                    required
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  {cepLoading && (
+                    <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary" />
+                  )}
+                </div>
+              </div>
+              {cepError && (
+                <p className="text-xs text-red-500">{cepError}</p>
+              )}
+
               <input
                 type="text"
                 placeholder="Rua"
@@ -354,7 +469,10 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 placeholder="Bairro"
                 value={address.neighborhood}
                 onChange={(e) =>
-                  setAddress((a) => ({ ...a, neighborhood: e.target.value }))
+                  setAddress((a) => ({
+                    ...a,
+                    neighborhood: e.target.value,
+                  }))
                 }
                 required
                 className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
@@ -387,16 +505,6 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                   className="w-16 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
-              <input
-                type="text"
-                placeholder="CEP"
-                value={address.zipCode}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, zipCode: e.target.value }))
-                }
-                required
-                className="w-36 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
 
               {/* Verificar endereco button */}
               {!areaChecked && (
@@ -433,7 +541,12 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                         {isFreeDelivery ? (
                           <span className="font-semibold">Frete gratis!</span>
                         ) : (
-                          <>Taxa: {formatCurrency(parseFloat(deliveryArea.deliveryFee))}</>
+                          <>
+                            Taxa:{" "}
+                            {formatCurrency(
+                              parseFloat(deliveryArea.deliveryFee)
+                            )}
+                          </>
                         )}
                       </p>
                       {deliveryArea.estimatedMinutes && (
@@ -445,7 +558,9 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                       {deliveryArea.freeDeliveryAbove && !isFreeDelivery && (
                         <p className="mt-1 text-xs text-green-600">
                           Frete gratis acima de{" "}
-                          {formatCurrency(parseFloat(deliveryArea.freeDeliveryAbove))}
+                          {formatCurrency(
+                            parseFloat(deliveryArea.freeDeliveryAbove)
+                          )}
                         </p>
                       )}
                     </div>
@@ -463,7 +578,8 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                         Endereco fora da area de entrega
                       </p>
                       <p className="text-xs text-yellow-600">
-                        Seu pedido pode ser feito, mas a taxa de entrega sera combinada com o restaurante.
+                        Seu pedido pode ser feito, mas a taxa de entrega sera
+                        combinada com o restaurante.
                       </p>
                     </div>
                   </div>
@@ -549,7 +665,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                       setPromoCode(e.target.value.toUpperCase());
                       setPromoError("");
                     }}
-                    placeholder="Código do cupom"
+                    placeholder="Codigo do cupom"
                     className="w-full rounded-lg border border-gray-200 py-2.5 pl-9 pr-3 text-sm font-mono uppercase focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                 </div>
@@ -572,7 +688,7 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
         {/* Fidelidade */}
         <LoyaltySection
           tenantId={tenant.id}
-          customerPhone={customerPhone}
+          customerPhone={stripPhone(customerPhone)}
           appliedReward={appliedReward}
           onRewardApplied={(discount, rewardName) =>
             setAppliedReward({ name: rewardName, discount })
@@ -580,11 +696,11 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
           onRewardRemoved={() => setAppliedReward(null)}
         />
 
-        {/* Observações */}
+        {/* Observacoes */}
         <section className="rounded-xl bg-white p-4 shadow-sm">
-          <h2 className="mb-3 font-semibold">Observações</h2>
+          <h2 className="mb-3 font-semibold">Observacoes</h2>
           <textarea
-            placeholder="Alguma observação para o restaurante?"
+            placeholder="Alguma observacao para o restaurante?"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
@@ -611,7 +727,9 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 <span>{formatCurrency(subtotal)}</span>
               </div>
               {orderType === "DELIVERY" && (
-                <div className={`flex justify-between ${isFreeDelivery ? "text-green-600" : "text-gray-500"}`}>
+                <div
+                  className={`flex justify-between ${isFreeDelivery ? "text-green-600" : "text-gray-500"}`}
+                >
                   <span>Taxa de entrega</span>
                   <span>
                     {deliveryFee === 0
@@ -642,9 +760,21 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
           </div>
         </section>
 
+        {/* Aviso pedido minimo */}
+        {isBelowMinimum && (
+          <div className="flex items-center gap-3 rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+            <AlertTriangle className="h-5 w-5 flex-shrink-0 text-yellow-600" />
+            <p className="text-sm text-yellow-800">
+              Pedido minimo de{" "}
+              <strong>{formatCurrency(minOrder)}</strong>. Faltam{" "}
+              <strong>{formatCurrency(minOrder - subtotal)}</strong>.
+            </p>
+          </div>
+        )}
+
         {/* Termos e Privacidade */}
         <section className="rounded-xl bg-white p-4 shadow-sm">
-          <label className="flex items-start gap-3 cursor-pointer">
+          <label className="flex cursor-pointer items-start gap-3">
             <input
               type="checkbox"
               checked={acceptedTerms}
@@ -666,19 +796,23 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
                 target="_blank"
                 className="text-primary underline"
               >
-                Política de Privacidade
+                Politica de Privacidade
               </a>
             </span>
           </label>
         </section>
 
-        {/* Botão */}
+        {/* Botao */}
         <button
           type="submit"
           disabled={!isValid || isSubmitting}
           className="w-full rounded-full bg-primary py-4 text-center font-bold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
         >
-          {isSubmitting ? "Enviando pedido..." : `Confirmar pedido - ${formatCurrency(total)}`}
+          {!isOpen
+            ? "Restaurante fechado"
+            : isSubmitting
+              ? "Enviando pedido..."
+              : `Confirmar pedido - ${formatCurrency(total)}`}
         </button>
       </form>
     </div>

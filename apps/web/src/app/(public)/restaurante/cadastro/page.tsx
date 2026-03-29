@@ -226,7 +226,7 @@ export default function CadastroPage() {
       );
 
       // 2. Registrar no backend
-      const result = await registerMutation.mutateAsync({
+      await registerMutation.mutateAsync({
         ownerName,
         ownerPhone: ownerPhone || undefined,
         restaurantName,

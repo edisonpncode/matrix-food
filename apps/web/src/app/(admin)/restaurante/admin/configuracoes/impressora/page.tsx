@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { ReceiptPreview } from "@/components/receipt/receipt-preview";
-import { dispatchTestPrint } from "@/lib/print-dispatcher";
+
 import type { PrinterInfo, PrintSettings } from "@/lib/print-dispatcher";
 import type { ReceiptConfig, PaperWidth } from "@/components/receipt/receipt-types";
 import {

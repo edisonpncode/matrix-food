@@ -1,9 +1,48 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure, tenantProcedure } from "../trpc";
-import { getDb, tenants, tenantUsers, userTypes, eq } from "@matrix-food/database";
+import { getDb, tenants, tenantUsers, userTypes, eq, and, ilike, asc } from "@matrix-food/database";
 import { AVAILABLE_PERMISSIONS } from "./userType";
 
 export const tenantRouter = createTRPCRouter({
+  /**
+   * Lista restaurantes ativos (público, para página de listagem).
+   */
+  listPublic: publicProcedure
+    .input(
+      z.object({
+        search: z.string().optional(),
+      })
+    )
+    .query(async ({ input }) => {
+      const db = getDb();
+      const conditions = [eq(tenants.isActive, true)];
+
+      if (input.search && input.search.trim()) {
+        conditions.push(ilike(tenants.name, `%${input.search.trim()}%`));
+      }
+
+      const results = await db
+        .select({
+          id: tenants.id,
+          name: tenants.name,
+          slug: tenants.slug,
+          description: tenants.description,
+          logoUrl: tenants.logoUrl,
+          bannerUrl: tenants.bannerUrl,
+          city: tenants.city,
+          state: tenants.state,
+          foodTypes: tenants.foodTypes,
+          operatingHours: tenants.operatingHours,
+          deliverySettings: tenants.deliverySettings,
+        })
+        .from(tenants)
+        .where(and(...conditions))
+        .orderBy(asc(tenants.name))
+        .limit(50);
+
+      return results;
+    }),
+
   /**
    * Registra um novo restaurante (cadastro completo).
    * Público - cria tenant, tipo "Proprietário" e funcionário-dono.

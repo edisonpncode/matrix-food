@@ -1,7 +1,7 @@
 "use client";
 
-import { MapPin, Clock } from "lucide-react";
-import { isRestaurantOpen } from "@matrix-food/utils";
+import { useState } from "react";
+import { MapPin, Clock, ChevronDown, ChevronUp } from "lucide-react";
 
 interface Tenant {
   name: string;
@@ -22,10 +22,55 @@ interface Tenant {
   } | null;
 }
 
-export function RestaurantHeader({ tenant }: { tenant: Tenant }) {
-  const open = tenant.operatingHours
-    ? isRestaurantOpen(tenant.operatingHours)
-    : true;
+const DAY_LABELS: Record<string, string> = {
+  sunday: "Domingo",
+  monday: "Segunda",
+  tuesday: "Terca",
+  wednesday: "Quarta",
+  thursday: "Quinta",
+  friday: "Sexta",
+  saturday: "Sabado",
+};
+
+const DAY_ORDER = [
+  "monday",
+  "tuesday",
+  "wednesday",
+  "thursday",
+  "friday",
+  "saturday",
+  "sunday",
+];
+
+function getCurrentDayKey(): string {
+  const days = [
+    "sunday",
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+  ];
+  return days[new Date().getDay()] ?? "monday";
+}
+
+interface RestaurantHeaderProps {
+  tenant: Tenant;
+  isOpen?: boolean;
+  nextOpenTime?: string | null;
+}
+
+export function RestaurantHeader({
+  tenant,
+  isOpen,
+  nextOpenTime,
+}: RestaurantHeaderProps) {
+  const [showHours, setShowHours] = useState(false);
+  const currentDay = getCurrentDayKey();
+
+  // Se isOpen nao foi passado como prop, calcula internamente (compatibilidade)
+  const open = isOpen ?? true;
 
   return (
     <div className="bg-white shadow-sm">
@@ -44,7 +89,7 @@ export function RestaurantHeader({ tenant }: { tenant: Tenant }) {
 
       {/* Info */}
       <div className="mx-auto max-w-2xl px-4 pb-4">
-        <div className="flex items-start gap-4 -mt-8">
+        <div className="-mt-8 flex items-start gap-4">
           {/* Logo */}
           <div className="h-20 w-20 flex-shrink-0 overflow-hidden rounded-xl border-4 border-white bg-white shadow-md">
             {tenant.logoUrl ? (
@@ -74,8 +119,12 @@ export function RestaurantHeader({ tenant }: { tenant: Tenant }) {
               </span>
             </div>
 
+            {!open && nextOpenTime && (
+              <p className="mt-0.5 text-xs text-red-500">{nextOpenTime}</p>
+            )}
+
             {tenant.description && (
-              <p className="mt-0.5 text-sm text-muted-foreground line-clamp-2">
+              <p className="mt-0.5 line-clamp-2 text-sm text-muted-foreground">
                 {tenant.description}
               </p>
             )}
@@ -99,6 +148,50 @@ export function RestaurantHeader({ tenant }: { tenant: Tenant }) {
             </span>
           )}
         </div>
+
+        {/* Horarios de funcionamento */}
+        {tenant.operatingHours && (
+          <div className="mt-3">
+            <button
+              onClick={() => setShowHours(!showHours)}
+              className="flex items-center gap-1.5 text-sm font-medium text-primary hover:text-primary/80"
+            >
+              <Clock className="h-3.5 w-3.5" />
+              Horarios de funcionamento
+              {showHours ? (
+                <ChevronUp className="h-3.5 w-3.5" />
+              ) : (
+                <ChevronDown className="h-3.5 w-3.5" />
+              )}
+            </button>
+
+            {showHours && (
+              <div className="mt-2 rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <div className="space-y-1.5">
+                  {DAY_ORDER.map((day) => {
+                    const config = tenant.operatingHours?.[day];
+                    const isToday = day === currentDay;
+                    return (
+                      <div
+                        key={day}
+                        className={`flex items-center justify-between text-sm ${
+                          isToday ? "font-semibold text-primary" : "text-gray-600"
+                        }`}
+                      >
+                        <span>{DAY_LABELS[day]}</span>
+                        <span>
+                          {config?.isOpen
+                            ? `${config.open} - ${config.close}`
+                            : "Fechado"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

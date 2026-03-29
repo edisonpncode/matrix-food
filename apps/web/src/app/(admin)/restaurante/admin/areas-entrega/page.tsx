@@ -12,7 +12,6 @@ import {
   AlertCircle,
   Loader2,
   Clock,
-  Eye,
   EyeOff,
 } from "lucide-react";
 import { DeliveryAreaForm } from "@/components/admin/delivery-area-form";

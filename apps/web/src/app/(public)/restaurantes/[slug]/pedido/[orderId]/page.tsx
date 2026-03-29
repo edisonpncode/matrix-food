@@ -2,7 +2,7 @@
 
 import { use } from "react";
 import Link from "next/link";
-import { CheckCircle, Clock, ArrowLeft } from "lucide-react";
+import { CheckCircle, Clock, ArrowLeft, Package, Bike, MapPin, XCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
 import { ReviewForm } from "@/components/customer/review-form";
@@ -11,23 +11,42 @@ interface PageProps {
   params: Promise<{ slug: string; orderId: string }>;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  PENDING: "Pendente",
-  CONFIRMED: "Confirmado",
-  PREPARING: "Em preparo",
-  READY: "Pronto",
-  OUT_FOR_DELIVERY: "Saiu para entrega",
-  DELIVERED: "Entregue",
-  PICKED_UP: "Retirado",
-  CANCELLED: "Cancelado",
-};
+const TERMINAL_STATUSES = ["DELIVERED", "PICKED_UP", "CANCELLED"];
+
+const STATUS_STEPS = [
+  { key: "PENDING", label: "Pendente", icon: Clock },
+  { key: "CONFIRMED", label: "Confirmado", icon: CheckCircle },
+  { key: "PREPARING", label: "Em preparo", icon: Package },
+  { key: "READY", label: "Pronto", icon: CheckCircle },
+  { key: "OUT_FOR_DELIVERY", label: "Saiu para entrega", icon: Bike },
+  { key: "DELIVERED", label: "Entregue", icon: MapPin },
+];
+
+const PICKUP_STEPS = [
+  { key: "PENDING", label: "Pendente", icon: Clock },
+  { key: "CONFIRMED", label: "Confirmado", icon: CheckCircle },
+  { key: "PREPARING", label: "Em preparo", icon: Package },
+  { key: "READY", label: "Pronto para retirada", icon: CheckCircle },
+  { key: "PICKED_UP", label: "Retirado", icon: MapPin },
+];
+
+function getStepIndex(status: string, steps: typeof STATUS_STEPS): number {
+  return steps.findIndex((s) => s.key === status);
+}
 
 export default function OrderConfirmationPage({ params }: PageProps) {
   const { slug, orderId } = use(params);
 
-  const { data: order, isLoading } = trpc.order.getById.useQuery({
-    id: orderId,
-  });
+  const { data: order, isLoading } = trpc.order.getById.useQuery(
+    { id: orderId },
+    {
+      refetchInterval: (query) => {
+        const status = query.state.data?.status;
+        if (status && TERMINAL_STATUSES.includes(status)) return false;
+        return 10000; // 10s polling
+      },
+    }
+  );
 
   if (isLoading) {
     return (
@@ -40,16 +59,21 @@ export default function OrderConfirmationPage({ params }: PageProps) {
   if (!order) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4">
-        <h1 className="text-xl font-bold">Pedido não encontrado</h1>
+        <h1 className="text-xl font-bold">Pedido nao encontrado</h1>
         <Link
           href={`/restaurantes/${slug}`}
           className="text-primary hover:underline"
         >
-          Voltar ao cardápio
+          Voltar ao cardapio
         </Link>
       </div>
     );
   }
+
+  const isCancelled = order.status === "CANCELLED";
+  const isPickup = order.type === "PICKUP";
+  const steps = isPickup ? PICKUP_STEPS : STATUS_STEPS;
+  const currentStepIndex = getStepIndex(order.status, steps);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -66,22 +90,86 @@ export default function OrderConfirmationPage({ params }: PageProps) {
       <div className="mx-auto max-w-lg px-4 py-6">
         {/* Sucesso */}
         <div className="flex flex-col items-center rounded-xl bg-white p-6 text-center shadow-sm">
-          <CheckCircle className="h-16 w-16 text-green-500" />
-          <h2 className="mt-4 text-2xl font-bold">Pedido enviado!</h2>
+          {isCancelled ? (
+            <XCircle className="h-16 w-16 text-red-500" />
+          ) : (
+            <CheckCircle className="h-16 w-16 text-green-500" />
+          )}
+          <h2 className="mt-4 text-2xl font-bold">
+            {isCancelled ? "Pedido cancelado" : "Pedido enviado!"}
+          </h2>
           <p className="mt-2 text-4xl font-bold text-primary">
             {order.displayNumber}
           </p>
-          <p className="mt-2 text-sm text-gray-500">
-            Guarde este número para acompanhar seu pedido.
-          </p>
-
-          <div className="mt-4 flex items-center gap-2 rounded-full bg-yellow-50 px-4 py-2">
-            <Clock className="h-4 w-4 text-yellow-600" />
-            <span className="text-sm font-medium text-yellow-700">
-              Status: {STATUS_LABELS[order.status] ?? order.status}
-            </span>
-          </div>
+          {!isCancelled && (
+            <p className="mt-2 text-sm text-gray-500">
+              Guarde este numero para acompanhar seu pedido.
+            </p>
+          )}
         </div>
+
+        {/* Timeline de status */}
+        {!isCancelled && (
+          <div className="mt-5 rounded-xl bg-white p-5 shadow-sm">
+            <h3 className="mb-4 font-semibold">Acompanhe seu pedido</h3>
+            <div className="space-y-0">
+              {steps.map((step, index) => {
+                const isCompleted = index <= currentStepIndex;
+                const isCurrent = index === currentStepIndex;
+                const Icon = step.icon;
+                const isLast = index === steps.length - 1;
+
+                return (
+                  <div key={step.key} className="flex gap-3">
+                    {/* Indicador */}
+                    <div className="flex flex-col items-center">
+                      <div
+                        className={`flex h-8 w-8 items-center justify-center rounded-full ${
+                          isCurrent
+                            ? "bg-primary text-white"
+                            : isCompleted
+                              ? "bg-green-100 text-green-600"
+                              : "bg-gray-100 text-gray-400"
+                        }`}
+                      >
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      {!isLast && (
+                        <div
+                          className={`h-8 w-0.5 ${
+                            isCompleted && index < currentStepIndex
+                              ? "bg-green-300"
+                              : "bg-gray-200"
+                          }`}
+                        />
+                      )}
+                    </div>
+
+                    {/* Label */}
+                    <div className="pb-6">
+                      <p
+                        className={`text-sm font-medium ${
+                          isCurrent
+                            ? "text-primary"
+                            : isCompleted
+                              ? "text-green-700"
+                              : "text-gray-400"
+                        }`}
+                      >
+                        {step.label}
+                      </p>
+                      {isCurrent && (
+                        <p className="mt-0.5 text-xs text-gray-500">
+                          Status atual
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Resumo */}
         <div className="mt-5 rounded-xl bg-white p-5 shadow-sm">
@@ -109,6 +197,12 @@ export default function OrderConfirmationPage({ params }: PageProps) {
                   </span>
                 </div>
               )}
+              {parseFloat(order.discount) > 0 && (
+                <div className="flex justify-between text-green-600">
+                  <span>Desconto</span>
+                  <span>-{formatCurrency(parseFloat(order.discount))}</span>
+                </div>
+              )}
               <div className="mt-1 flex justify-between text-lg font-bold">
                 <span>Total</span>
                 <span className="text-primary">
@@ -119,7 +213,7 @@ export default function OrderConfirmationPage({ params }: PageProps) {
           </div>
         </div>
 
-        {/* Avaliação */}
+        {/* Avaliacao */}
         {order.status === "DELIVERED" || order.status === "PICKED_UP" ? (
           <div className="mt-5">
             <ReviewForm orderId={order.id} tenantId={order.tenantId} />
@@ -128,10 +222,12 @@ export default function OrderConfirmationPage({ params }: PageProps) {
 
         {/* Pontos ganhos */}
         {order.loyaltyPointsEarned > 0 && (
-          <div className="mt-5 flex items-center gap-3 rounded-xl bg-yellow-50 border border-yellow-200 p-4">
-            <span className="text-2xl">⭐</span>
+          <div className="mt-5 flex items-center gap-3 rounded-xl border border-yellow-200 bg-yellow-50 p-4">
+            <span className="text-2xl">*</span>
             <p className="text-sm text-yellow-800">
-              Você ganhou <strong>{order.loyaltyPointsEarned} pontos</strong> de fidelidade neste pedido!
+              Voce ganhou{" "}
+              <strong>{order.loyaltyPointsEarned} pontos</strong> de
+              fidelidade neste pedido!
             </p>
           </div>
         )}
@@ -141,7 +237,7 @@ export default function OrderConfirmationPage({ params }: PageProps) {
           href={`/restaurantes/${slug}`}
           className="mt-6 block w-full rounded-full border-2 border-primary py-3 text-center font-semibold text-primary transition-colors hover:bg-primary/5"
         >
-          Voltar ao cardápio
+          Voltar ao cardapio
         </Link>
       </div>
     </div>

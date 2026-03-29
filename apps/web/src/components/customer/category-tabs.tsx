@@ -1,28 +1,28 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useCallback } from "react";
 
 interface Category {
   id: string;
   name: string;
-  imageUrl: string | null;
 }
 
-interface CategoryTabsProps {
+interface CategoryBarProps {
   categories: Category[];
   activeCategoryId: string | null;
   onSelect: (id: string) => void;
 }
 
-export function CategoryTabs({
+export function CategoryBar({
   categories,
   activeCategoryId,
   onSelect,
-}: CategoryTabsProps) {
+}: CategoryBarProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
+  const isUserClick = useRef(false);
 
-  // Auto-scroll ao tab ativo
+  // Auto-scroll a barra ao tab ativo
   useEffect(() => {
     if (activeRef.current && scrollRef.current) {
       const container = scrollRef.current;
@@ -32,6 +32,45 @@ export function CategoryTabs({
       container.scrollTo({ left: scrollLeft, behavior: "smooth" });
     }
   }, [activeCategoryId]);
+
+  // IntersectionObserver para scrollspy
+  const handleIntersection = useCallback(
+    (entries: IntersectionObserverEntry[]) => {
+      if (isUserClick.current) return;
+
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          const categoryId = entry.target.getAttribute("data-category-id");
+          if (categoryId) {
+            onSelect(categoryId);
+          }
+          break;
+        }
+      }
+    },
+    [onSelect]
+  );
+
+  useEffect(() => {
+    const observer = new IntersectionObserver(handleIntersection, {
+      rootMargin: "-120px 0px -60% 0px",
+      threshold: 0,
+    });
+
+    const sections = document.querySelectorAll("[data-category-id]");
+    sections.forEach((section) => observer.observe(section));
+
+    return () => observer.disconnect();
+  }, [handleIntersection]);
+
+  // Quando o usuario clica, desabilita scrollspy por 1s
+  function handleClick(id: string) {
+    isUserClick.current = true;
+    onSelect(id);
+    setTimeout(() => {
+      isUserClick.current = false;
+    }, 1000);
+  }
 
   return (
     <div className="sticky top-0 z-10 bg-white shadow-sm">
@@ -46,7 +85,7 @@ export function CategoryTabs({
               <button
                 key={category.id}
                 ref={isActive ? activeRef : undefined}
-                onClick={() => onSelect(category.id)}
+                onClick={() => handleClick(category.id)}
                 className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
                   isActive
                     ? "bg-primary text-primary-foreground"
@@ -62,3 +101,6 @@ export function CategoryTabs({
     </div>
   );
 }
+
+// Mantém export com nome antigo para compatibilidade
+export { CategoryBar as CategoryTabs };

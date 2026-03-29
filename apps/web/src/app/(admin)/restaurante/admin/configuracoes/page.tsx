@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Loader2, Save } from "lucide-react";
+import { ShareLinkSection } from "@/components/customer/share-link-section";
 
 export default function ConfiguracoesPage() {
   const tenant = trpc.tenant.getById.useQuery();
@@ -64,6 +65,13 @@ export default function ConfiguracoesPage() {
       <p className="mt-1 text-muted-foreground">
         Dados do seu restaurante
       </p>
+
+      {/* Link do Cardapio / QR Code */}
+      {tenant.data?.slug && (
+        <div className="mt-6 max-w-2xl">
+          <ShareLinkSection slug={tenant.data.slug} />
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="mt-6 max-w-2xl space-y-6">
         {/* Info básica */}

@@ -1,6 +1,6 @@
 "use client";
 
-import { X, Trash2 } from "lucide-react";
+import { X, Trash2, AlertTriangle } from "lucide-react";
 import { useCartStore } from "@/stores/cart-store";
 import { QuantitySelector } from "./quantity-selector";
 import { formatCurrency } from "@matrix-food/utils";
@@ -9,14 +9,22 @@ interface CartDrawerProps {
   open: boolean;
   onClose: () => void;
   onCheckout: () => void;
+  minOrder?: number;
 }
 
-export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
+export function CartDrawer({
+  open,
+  onClose,
+  onCheckout,
+  minOrder = 0,
+}: CartDrawerProps) {
   const items = useCartStore((s) => s.items);
   const removeItem = useCartStore((s) => s.removeItem);
   const updateQuantity = useCartStore((s) => s.updateQuantity);
   const clearCart = useCartStore((s) => s.clearCart);
   const subtotal = useCartStore((s) => s.getSubtotal());
+
+  const isBelowMinimum = minOrder > 0 && subtotal < minOrder;
 
   if (!open) return null;
 
@@ -42,7 +50,7 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
         <div className="flex-1 overflow-y-auto p-5">
           {items.length === 0 ? (
             <p className="py-8 text-center text-gray-400">
-              Seu carrinho está vazio.
+              Seu carrinho esta vazio.
             </p>
           ) : (
             <div className="space-y-4">
@@ -103,6 +111,18 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
         {/* Footer */}
         {items.length > 0 && (
           <div className="border-t p-5">
+            {/* Aviso pedido minimo */}
+            {isBelowMinimum && (
+              <div className="mb-3 flex items-center gap-2 rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 text-yellow-600" />
+                <p className="text-xs text-yellow-800">
+                  Pedido minimo:{" "}
+                  <strong>{formatCurrency(minOrder)}</strong>. Faltam{" "}
+                  <strong>{formatCurrency(minOrder - subtotal)}</strong>.
+                </p>
+              </div>
+            )}
+
             <div className="mb-2 flex items-center justify-between">
               <button
                 onClick={clearCart}
@@ -119,9 +139,10 @@ export function CartDrawer({ open, onClose, onCheckout }: CartDrawerProps) {
             </div>
             <button
               onClick={onCheckout}
-              className="mt-3 w-full rounded-full bg-primary py-3.5 text-center font-semibold text-white transition-colors hover:bg-primary/90"
+              disabled={isBelowMinimum}
+              className="mt-3 w-full rounded-full bg-primary py-3.5 text-center font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
-              Fazer pedido
+              {isBelowMinimum ? "Pedido abaixo do minimo" : "Fazer pedido"}
             </button>
           </div>
         )}

@@ -28,7 +28,6 @@ export function CustomerReceipt({
 }: CustomerReceiptProps) {
   const typeLabel = getTypeLabel(order.type, order.tableNumber);
   const sep = separator(paperWidth);
-  const subtotal = parseFloat(order.subtotal);
   const deliveryFee = parseFloat(order.deliveryFee);
   const discount = parseFloat(order.discount);
 
