@@ -18,6 +18,7 @@ import {
   Users,
   UserCircle,
   Monitor,
+  Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -33,6 +34,7 @@ const menuItems = [
   { href: "/fidelidade", label: "Fidelidade", icon: Star },
   { href: "/avaliacoes", label: "Avaliações", icon: MessageSquare },
   { href: "/equipe", label: "Equipe", icon: Users },
+  { href: "/mini-max", label: "Mini Max", icon: Sparkles, highlight: "ai" as const },
   { href: "/assinatura", label: "Assinatura", icon: CreditCard },
   { href: "/configuracoes", label: "Configurações", icon: Settings },
 ];
@@ -67,17 +69,20 @@ export function Sidebar() {
               : pathname.startsWith(item.href);
 
           const isHighlight = "highlight" in item && item.highlight;
+          const isAiHighlight = isHighlight === "ai";
 
           return (
             <Link
               key={item.href}
               href={item.href}
               className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                isHighlight && !isActive
-                  ? "bg-green-600 text-white hover:bg-green-700"
-                  : isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                isAiHighlight && !isActive
+                  ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-700 hover:to-purple-700"
+                  : isHighlight && !isActive
+                    ? "bg-green-600 text-white hover:bg-green-700"
+                    : isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               }`}
               title={collapsed ? item.label : undefined}
             >
