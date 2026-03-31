@@ -20,6 +20,7 @@ import {
   MapPin,
   Monitor,
   Printer,
+  Sparkles,
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -36,6 +37,7 @@ const menuItems = [
   { href: "/restaurante/admin/fidelidade", label: "Fidelidade", icon: Star },
   { href: "/restaurante/admin/avaliacoes", label: "Avaliações", icon: MessageSquare },
   { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users },
+  { href: "/restaurante/admin/mini-max", label: "Mini Max", icon: Sparkles, highlight: "ai" as const },
   { href: "/restaurante/admin/assinatura", label: "Assinatura", icon: CreditCard },
   { href: "/restaurante/admin/configuracoes", label: "Configurações", icon: Settings },
   { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer },
@@ -68,18 +70,22 @@ export function AdminSidebar() {
               ? pathname === "/restaurante/admin"
               : pathname.startsWith(item.href);
 
-          const isHighlight = "highlight" in item && item.highlight;
+          const highlightType = "highlight" in item ? item.highlight : undefined;
+          const isAiHighlight = highlightType === "ai";
+          const isPosHighlight = highlightType === true;
 
           return (
             <Link
               key={item.href}
               href={item.href}
               className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                isHighlight && !isActive
-                  ? "bg-green-600 text-white hover:bg-green-700"
-                  : isActive
-                    ? "bg-primary text-primary-foreground"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                isAiHighlight && !isActive
+                  ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-700 hover:to-purple-700"
+                  : isPosHighlight && !isActive
+                    ? "bg-green-600 text-white hover:bg-green-700"
+                    : isActive
+                      ? "bg-primary text-primary-foreground"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               }`}
               title={collapsed ? item.label : undefined}
             >
