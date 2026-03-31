@@ -176,7 +176,7 @@ export async function POST(req: Request) {
   } catch (err: unknown) {
     const message =
       err instanceof Error ? err.message : "Erro desconhecido";
-    console.error("[Mini Max API Error]", message);
+    console.error("[Neo Assistente API Error]", message);
     return new Response(JSON.stringify({ error: message }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

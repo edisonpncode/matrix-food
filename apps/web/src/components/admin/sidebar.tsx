@@ -37,7 +37,7 @@ const menuItems = [
   { href: "/restaurante/admin/fidelidade", label: "Fidelidade", icon: Star },
   { href: "/restaurante/admin/avaliacoes", label: "Avaliações", icon: MessageSquare },
   { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users },
-  { href: "/restaurante/admin/mini-max", label: "Mini Max", icon: Sparkles, highlight: "ai" as const },
+  { href: "/restaurante/admin/mini-max", label: "Neo Assistente", icon: Sparkles, highlight: "ai" as const },
   { href: "/restaurante/admin/assinatura", label: "Assinatura", icon: CreditCard },
   { href: "/restaurante/admin/configuracoes", label: "Configurações", icon: Settings },
   { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer },

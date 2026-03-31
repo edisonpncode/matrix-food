@@ -8,7 +8,7 @@ import { ChatMessage, TypingIndicator } from "@/components/mini-max/chat-message
 import { ChatInput } from "@/components/mini-max/chat-input";
 import { trpc } from "@/lib/trpc";
 
-export default function MiniMaxPage() {
+export default function NeoAssistentePage() {
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const { data: tenant } = trpc.tenant.getById.useQuery();
@@ -66,9 +66,9 @@ export default function MiniMaxPage() {
           <Sparkles className="h-5 w-5 text-white" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-foreground">Mini Max</h1>
+          <h1 className="text-lg font-bold text-foreground">Neo Assistente</h1>
           <p className="text-xs text-muted-foreground">
-            Seu assistente inteligente do Matrix Food
+            Assistente inteligente do Matrix Food
           </p>
         </div>
       </div>
@@ -123,10 +123,9 @@ function WelcomeState({ suggestions, onSuggestionClick }: WelcomeStateProps) {
       <div className="mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-violet-600 to-purple-600">
         <Sparkles className="h-8 w-8 text-white" />
       </div>
-      <h2 className="text-xl font-bold text-foreground">Olá! Eu sou o Mini Max</h2>
+      <h2 className="text-xl font-bold text-foreground">Olá! Eu sou o Neo</h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Seu assistente inteligente do Matrix Food. Posso tirar dúvidas sobre
-        qualquer funcionalidade do sistema!
+        Assistente inteligente do Matrix Food. Tire dúvidas ou envie uma foto do cardápio para cadastrar automaticamente!
       </p>
 
       <div className="mt-8 grid w-full gap-3">
