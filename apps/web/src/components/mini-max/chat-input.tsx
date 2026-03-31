@@ -1,6 +1,6 @@
 "use client";
 
-import { type KeyboardEvent, useRef, useState } from "react";
+import { type KeyboardEvent, type ClipboardEvent, useRef, useState } from "react";
 import { SendHorizontal, ImagePlus, X } from "lucide-react";
 
 interface ChatInputProps {
@@ -35,10 +35,7 @@ export function ChatInput({
     setImagePreview(null);
   };
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
+  const loadImage = (file: File) => {
     if (file.size > 10 * 1024 * 1024) {
       alert("Imagem muito grande. O limite é 10MB.");
       return;
@@ -48,9 +45,28 @@ export function ChatInput({
     const reader = new FileReader();
     reader.onload = (ev) => setImagePreview(ev.target?.result as string);
     reader.readAsDataURL(file);
+  };
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    loadImage(file);
     // Reset input so same file can be selected again
     e.target.value = "";
+  };
+
+  const handlePaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) loadImage(file);
+        return;
+      }
+    }
   };
 
   const removeImage = () => {
@@ -106,7 +122,8 @@ export function ChatInput({
           value={input}
           onChange={(e) => onInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={pendingImage ? "Descreva o erro na imagem..." : "Pergunte algo sobre o sistema..."}
+          onPaste={handlePaste}
+          placeholder={pendingImage ? "Descreva o erro na imagem..." : "Pergunte algo ou cole um print (Ctrl+V)..."}
           rows={1}
           className="flex-1 resize-none rounded-lg border border-border bg-background px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           style={{ maxHeight: "6rem" }}
