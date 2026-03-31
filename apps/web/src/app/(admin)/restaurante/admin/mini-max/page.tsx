@@ -23,10 +23,24 @@ export default function MiniMaxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isLoading]);
 
-  const handleSend = () => {
+  const handleSend = async (file?: File) => {
     const text = inputText.trim();
-    if (!text) return;
-    sendMessage({ text });
+    if (!text && !file) return;
+
+    let files: { type: "file"; mediaType: string; url: string }[] | undefined;
+    if (file) {
+      const dataUrl = await new Promise<string>((resolve) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target?.result as string);
+        reader.readAsDataURL(file);
+      });
+      files = [{ type: "file" as const, mediaType: file.type, url: dataUrl }];
+    }
+
+    sendMessage({
+      text: text || "Analise esta imagem e me ajude a resolver o problema.",
+      ...(files ? { files } : {}),
+    });
     setInputText("");
   };
 
@@ -82,7 +96,7 @@ export default function MiniMaxPage() {
         <ChatInput
           input={inputText}
           onInputChange={setInputText}
-          onSend={handleSend}
+          onSend={(file) => handleSend(file)}
           isLoading={isLoading}
         />
       </div>
