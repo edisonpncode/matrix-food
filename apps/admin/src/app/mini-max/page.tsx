@@ -3,106 +3,44 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Sparkles, MessageCircle, Camera, HelpCircle } from "lucide-react";
+import { Sparkles, MessageCircle, HelpCircle, ShoppingBag, Users } from "lucide-react";
 import { ChatMessage, TypingIndicator } from "@/components/mini-max/chat-message";
 import { ChatInput } from "@/components/mini-max/chat-input";
-import { MenuPreviewCard } from "@/components/mini-max/menu-preview-card";
-import type { ExtractedMenu } from "@/lib/ai/tools";
-import { trpc } from "@/lib/trpc";
 
 export default function MiniMaxPage() {
-  const [extractedMenu, setExtractedMenu] = useState<ExtractedMenu | null>(null);
-  const [pendingImage, setPendingImage] = useState<string | null>(null);
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const utils = trpc.useUtils();
 
   const {
     messages,
     sendMessage,
-    setMessages,
     status,
     error,
   } = useChat({
     transport: new DefaultChatTransport({
       api: "/api/ai/chat",
     }),
-    onToolCall({ toolCall }) {
-      if (toolCall.toolName === "extractMenuFromImage") {
-        setExtractedMenu(toolCall.input as ExtractedMenu);
-      }
-    },
   });
 
   const isLoading = status === "streaming" || status === "submitted";
 
-  const importMutation = trpc.minimax.importMenu.useMutation({
-    onSuccess: (result) => {
-      setExtractedMenu(null);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant" as const,
-          parts: [
-            {
-              type: "text" as const,
-              text: `Pronto! Importei ${result.categoriesCreated} categorias e ${result.productsCreated} produtos com sucesso! Você pode vê-los nas páginas de Categorias e Produtos.`,
-            },
-          ],
-        },
-      ]);
-      utils.category.listAll.invalidate();
-      utils.product.listAll.invalidate();
-    },
-  });
-
   // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, extractedMenu, isLoading]);
+  }, [messages, isLoading]);
 
   const handleSend = () => {
     const text = inputText.trim();
-    if (!text && !pendingImage) return;
-
-    if (pendingImage) {
-      sendMessage({
-        text: text || "Extraia o cardápio desta imagem",
-        files: [
-          {
-            type: "file" as const,
-            mediaType: pendingImage.startsWith("data:image/png") ? "image/png" : "image/jpeg",
-            url: pendingImage,
-          },
-        ],
-      });
-      setPendingImage(null);
-    } else {
-      sendMessage({ text });
-    }
+    if (!text) return;
+    sendMessage({ text });
     setInputText("");
-  };
-
-  const handleImport = () => {
-    if (!extractedMenu) return;
-    importMutation.mutate({
-      categories: extractedMenu.categories.map((cat) => ({
-        name: cat.name,
-        description: cat.description,
-        products: cat.products.map((p) => ({
-          name: p.name,
-          description: p.description,
-          price: p.price,
-        })),
-      })),
-    });
   };
 
   const suggestions = [
     { icon: HelpCircle, text: "Como cadastrar produtos?", query: "Como faço para cadastrar um novo produto no sistema?" },
     { icon: StarIcon, text: "Como funciona o fidelidade?", query: "Como funciona o programa de fidelidade para clientes?" },
-    { icon: Camera, text: "Extrair cardápio de foto", query: "Quero extrair o cardápio de uma foto. Como funciona?" },
+    { icon: ShoppingBag, text: "Como gerenciar pedidos?", query: "Como funciona o gerenciamento de pedidos no sistema?" },
+    { icon: Users, text: "Como cadastrar funcionários?", query: "Como cadastro funcionários e defino permissões no sistema?" },
   ];
 
   return (
@@ -131,22 +69,12 @@ export default function MiniMaxPage() {
           />
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
-            {messages.map((message, index) => (
+            {messages.map((message) => (
               <div key={message.id}>
                 <ChatMessage message={message} />
-                {extractedMenu &&
-                  message.role === "assistant" &&
-                  index === messages.length - 1 && (
-                    <MenuPreviewCard
-                      menu={extractedMenu}
-                      onConfirm={handleImport}
-                      onCancel={() => setExtractedMenu(null)}
-                      isImporting={importMutation.isPending}
-                    />
-                  )}
               </div>
             ))}
-            {isLoading && !extractedMenu && <TypingIndicator />}
+            {isLoading && <TypingIndicator />}
             {error && (
               <div className="ml-11 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
                 Erro ao comunicar com a IA. Tente novamente.
@@ -164,9 +92,6 @@ export default function MiniMaxPage() {
           onInputChange={setInputText}
           onSend={handleSend}
           isLoading={isLoading}
-          pendingImage={pendingImage}
-          onImageSelect={setPendingImage}
-          onClearImage={() => setPendingImage(null)}
         />
       </div>
     </div>
@@ -209,8 +134,8 @@ function WelcomeState({ suggestions, onSuggestionClick }: WelcomeStateProps) {
         Olá! Eu sou o Mini Max
       </h2>
       <p className="mt-2 text-sm text-muted-foreground">
-        Seu assistente inteligente do Matrix Food. Posso tirar dúvidas sobre o
-        sistema e até cadastrar seu cardápio a partir de uma foto!
+        Seu assistente inteligente do Matrix Food. Posso tirar dúvidas sobre
+        qualquer funcionalidade do sistema!
       </p>
 
       <div className="mt-8 grid w-full gap-3">
