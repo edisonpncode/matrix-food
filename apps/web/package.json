@@ -12,6 +12,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.54",
     "@ai-sdk/react": "^3.0.143",
     "@hookform/resolvers": "^5.0.1",
     "@matrix-food/api": "workspace:*",
