@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
 import {
@@ -60,19 +60,19 @@ export default function FidelidadePage() {
   const utils = trpc.useUtils();
 
   // Queries
-  const { data: config, isLoading: loadingConfig } =
-    trpc.loyalty.getConfig.useQuery(undefined, {
-      onSuccess: (data) => {
-        if (data && !configLoaded) {
-          setIsActive(data.isActive);
-          setSpendingBase(data.spendingBase ?? "1");
-          setPointsPerReal(data.pointsPerReal);
-          setPointsName(data.pointsName);
-          setMinOrderForPoints(data.minOrderForPoints ?? "");
-          setConfigLoaded(true);
-        }
-      },
-    });
+  const { data: configData, isLoading: loadingConfig } =
+    trpc.loyalty.getConfig.useQuery();
+
+  useEffect(() => {
+    if (configData && !configLoaded) {
+      setIsActive(configData.isActive);
+      setSpendingBase(configData.spendingBase ?? "1");
+      setPointsPerReal(configData.pointsPerReal);
+      setPointsName(configData.pointsName);
+      setMinOrderForPoints(configData.minOrderForPoints ?? "");
+      setConfigLoaded(true);
+    }
+  }, [configData, configLoaded]);
 
   const { data: rewards, isLoading: loadingRewards } =
     trpc.loyalty.listRewards.useQuery();

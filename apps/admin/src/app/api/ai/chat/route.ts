@@ -1,4 +1,4 @@
-import { streamText, tool } from "ai";
+import { streamText, tool, convertToModelMessages, stepCountIs } from "ai";
 import { openai } from "@ai-sdk/openai";
 import { SYSTEM_PROMPT } from "@/lib/ai/system-prompt";
 import { extractedMenuSchema } from "@/lib/ai/tools";
@@ -18,16 +18,16 @@ export async function POST(req: Request) {
   const result = streamText({
     model: openai("gpt-4o"),
     system: SYSTEM_PROMPT,
-    messages,
+    messages: await convertToModelMessages(messages),
     tools: {
       extractMenuFromImage: tool({
         description:
           "Extrai categorias e produtos de uma foto de cardápio de restaurante. Use esta tool sempre que o usuário enviar uma imagem de cardápio.",
-        parameters: extractedMenuSchema,
+        inputSchema: extractedMenuSchema,
       }),
     },
-    maxSteps: 2,
+    stopWhen: stepCountIs(2),
   });
 
-  return result.toDataStreamResponse();
+  return result.toUIMessageStreamResponse();
 }

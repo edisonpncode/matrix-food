@@ -10,8 +10,6 @@ import {
   EyeOff,
   Loader2,
   Tag,
-  ChevronDown,
-  ChevronRight,
 } from "lucide-react";
 import Link from "next/link";
 

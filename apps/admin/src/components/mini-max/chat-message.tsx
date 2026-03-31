@@ -1,31 +1,28 @@
 "use client";
 
 import { Sparkles } from "lucide-react";
-import type { Message } from "ai";
+import type { UIMessage } from "ai";
 
 interface ChatMessageProps {
-  message: Message;
+  message: UIMessage;
 }
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === "user";
 
-  // Extract text and images from message content
-  const textContent =
-    typeof message.content === "string"
-      ? message.content
-      : "";
-
+  // Extract text and files from message parts
+  const textParts: string[] = [];
   const images: string[] = [];
-  if (Array.isArray(message.content)) {
-    for (const part of message.content) {
-      if (typeof part === "object" && "type" in part) {
-        if (part.type === "image" && "image" in part) {
-          images.push(part.image as string);
-        }
-      }
+
+  for (const part of message.parts) {
+    if (part.type === "text") {
+      textParts.push(part.text);
+    } else if (part.type === "file" && part.mediaType.startsWith("image/")) {
+      images.push(part.url);
     }
   }
+
+  const textContent = textParts.join("\n");
 
   if (!textContent && images.length === 0) return null;
 

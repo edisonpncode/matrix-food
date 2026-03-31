@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useRef, useEffect, type FormEvent } from "react";
-import { useChat } from "ai/react";
+import { useState, useRef, useEffect } from "react";
+import { useChat } from "@ai-sdk/react";
+import { DefaultChatTransport } from "ai";
 import { Sparkles, MessageCircle, Camera, HelpCircle } from "lucide-react";
 import { ChatMessage, TypingIndicator } from "@/components/mini-max/chat-message";
 import { ChatInput } from "@/components/mini-max/chat-input";
@@ -12,34 +13,45 @@ import { trpc } from "@/lib/trpc";
 export default function MiniMaxPage() {
   const [extractedMenu, setExtractedMenu] = useState<ExtractedMenu | null>(null);
   const [pendingImage, setPendingImage] = useState<string | null>(null);
+  const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const utils = trpc.useUtils();
 
   const {
     messages,
-    input,
-    handleInputChange,
-    append,
-    isLoading,
+    sendMessage,
+    setMessages,
+    status,
     error,
-    setInput,
   } = useChat({
-    api: "/api/ai/chat",
+    transport: new DefaultChatTransport({
+      api: "/api/ai/chat",
+    }),
     onToolCall({ toolCall }) {
       if (toolCall.toolName === "extractMenuFromImage") {
-        setExtractedMenu(toolCall.args as ExtractedMenu);
-        return "Cardápio extraído com sucesso! Mostrando preview para o usuário confirmar a importação.";
+        setExtractedMenu(toolCall.input as ExtractedMenu);
       }
     },
   });
 
+  const isLoading = status === "streaming" || status === "submitted";
+
   const importMutation = trpc.minimax.importMenu.useMutation({
     onSuccess: (result) => {
       setExtractedMenu(null);
-      append({
-        role: "assistant" as const,
-        content: `Pronto! Importei ${result.categoriesCreated} categorias e ${result.productsCreated} produtos com sucesso! Você pode vê-los nas páginas de Categorias e Produtos.`,
-      });
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: "assistant" as const,
+          parts: [
+            {
+              type: "text" as const,
+              text: `Pronto! Importei ${result.categoriesCreated} categorias e ${result.productsCreated} produtos com sucesso! Você pode vê-los nas páginas de Categorias e Produtos.`,
+            },
+          ],
+        },
+      ]);
       utils.category.listAll.invalidate();
       utils.product.listAll.invalidate();
     },
@@ -50,24 +62,26 @@ export default function MiniMaxPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, extractedMenu, isLoading]);
 
-  const handleSubmit = (e: FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!input.trim() && !pendingImage) return;
+  const handleSend = () => {
+    const text = inputText.trim();
+    if (!text && !pendingImage) return;
 
     if (pendingImage) {
-      append({
-        role: "user",
-        content: [
-          { type: "text", text: input.trim() || "Extraia o cardápio desta imagem" },
-          { type: "image", image: pendingImage },
+      sendMessage({
+        text: text || "Extraia o cardápio desta imagem",
+        files: [
+          {
+            type: "file" as const,
+            mediaType: pendingImage.startsWith("data:image/png") ? "image/png" : "image/jpeg",
+            url: pendingImage,
+          },
         ],
       });
       setPendingImage(null);
-      setInput("");
     } else {
-      append({ role: "user", content: input.trim() });
-      setInput("");
+      sendMessage({ text });
     }
+    setInputText("");
   };
 
   const handleImport = () => {
@@ -87,7 +101,7 @@ export default function MiniMaxPage() {
 
   const suggestions = [
     { icon: HelpCircle, text: "Como cadastrar produtos?", query: "Como faço para cadastrar um novo produto no sistema?" },
-    { icon: Star, text: "Como funciona o fidelidade?", query: "Como funciona o programa de fidelidade para clientes?" },
+    { icon: StarIcon, text: "Como funciona o fidelidade?", query: "Como funciona o programa de fidelidade para clientes?" },
     { icon: Camera, text: "Extrair cardápio de foto", query: "Quero extrair o cardápio de uma foto. Como funciona?" },
   ];
 
@@ -112,15 +126,14 @@ export default function MiniMaxPage() {
           <WelcomeState
             suggestions={suggestions}
             onSuggestionClick={(query) => {
-              append({ role: "user", content: query });
+              sendMessage({ text: query });
             }}
           />
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
             {messages.map((message, index) => (
-              <div key={message.id || index}>
+              <div key={message.id}>
                 <ChatMessage message={message} />
-                {/* Show menu preview after the relevant assistant message */}
                 {extractedMenu &&
                   message.role === "assistant" &&
                   index === messages.length - 1 && (
@@ -147,9 +160,9 @@ export default function MiniMaxPage() {
       {/* Input */}
       <div className="mx-auto w-full max-w-3xl">
         <ChatInput
-          input={input}
-          handleInputChange={handleInputChange}
-          onSubmit={handleSubmit}
+          input={inputText}
+          onInputChange={setInputText}
+          onSend={handleSend}
           isLoading={isLoading}
           pendingImage={pendingImage}
           onImageSelect={setPendingImage}
@@ -162,7 +175,7 @@ export default function MiniMaxPage() {
 
 // ---------- Internal components ----------
 
-function Star(props: React.SVGProps<SVGSVGElement>) {
+function StarIcon(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"

@@ -228,7 +228,7 @@ export default function PromocoesPage() {
     }));
   }
 
-  function addComboItem(role: "REQUIRED" | "FREE" = "REQUIRED") {
+  function addComboItem(role: "REQUIRED" | "FREE" | "CHOICE" = "REQUIRED") {
     setForm((f) => ({
       ...f,
       items: [

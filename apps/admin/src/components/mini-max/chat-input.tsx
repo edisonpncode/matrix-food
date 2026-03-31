@@ -1,12 +1,12 @@
 "use client";
 
-import { useRef, type ChangeEvent, type FormEvent, type KeyboardEvent } from "react";
+import { useRef, type ChangeEvent, type KeyboardEvent } from "react";
 import { ImagePlus, SendHorizontal, X } from "lucide-react";
 
 interface ChatInputProps {
   input: string;
-  handleInputChange: (e: ChangeEvent<HTMLTextAreaElement>) => void;
-  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
+  onInputChange: (value: string) => void;
+  onSend: () => void;
   isLoading: boolean;
   pendingImage: string | null;
   onImageSelect: (dataUrl: string) => void;
@@ -17,8 +17,8 @@ const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 export function ChatInput({
   input,
-  handleInputChange,
-  onSubmit,
+  onInputChange,
+  onSend,
   isLoading,
   pendingImage,
   onImageSelect,
@@ -50,9 +50,8 @@ export function ChatInput({
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (input.trim() || pendingImage) {
-        const form = e.currentTarget.closest("form");
-        if (form) form.requestSubmit();
+      if ((input.trim() || pendingImage) && !isLoading) {
+        onSend();
       }
     }
   };
@@ -60,7 +59,7 @@ export function ChatInput({
   const canSend = (input.trim() || pendingImage) && !isLoading;
 
   return (
-    <form onSubmit={onSubmit} className="border-t border-border bg-card p-4">
+    <div className="border-t border-border bg-card p-4">
       {/* Image preview */}
       {pendingImage && (
         <div className="mb-3 flex items-start gap-2">
@@ -106,7 +105,7 @@ export function ChatInput({
         {/* Text input */}
         <textarea
           value={input}
-          onChange={handleInputChange}
+          onChange={(e) => onInputChange(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Pergunte algo ou envie uma foto do cardápio..."
           rows={1}
@@ -121,13 +120,14 @@ export function ChatInput({
 
         {/* Send button */}
         <button
-          type="submit"
+          type="button"
+          onClick={onSend}
           disabled={!canSend}
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <SendHorizontal className="h-5 w-5" />
         </button>
       </div>
-    </form>
+    </div>
   );
 }

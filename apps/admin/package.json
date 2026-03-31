@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.49",
+    "@ai-sdk/react": "^3.0.143",
     "@hookform/resolvers": "^5.0.1",
     "@matrix-food/api": "workspace:*",
     "@matrix-food/auth": "workspace:*",

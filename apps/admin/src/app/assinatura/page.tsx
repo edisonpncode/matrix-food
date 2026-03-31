@@ -36,33 +36,33 @@ export default function AssinaturaPage() {
             <div className="flex items-start justify-between">
               <div>
                 <p className="text-sm text-muted-foreground">Plano atual</p>
-                <h2 className="text-xl font-bold">{subscription.plan.name}</h2>
-                {subscription.plan.description && (
+                <h2 className="text-xl font-bold">{subscription.plan?.name}</h2>
+                {subscription.plan?.description && (
                   <p className="mt-1 text-sm text-muted-foreground">
                     {subscription.plan.description}
                   </p>
                 )}
               </div>
               <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-medium text-green-700">
-                {subscription.subscription.status === "ACTIVE"
+                {subscription.subscription?.status === "ACTIVE"
                   ? "Ativo"
-                  : subscription.subscription.status}
+                  : subscription.subscription?.status}
               </span>
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-lg bg-muted/50 p-3">
                 <p className="text-xs text-muted-foreground">Pedidos grátis</p>
                 <p className="text-lg font-bold">
-                  {subscription.plan.freeOrdersLimit}/mês
+                  {subscription.plan?.freeOrdersLimit}/mês
                 </p>
               </div>
               <div className="rounded-lg bg-muted/50 p-3">
                 <p className="text-xs text-muted-foreground">Taxa sobre vendas</p>
                 <p className="text-lg font-bold">
-                  {subscription.plan.percentageFee}%
+                  {subscription.plan?.percentageFee}%
                 </p>
               </div>
-              {subscription.plan.minMonthlyFee && (
+              {subscription.plan?.minMonthlyFee && (
                 <div className="rounded-lg bg-muted/50 p-3">
                   <p className="text-xs text-muted-foreground">
                     Mensalidade mínima
@@ -88,7 +88,7 @@ export default function AssinaturaPage() {
               <p className="text-xs text-muted-foreground">
                 {Math.max(
                   0,
-                  subscription.plan.freeOrdersLimit -
+                  (subscription.plan?.freeOrdersLimit ?? 0) -
                     subscription.currentMonth.orders
                 )}{" "}
                 grátis restantes
@@ -112,9 +112,9 @@ export default function AssinaturaPage() {
                 R${" "}
                 {Math.max(
                   (subscription.currentMonth.revenue *
-                    Number(subscription.plan.percentageFee)) /
+                    Number(subscription.plan?.percentageFee)) /
                     100,
-                  Number(subscription.plan.minMonthlyFee || 0)
+                  Number(subscription.plan?.minMonthlyFee || 0)
                 ).toFixed(2)}
               </p>
             </div>
