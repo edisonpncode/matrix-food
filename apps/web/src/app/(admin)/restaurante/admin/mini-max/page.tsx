@@ -1,21 +1,28 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
-import { Sparkles, MessageCircle, HelpCircle, ShoppingBag, Users, Star } from "lucide-react";
+import { Sparkles, MessageCircle, HelpCircle, ShoppingBag, Users, Camera } from "lucide-react";
 import { ChatMessage, TypingIndicator } from "@/components/mini-max/chat-message";
 import { ChatInput } from "@/components/mini-max/chat-input";
+import { trpc } from "@/lib/trpc";
 
 export default function MiniMaxPage() {
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const { data: tenant } = trpc.tenant.getById.useQuery();
 
-  const { messages, sendMessage, status, error } = useChat({
-    transport: new DefaultChatTransport({
-      api: "/api/ai/chat",
-    }),
-  });
+  const transport = useMemo(
+    () =>
+      new DefaultChatTransport({
+        api: "/api/ai/chat",
+        body: { tenantId: tenant?.id },
+      }),
+    [tenant?.id]
+  );
+
+  const { messages, sendMessage, status, error } = useChat({ transport });
 
   const isLoading = status === "streaming" || status === "submitted";
 
@@ -45,8 +52,8 @@ export default function MiniMaxPage() {
   };
 
   const suggestions = [
+    { icon: Camera, text: "Cadastrar cardápio por foto", query: "Quero cadastrar um cardápio. Vou enviar uma imagem agora." },
     { icon: HelpCircle, text: "Como cadastrar produtos?", query: "Como faço para cadastrar um novo produto no sistema?" },
-    { icon: Star, text: "Como funciona o fidelidade?", query: "Como funciona o programa de fidelidade para clientes?" },
     { icon: ShoppingBag, text: "Como gerenciar pedidos?", query: "Como funciona o gerenciamento de pedidos no sistema?" },
     { icon: Users, text: "Como cadastrar funcionários?", query: "Como cadastro funcionários e defino permissões no sistema?" },
   ];
