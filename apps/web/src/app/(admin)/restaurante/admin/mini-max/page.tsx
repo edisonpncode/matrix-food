@@ -83,7 +83,8 @@ export default function MiniMaxPage() {
             {isLoading && <TypingIndicator />}
             {error && (
               <div className="ml-11 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-                Erro ao comunicar com a IA. Tente novamente.
+                <p className="font-medium">Erro ao comunicar com a IA</p>
+                <p className="mt-1 text-xs opacity-75">{error.message || "Tente novamente."}</p>
               </div>
             )}
             <div ref={messagesEndRef} />
