@@ -48,10 +48,11 @@ const deliveryAddressInput = z.object({
   street: z.string().min(1),
   number: z.string().min(1),
   complement: z.string().optional(),
-  neighborhood: z.string().min(1),
-  city: z.string().min(1),
-  state: z.string().min(1).max(2),
-  zipCode: z.string().min(1),
+  neighborhood: z.string().optional().default(""),
+  city: z.string().optional().default(""),
+  state: z.string().max(2).optional().default(""),
+  zipCode: z.string().optional().default(""),
+  referencePoint: z.string().optional(),
 });
 
 export const orderRouter = createTRPCRouter({
@@ -549,7 +550,7 @@ export const orderRouter = createTRPCRouter({
         deliveryAddress: deliveryAddressInput.nullable().optional(),
         deliveryAreaId: z.string().uuid().optional(),
         manualDeliveryFee: z.string().optional(),
-        paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]),
+        paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]).optional().default("CASH"),
         changeFor: z.string().nullable().optional(),
         notes: z.string().optional(),
         promoCode: z.string().optional(),
