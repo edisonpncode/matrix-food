@@ -87,6 +87,7 @@ export const staffRouter = createTRPCRouter({
         name: z.string().min(1).max(255),
         email: z.string().email("Email inválido"),
         phone: z.string().max(20).optional(),
+        role: z.enum(["OWNER", "MANAGER", "CASHIER", "DELIVERY"]).optional().default("CASHIER"),
         userTypeId: z.string().uuid().nullable().optional(),
         photoUrl: z.string().url().nullable().optional(),
         pin: z
@@ -136,7 +137,7 @@ export const staffRouter = createTRPCRouter({
           name: input.name,
           email: input.email,
           phone: input.phone,
-          role: "CASHIER",
+          role: input.role,
           userTypeId: input.userTypeId ?? null,
           photoUrl: input.photoUrl ?? null,
           pin: input.pin,
@@ -165,6 +166,7 @@ export const staffRouter = createTRPCRouter({
         name: z.string().min(1).max(255).optional(),
         email: z.string().email().nullable().optional(),
         phone: z.string().max(20).nullable().optional(),
+        role: z.enum(["OWNER", "MANAGER", "CASHIER", "DELIVERY"]).optional(),
         userTypeId: z.string().uuid().nullable().optional(),
         photoUrl: z.string().url().nullable().optional(),
         pin: z

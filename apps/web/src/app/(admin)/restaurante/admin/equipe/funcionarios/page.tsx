@@ -15,6 +15,8 @@ import {
   Hash,
   Shield,
   Camera,
+  Truck,
+  Briefcase,
 } from "lucide-react";
 import { ImageUploader } from "@/components/admin/image-uploader";
 
@@ -49,14 +51,29 @@ export default function FuncionariosPage() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
+  const [role, setRole] = useState<"OWNER" | "MANAGER" | "CASHIER" | "DELIVERY">("CASHIER");
   const [userTypeId, setUserTypeId] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [pin, setPin] = useState("");
+
+  const ROLE_OPTIONS = [
+    { value: "MANAGER" as const, label: "Gerente" },
+    { value: "CASHIER" as const, label: "Caixa / Atendente" },
+    { value: "DELIVERY" as const, label: "Entregador (Motoboy)" },
+  ];
+
+  const ROLE_LABELS: Record<string, { label: string; color: string }> = {
+    OWNER: { label: "Dono", color: "bg-amber-100 text-amber-700" },
+    MANAGER: { label: "Gerente", color: "bg-blue-100 text-blue-700" },
+    CASHIER: { label: "Caixa", color: "bg-green-100 text-green-700" },
+    DELIVERY: { label: "Entregador", color: "bg-purple-100 text-purple-700" },
+  };
 
   function resetForm() {
     setName("");
     setEmail("");
     setPhone("");
+    setRole("CASHIER");
     setUserTypeId(null);
     setPhotoUrl(null);
     setPin("");
@@ -67,6 +84,7 @@ export default function FuncionariosPage() {
     name: string;
     email: string | null;
     phone: string | null;
+    role: string;
     userTypeId: string | null;
     photoUrl: string | null;
     pin: string | null;
@@ -75,6 +93,7 @@ export default function FuncionariosPage() {
     setName(staff.name);
     setEmail(staff.email ?? "");
     setPhone(staff.phone ?? "");
+    setRole(staff.role as "OWNER" | "MANAGER" | "CASHIER" | "DELIVERY");
     setUserTypeId(staff.userTypeId);
     setPhotoUrl(staff.photoUrl);
     setPin(staff.pin ?? "");
@@ -89,6 +108,7 @@ export default function FuncionariosPage() {
         name,
         email: email || null,
         phone: phone || null,
+        role,
         userTypeId,
         photoUrl,
         pin: pin || null,
@@ -98,6 +118,7 @@ export default function FuncionariosPage() {
         name,
         email,
         phone: phone || undefined,
+        role,
         userTypeId,
         photoUrl,
         pin,
@@ -219,10 +240,34 @@ export default function FuncionariosPage() {
               </div>
             </div>
 
+            {/* Função */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Função *
+              </label>
+              <div className="relative">
+                <Briefcase className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value as "MANAGER" | "CASHIER" | "DELIVERY")}
+                  className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                >
+                  {ROLE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Entregadores aparecerão como opção ao despachar pedidos de tele entrega.
+              </p>
+            </div>
+
             {/* Tipo de Usuário */}
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
-                Tipo de Usuário (Perfil de Acesso) *
+                Tipo de Usuário (Perfil de Acesso)
               </label>
               <div className="relative">
                 <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -365,6 +410,13 @@ export default function FuncionariosPage() {
                 <h3 className="font-medium text-foreground truncate">
                   {staff.name}
                 </h3>
+                {/* Role badge */}
+                {ROLE_LABELS[staff.role] && (
+                  <span className={`flex items-center gap-1 rounded px-2 py-0.5 text-xs font-medium ${ROLE_LABELS[staff.role]!.color}`}>
+                    {staff.role === "DELIVERY" ? <Truck className="h-3 w-3" /> : <Briefcase className="h-3 w-3" />}
+                    {ROLE_LABELS[staff.role]!.label}
+                  </span>
+                )}
                 {staff.userTypeName && (
                   <span className="flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
                     <Shield className="h-3 w-3" />
@@ -418,6 +470,7 @@ export default function FuncionariosPage() {
                     name: staff.name,
                     email: staff.email,
                     phone: staff.phone,
+                    role: staff.role,
                     userTypeId: staff.userTypeId,
                     photoUrl: staff.photoUrl,
                     pin: staff.pin,
