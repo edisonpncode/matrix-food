@@ -612,6 +612,7 @@ export default function NovoPedidoPage() {
       paymentMethod: data.paymentMethod || "CASH",
       changeFor: data.changeFor,
       customerId: h.customerId,
+      cpf: h.cpf,
       tableNumber: h.tableNumber,
       deliveryAddress: h.deliveryAddress || null,
       deliveryAreaId: h.deliveryAreaId,

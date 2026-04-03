@@ -122,7 +122,7 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
   const [manualFee, setManualFee] = useState("");
   const [checkingArea, setCheckingArea] = useState(false);
 
-  // Customer search query
+  // Customer search query (PICKUP / DELIVERY)
   const searchEnabled = searchQuery.length >= 3 && showSearchResults;
   const { data: searchResults, isLoading: searchLoading } =
     trpc.customer.searchByPhone.useQuery(
@@ -132,6 +132,30 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
 
   // Wrap search results in array since searchByPhone returns single result or null
   const searchResultsList = searchResults ? [searchResults] : [];
+
+  // Auto-lookup por telefone (BALCÃO / MESA)
+  const isPhoneComplete = phone.replace(/\D/g, "").length >= 10;
+  const autoLookupEnabled =
+    (orderType === "COUNTER" || orderType === "TABLE") && isPhoneComplete && !customerId;
+  const { data: autoLookupResult, isLoading: autoLookupLoading } =
+    trpc.customer.searchByPhone.useQuery(
+      { phone },
+      { enabled: autoLookupEnabled }
+    );
+
+  // Auto-preencher nome/cpf quando cliente é encontrado pelo telefone
+  useEffect(() => {
+    if (!autoLookupEnabled || !autoLookupResult) return;
+    if (customerId === autoLookupResult.id) return; // já preenchido
+
+    if (!name || name === "Balcão" || name === `Mesa ${tableNumber}`) {
+      setName(autoLookupResult.name);
+    }
+    if (!cpf && autoLookupResult.cpf) {
+      setCpf(autoLookupResult.cpf);
+    }
+    setCustomerId(autoLookupResult.id);
+  }, [autoLookupResult, autoLookupEnabled]);
 
   // Notify parent of changes
   useEffect(() => {
@@ -153,10 +177,7 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
         orderType === "COUNTER" || orderType === "TABLE"
           ? phone
           : selectedCustomer?.phone || phone || "",
-      customerId:
-        orderType === "PICKUP" || orderType === "DELIVERY"
-          ? selectedCustomer?.id || customerId
-          : undefined,
+      customerId: selectedCustomer?.id || customerId,
       cpf,
       tableNumber: orderType === "TABLE" ? parseInt(tableNumber) || undefined : undefined,
       quickSale: orderType === "COUNTER" && quickSale,
@@ -357,7 +378,11 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
                     <input
                       type="text"
                       value={phone}
-                      onChange={(e) => setPhone(formatPhone(e.target.value))}
+                      onChange={(e) => {
+                        setPhone(formatPhone(e.target.value));
+                        // Limpar customerId se telefone mudar
+                        if (customerId) { setCustomerId(undefined); }
+                      }}
                       placeholder="Telefone"
                       className={inputClass}
                     />
@@ -381,6 +406,18 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
                     className={inputClass}
                   />
                 </div>
+                {!quickSale && autoLookupLoading && isPhoneComplete && (
+                  <div className="flex items-center">
+                    <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                  </div>
+                )}
+                {!quickSale && customerId && (
+                  <div className="flex items-center">
+                    <span className="flex items-center gap-1 rounded-md bg-green-50 px-2 py-1 text-xs text-green-700">
+                      <Check className="h-3 w-3" /> Cliente reconhecido
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -401,6 +438,21 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-center text-xl font-bold focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
+              <div className="w-44">
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                  Telefone (opcional)
+                </label>
+                <input
+                  type="text"
+                  value={phone}
+                  onChange={(e) => {
+                    setPhone(formatPhone(e.target.value));
+                    if (customerId) { setCustomerId(undefined); }
+                  }}
+                  placeholder="(00) 00000-0000"
+                  className={inputClass}
+                />
+              </div>
               <div className="flex-1">
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
                   Nome (opcional)
@@ -413,6 +465,18 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
                   className={inputClass}
                 />
               </div>
+              {autoLookupLoading && isPhoneComplete && (
+                <div className="flex items-center">
+                  <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+                </div>
+              )}
+              {customerId && (
+                <div className="flex items-center">
+                  <span className="flex items-center gap-1 rounded-md bg-green-50 px-2 py-1 text-xs text-green-700">
+                    <Check className="h-3 w-3" /> Cliente reconhecido
+                  </span>
+                </div>
+              )}
               <div className="flex-shrink-0">
                 <p className="rounded-md bg-blue-50 px-3 py-2 text-xs text-blue-700">
                   Pagamento ao fechar a mesa

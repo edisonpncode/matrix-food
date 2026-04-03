@@ -55,6 +55,143 @@ const deliveryAddressInput = z.object({
   referencePoint: z.string().optional(),
 });
 
+// --- Helper: auto-salvar cliente ao criar pedido ---
+
+interface DeliveryAddressForCustomer {
+  street: string;
+  number: string;
+  complement?: string;
+  neighborhood?: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  referencePoint?: string;
+}
+
+async function ensureCustomerFromOrder(params: {
+  db: ReturnType<typeof getDb>;
+  tenantId: string;
+  customerName: string;
+  customerPhone: string;
+  cpf?: string;
+  deliveryAddress?: DeliveryAddressForCustomer | null;
+}): Promise<string | null> {
+  const { db, tenantId, customerName, customerPhone, cpf, deliveryAddress } = params;
+
+  // Sem telefone = sem cadastro automático
+  const cleanPhone = customerPhone?.trim();
+  if (!cleanPhone || cleanPhone.length < 8) return null;
+
+  const cleanName = customerName?.trim();
+  if (!cleanName) return null;
+
+  // Buscar cliente existente por telefone
+  const [existing] = await db
+    .select()
+    .from(customers)
+    .where(eq(customers.phone, cleanPhone))
+    .limit(1);
+
+  if (existing) {
+    // Atualizar nome se diferente e não-vazio
+    const updates: Record<string, unknown> = {};
+    if (cleanName && cleanName !== existing.name && cleanName !== "Balcão") {
+      updates.name = cleanName;
+    }
+    // Atualizar CPF se o existente não tem e novo foi fornecido
+    if (cpf && !existing.cpf) {
+      updates.cpf = cpf;
+    }
+
+    // Adicionar endereço se for delivery e não duplicado
+    if (deliveryAddress && deliveryAddress.street) {
+      const currentAddresses = (existing.addresses as Array<Record<string, unknown>>) || [];
+      const isDuplicate = currentAddresses.some(
+        (a) =>
+          String(a.street || "").toLowerCase().trim() === deliveryAddress.street.toLowerCase().trim() &&
+          String(a.number || "").trim() === deliveryAddress.number.trim()
+      );
+      if (!isDuplicate) {
+        const newAddr = {
+          label: `Endereço ${currentAddresses.length + 1}`,
+          street: deliveryAddress.street,
+          number: deliveryAddress.number,
+          complement: deliveryAddress.complement || "",
+          neighborhood: deliveryAddress.neighborhood || "",
+          city: deliveryAddress.city || "",
+          state: deliveryAddress.state || "",
+          zipCode: deliveryAddress.zipCode || "",
+          referencePoint: deliveryAddress.referencePoint || "",
+        };
+        updates.addresses = [...currentAddresses, newAddr];
+      }
+    }
+
+    if (Object.keys(updates).length > 0) {
+      await db.update(customers).set(updates).where(eq(customers.id, existing.id));
+    }
+
+    // Garantir vínculo com o tenant
+    const [existingTenant] = await db
+      .select()
+      .from(customerTenants)
+      .where(
+        and(
+          eq(customerTenants.customerId, existing.id),
+          eq(customerTenants.tenantId, tenantId)
+        )
+      )
+      .limit(1);
+
+    if (!existingTenant) {
+      await db.insert(customerTenants).values({
+        customerId: existing.id,
+        tenantId,
+      });
+    }
+
+    return existing.id;
+  }
+
+  // Criar novo cliente
+  const addresses = deliveryAddress && deliveryAddress.street
+    ? [
+        {
+          label: "Endereço 1",
+          street: deliveryAddress.street,
+          number: deliveryAddress.number,
+          complement: deliveryAddress.complement || "",
+          neighborhood: deliveryAddress.neighborhood || "",
+          city: deliveryAddress.city || "",
+          state: deliveryAddress.state || "",
+          zipCode: deliveryAddress.zipCode || "",
+          referencePoint: deliveryAddress.referencePoint || "",
+        },
+      ]
+    : [];
+
+  const [created] = await db
+    .insert(customers)
+    .values({
+      name: cleanName,
+      phone: cleanPhone,
+      cpf: cpf ?? null,
+      email: null,
+      addresses,
+    })
+    .returning();
+
+  if (!created) return null;
+
+  // Criar vínculo com o tenant
+  await db.insert(customerTenants).values({
+    customerId: created.id,
+    tenantId,
+  });
+
+  return created.id;
+}
+
 export const orderRouter = createTRPCRouter({
   /**
    * Cria um novo pedido (público - clientes não logados).
@@ -312,6 +449,15 @@ export const orderRouter = createTRPCRouter({
       const nextOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
       const displayNumber = generateOrderNumber(nextOrderNumber);
 
+      // Auto-salvar cliente (se telefone fornecido)
+      const resolvedCustomerId = await ensureCustomerFromOrder({
+        db,
+        tenantId: input.tenantId,
+        customerName: input.customerName,
+        customerPhone: input.customerPhone,
+        deliveryAddress: input.deliveryAddress,
+      });
+
       // 9. Criar pedido + itens em transação
       const [order] = await db
         .insert(orders)
@@ -322,6 +468,7 @@ export const orderRouter = createTRPCRouter({
           type: input.type,
           customerName: input.customerName,
           customerPhone: input.customerPhone,
+          customerId: resolvedCustomerId ?? null,
           deliveryAddress: input.deliveryAddress,
           deliveryAreaId: input.deliveryAreaId ?? null,
           subtotal: subtotal.toFixed(2),
@@ -395,6 +542,32 @@ export const orderRouter = createTRPCRouter({
           description: `Pedido ${displayNumber}`,
           orderId: order.id,
         });
+      }
+
+      // 12. Atualizar stats do cliente
+      if (resolvedCustomerId) {
+        const [existingCt] = await db
+          .select()
+          .from(customerTenants)
+          .where(
+            and(
+              eq(customerTenants.customerId, resolvedCustomerId),
+              eq(customerTenants.tenantId, input.tenantId)
+            )
+          )
+          .limit(1);
+
+        if (existingCt) {
+          await db
+            .update(customerTenants)
+            .set({
+              totalOrders: sql`${customerTenants.totalOrders} + 1`,
+              totalSpent: sql`${customerTenants.totalSpent} + ${total.toFixed(2)}::decimal`,
+              lastOrderAt: new Date(),
+              ...(existingCt.firstOrderAt ? {} : { firstOrderAt: new Date() }),
+            })
+            .where(eq(customerTenants.id, existingCt.id));
+        }
       }
 
       return {
@@ -547,6 +720,7 @@ export const orderRouter = createTRPCRouter({
         customerId: z.string().uuid().optional(),
         customerName: z.string().default("Balcão"),
         customerPhone: z.string().default(""),
+        cpf: z.string().max(14).optional(),
         deliveryAddress: deliveryAddressInput.nullable().optional(),
         deliveryAreaId: z.string().uuid().optional(),
         manualDeliveryFee: z.string().optional(),
@@ -786,6 +960,17 @@ export const orderRouter = createTRPCRouter({
       const nextOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
       const displayNumber = generateOrderNumber(nextOrderNumber);
 
+      // Auto-salvar cliente (se telefone fornecido)
+      const resolvedCustomerId = input.customerId
+        ?? await ensureCustomerFromOrder({
+             db,
+             tenantId: ctx.tenantId,
+             customerName: input.customerName,
+             customerPhone: input.customerPhone,
+             cpf: input.cpf,
+             deliveryAddress: input.deliveryAddress,
+           });
+
       // Criar pedido com source POS
       const [order] = await db
         .insert(orders)
@@ -798,7 +983,7 @@ export const orderRouter = createTRPCRouter({
           status: orderStatus,
           customerName: input.customerName,
           customerPhone: input.customerPhone,
-          customerId: input.customerId ?? null,
+          customerId: resolvedCustomerId ?? null,
           tableNumber: input.tableNumber ?? null,
           deliveryPersonId: null,
           deliveryAreaId: input.deliveryAreaId ?? null,
@@ -875,14 +1060,14 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
-      // Atualizar stats do cliente (se customerId fornecido)
-      if (input.customerId) {
+      // Atualizar stats do cliente
+      if (resolvedCustomerId) {
         const [existingCt] = await db
           .select()
           .from(customerTenants)
           .where(
             and(
-              eq(customerTenants.customerId, input.customerId),
+              eq(customerTenants.customerId, resolvedCustomerId),
               eq(customerTenants.tenantId, ctx.tenantId)
             )
           )
