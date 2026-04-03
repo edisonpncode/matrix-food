@@ -63,6 +63,8 @@ export interface OrderHeaderData {
 
 interface OrderTypeHeaderProps {
   onDataChange: (data: OrderHeaderData) => void;
+  defaultCity?: string;
+  defaultState?: string;
 }
 
 const ORDER_TYPES = [
@@ -88,7 +90,7 @@ function formatCPFInput(value: string): string {
   return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
 }
 
-export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
+export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: OrderTypeHeaderProps) {
   const [orderType, setOrderType] = useState<OrderType>("COUNTER");
   const [quickSale, setQuickSale] = useState(false);
 
@@ -111,8 +113,8 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
   const [number, setNumber] = useState("");
   const [complement, setComplement] = useState("");
   const [neighborhood, setNeighborhood] = useState("");
-  const [city, setCity] = useState("");
-  const [state, setState] = useState("");
+  const [city, setCity] = useState(defaultCity ?? "");
+  const [state, setState] = useState(defaultState ?? "");
   const [referencePoint, setReferencePoint] = useState("");
 
   // Delivery area
@@ -156,6 +158,12 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
     }
     setCustomerId(autoLookupResult.id);
   }, [autoLookupResult, autoLookupEnabled]);
+
+  // Auto-preencher cidade/estado do restaurante quando props chegarem
+  useEffect(() => {
+    if (defaultCity && !city) setCity(defaultCity);
+    if (defaultState && !state) setState(defaultState);
+  }, [defaultCity, defaultState]);
 
   // Notify parent of changes
   useEffect(() => {
@@ -251,8 +259,8 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
     setNumber("");
     setComplement("");
     setNeighborhood("");
-    setCity("");
-    setState("");
+    setCity(defaultCity ?? "");
+    setState(defaultState ?? "");
     setReferencePoint("");
     setDeliveryAreaInfo(null);
     setOutsideArea(false);

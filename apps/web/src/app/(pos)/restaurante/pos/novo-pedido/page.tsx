@@ -104,6 +104,7 @@ export default function NovoPedidoPage() {
     selectedCustomizations: Record<string, string[]>;
   } | null>(null);
 
+  const { data: tenant } = trpc.tenant.getById.useQuery();
   const { data: categories } = trpc.category.listAll.useQuery();
   const { data: products } = trpc.product.listForPOS.useQuery();
   const { data: promos } = trpc.promotion.list.useQuery();
@@ -656,7 +657,11 @@ export default function NovoPedidoPage() {
     <div className="-m-6 flex h-screen flex-col">
       {/* Order Type Header - Always visible at top */}
       <div className="flex-shrink-0 border-b border-border px-4 py-3">
-        <OrderTypeHeader onDataChange={setOrderHeaderData} />
+        <OrderTypeHeader
+          onDataChange={setOrderHeaderData}
+          defaultCity={tenant?.city ?? ""}
+          defaultState={tenant?.state ?? ""}
+        />
       </div>
 
       <div className="flex flex-1 overflow-hidden">
