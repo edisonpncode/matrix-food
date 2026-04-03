@@ -218,6 +218,29 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
     }
   }
 
+  // Transferir valor da busca para o campo correto (telefone ou CPF)
+  function handleTransferSearchToFields() {
+    const digits = searchQuery.replace(/\D/g, "");
+    if (digits.length === 11 && digits[2] === "9") {
+      // Celular: 11 dígitos começando com 9 no terceiro dígito
+      setPhone(formatPhone(digits));
+    } else if (digits.length === 10) {
+      // Telefone fixo: 10 dígitos
+      setPhone(formatPhone(digits));
+    } else if (digits.length === 11) {
+      // CPF: 11 dígitos (não é celular)
+      setCpf(formatCPFInput(digits));
+    } else if (digits.length >= 8 && digits.length <= 11) {
+      // Assume telefone para outros tamanhos
+      setPhone(formatPhone(digits));
+    } else {
+      // Fallback: coloca como telefone
+      setPhone(formatPhone(digits));
+    }
+    setSearchQuery("");
+    setShowSearchResults(false);
+  }
+
   function clearCustomer() {
     setSelectedCustomer(null);
     setName("");
@@ -501,6 +524,11 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
                           setShowSearchResults(true);
                         }}
                         onFocus={() => searchQuery.length >= 3 && setShowSearchResults(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !searchLoading && searchResultsList.length === 0 && searchQuery.replace(/\D/g, "").length >= 8) {
+                            handleTransferSearchToFields();
+                          }
+                        }}
                         placeholder="Buscar por telefone ou CPF..."
                         className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                       />
@@ -538,7 +566,22 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
                         </div>
                       )}
                       {!searchLoading && searchResultsList.length === 0 && (
-                        <p className="p-3 text-sm text-muted-foreground">Nenhum cliente encontrado.</p>
+                        <div className="p-3">
+                          <p className="text-sm text-muted-foreground mb-2">Nenhum cliente encontrado.</p>
+                          {searchQuery.replace(/\D/g, "").length >= 8 && (
+                            <button
+                              type="button"
+                              onClick={handleTransferSearchToFields}
+                              className="flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 transition-colors"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              {searchQuery.replace(/\D/g, "").length === 11 && searchQuery.replace(/\D/g, "")[2] !== "9"
+                                ? "Usar como CPF"
+                                : "Usar como Telefone"}
+                              <span className="text-xs text-muted-foreground ml-1">(ou Enter)</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                       {searchResultsList.map((c: { id: string; name: string; phone: string | null; cpf: string | null; addresses: unknown }) => (
                         <button
@@ -610,6 +653,11 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
                           setShowSearchResults(true);
                         }}
                         onFocus={() => searchQuery.length >= 3 && setShowSearchResults(true)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !searchLoading && searchResultsList.length === 0 && searchQuery.replace(/\D/g, "").length >= 8) {
+                            handleTransferSearchToFields();
+                          }
+                        }}
                         placeholder="Buscar cliente por telefone ou CPF..."
                         className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                       />
@@ -646,7 +694,22 @@ export function OrderTypeHeader({ onDataChange }: OrderTypeHeaderProps) {
                         </div>
                       )}
                       {!searchLoading && searchResultsList.length === 0 && (
-                        <p className="p-3 text-sm text-muted-foreground">Nenhum cliente encontrado.</p>
+                        <div className="p-3">
+                          <p className="text-sm text-muted-foreground mb-2">Nenhum cliente encontrado.</p>
+                          {searchQuery.replace(/\D/g, "").length >= 8 && (
+                            <button
+                              type="button"
+                              onClick={handleTransferSearchToFields}
+                              className="flex items-center gap-1.5 rounded-md bg-primary/10 px-3 py-1.5 text-sm font-medium text-primary hover:bg-primary/20 transition-colors"
+                            >
+                              <Check className="h-3.5 w-3.5" />
+                              {searchQuery.replace(/\D/g, "").length === 11 && searchQuery.replace(/\D/g, "")[2] !== "9"
+                                ? "Usar como CPF"
+                                : "Usar como Telefone"}
+                              <span className="text-xs text-muted-foreground ml-1">(ou Enter)</span>
+                            </button>
+                          )}
+                        </div>
                       )}
                       {searchResultsList.map((c: { id: string; name: string; phone: string | null; cpf: string | null; addresses: unknown }) => (
                         <button
