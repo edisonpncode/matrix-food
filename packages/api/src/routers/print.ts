@@ -7,6 +7,7 @@ import {
   orders,
   orderItems,
   orderItemCustomizations,
+  orderItemIngredients,
   tenantUsers,
   eq,
 } from "@matrix-food/database";
@@ -114,7 +115,11 @@ export const printRouter = createTRPCRouter({
             .select()
             .from(orderItemCustomizations)
             .where(eq(orderItemCustomizations.orderItemId, item.id));
-          return { ...item, customizations };
+          const ingredientMods = await db
+            .select()
+            .from(orderItemIngredients)
+            .where(eq(orderItemIngredients.orderItemId, item.id));
+          return { ...item, customizations, ingredientModifications: ingredientMods };
         })
       );
 
@@ -154,6 +159,10 @@ export const printRouter = createTRPCRouter({
           customizations: item.customizations.map((c) => ({
             customizationOptionName: c.customizationOptionName,
             price: String(c.price),
+          })),
+          ingredientModifications: item.ingredientModifications.map((m) => ({
+            modification: m.modification,
+            price: String(m.price),
           })),
         })),
       };

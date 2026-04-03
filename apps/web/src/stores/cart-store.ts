@@ -8,6 +8,15 @@ export interface CartCustomization {
   price: number;
 }
 
+export interface CartIngredientModification {
+  ingredientId: string;
+  ingredientName: string;
+  modification: string; // "SEM Queijo", "+2 Ovo", "MAIS Maionese"
+  price: number;
+  quantity?: number;
+  state?: string;
+}
+
 export interface CartItem {
   id: string; // unique ID para o item no carrinho
   productId: string;
@@ -16,9 +25,10 @@ export interface CartItem {
   variantName: string | null;
   unitPrice: number; // preço base (produto ou variante)
   customizations: CartCustomization[];
+  ingredientModifications: CartIngredientModification[];
   quantity: number;
   notes: string;
-  itemTotal: number; // (unitPrice + customizations) * quantity
+  itemTotal: number; // (unitPrice + customizations + ingredients) * quantity
 }
 
 interface CartState {
@@ -39,7 +49,11 @@ function calculateItemTotal(item: Omit<CartItem, "id" | "itemTotal">): number {
     (sum, c) => sum + c.price,
     0
   );
-  return (item.unitPrice + customizationsPrice) * item.quantity;
+  const ingredientsPrice = (item.ingredientModifications ?? []).reduce(
+    (sum, m) => sum + m.price,
+    0
+  );
+  return (item.unitPrice + customizationsPrice + ingredientsPrice) * item.quantity;
 }
 
 function generateItemId(): string {

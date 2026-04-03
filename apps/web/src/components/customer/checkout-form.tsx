@@ -301,6 +301,11 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
             customizationOptionName: c.optionName,
             optionId: c.optionId,
           })),
+          ingredients: (item.ingredientModifications ?? []).map((m) => ({
+            ingredientId: m.ingredientId,
+            quantity: m.quantity,
+            state: m.state as "SEM" | "COM" | "MENOS" | "MAIS" | undefined,
+          })),
         })),
       });
 

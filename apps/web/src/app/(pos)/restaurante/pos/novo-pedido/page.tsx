@@ -627,6 +627,15 @@ export default function NovoPedidoPage() {
           customizationOptionName: c.optionName,
           optionId: c.optionId,
         })),
+        ingredients: ((item as Record<string, unknown>).ingredientModifications as Array<{
+          ingredientId: string;
+          quantity?: number;
+          state?: string;
+        }> ?? []).map((m) => ({
+          ingredientId: m.ingredientId,
+          quantity: m.quantity,
+          state: m.state as "SEM" | "COM" | "MENOS" | "MAIS" | undefined,
+        })),
       })),
     });
   }

@@ -19,6 +19,7 @@ import {
   UserCircle,
   Monitor,
   Sparkles,
+  Egg,
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -29,6 +30,7 @@ const menuItems = [
   { href: "/pedidos", label: "Pedidos", icon: ClipboardList },
   { href: "/categorias", label: "Categorias", icon: FolderOpen },
   { href: "/produtos", label: "Produtos", icon: ShoppingBag },
+  { href: "/ingredientes", label: "Ingredientes", icon: Egg },
   { href: "/clientes", label: "Clientes", icon: UserCircle },
   { href: "/promocoes", label: "Promoções", icon: Tag },
   { href: "/fidelidade", label: "Fidelidade", icon: Star },

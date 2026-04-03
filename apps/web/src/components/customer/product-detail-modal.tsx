@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { X } from "lucide-react";
+import { useState, useEffect } from "react";
+import { X, Minus, Plus } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
 import { QuantitySelector } from "./quantity-selector";
@@ -33,6 +33,10 @@ export function ProductDetailModal({
   >(new Map());
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
+  // Ingredientes: { ingredientId → { quantity (QUANTITY type) | state (DESCRIPTION type) } }
+  const [ingredientSelections, setIngredientSelections] = useState<
+    Map<string, { quantity?: number; state?: string }>
+  >(new Map());
 
   if (isLoading) {
     return (
@@ -53,6 +57,29 @@ export function ProductDetailModal({
 
   const variants = product.variants ?? [];
   const groups = product.customizationGroups ?? [];
+  const productIngredients = (product as { ingredients?: Array<{
+    ingredientId: string;
+    ingredientName: string;
+    ingredientType: "QUANTITY" | "DESCRIPTION";
+    defaultQuantity: number;
+    defaultState: string;
+    additionalPrice: string;
+  }> }).ingredients ?? [];
+
+  // Initialize ingredient selections from defaults (once)
+  useEffect(() => {
+    if (productIngredients.length > 0 && ingredientSelections.size === 0) {
+      const defaults = new Map<string, { quantity?: number; state?: string }>();
+      productIngredients.forEach((ing) => {
+        if (ing.ingredientType === "QUANTITY") {
+          defaults.set(ing.ingredientId, { quantity: ing.defaultQuantity });
+        } else {
+          defaults.set(ing.ingredientId, { state: ing.defaultState });
+        }
+      });
+      setIngredientSelections(defaults);
+    }
+  }, [productIngredients.length]);
 
   // Auto-select first variant
   const activeVariantId =
@@ -75,7 +102,25 @@ export function ProductDetailModal({
     }
   });
 
-  const totalPrice = (basePrice + customizationsPrice) * quantity;
+  // Calcular preço extra dos ingredientes
+  let ingredientsPrice = 0;
+  ingredientSelections.forEach((selection, ingredientId) => {
+    const ing = productIngredients.find((i) => i.ingredientId === ingredientId);
+    if (!ing) return;
+    const addPrice = parseFloat(ing.additionalPrice);
+    if (ing.ingredientType === "QUANTITY") {
+      const chosen = selection.quantity ?? ing.defaultQuantity;
+      if (chosen > ing.defaultQuantity) {
+        ingredientsPrice += (chosen - ing.defaultQuantity) * addPrice;
+      }
+    } else {
+      const chosen = selection.state ?? ing.defaultState;
+      if (chosen === "MAIS") ingredientsPrice += addPrice;
+      if (chosen === "COM" && ing.defaultState === "SEM") ingredientsPrice += addPrice;
+    }
+  });
+
+  const totalPrice = (basePrice + customizationsPrice + ingredientsPrice) * quantity;
 
   function toggleOption(groupId: string, optionId: string, maxSelections: number) {
     setSelectedOptions((prev) => {
@@ -116,6 +161,61 @@ export function ProductDetailModal({
       }
     );
 
+    // Build ingredient modifications for cart
+    const ingredientMods: Array<{
+      ingredientId: string;
+      ingredientName: string;
+      modification: string;
+      price: number;
+      quantity?: number;
+      state?: string;
+    }> = [];
+
+    ingredientSelections.forEach((selection, ingredientId) => {
+      const ing = productIngredients.find(
+        (i) => i.ingredientId === ingredientId
+      );
+      if (!ing) return;
+      const addPrice = parseFloat(ing.additionalPrice);
+
+      if (ing.ingredientType === "QUANTITY") {
+        const chosen = selection.quantity ?? ing.defaultQuantity;
+        if (chosen === ing.defaultQuantity) return; // no change
+        let modification: string;
+        let price = 0;
+        if (chosen === 0) {
+          modification = `SEM ${ing.ingredientName}`;
+        } else if (chosen > ing.defaultQuantity) {
+          const diff = chosen - ing.defaultQuantity;
+          modification = `+${diff} ${ing.ingredientName}`;
+          price = diff * addPrice;
+        } else {
+          const diff = ing.defaultQuantity - chosen;
+          modification = `-${diff} ${ing.ingredientName}`;
+        }
+        ingredientMods.push({
+          ingredientId,
+          ingredientName: ing.ingredientName,
+          modification,
+          price,
+          quantity: chosen,
+        });
+      } else {
+        const chosen = selection.state ?? ing.defaultState;
+        if (chosen === ing.defaultState) return; // no change
+        let price = 0;
+        if (chosen === "MAIS") price = addPrice;
+        if (chosen === "COM" && ing.defaultState === "SEM") price = addPrice;
+        ingredientMods.push({
+          ingredientId,
+          ingredientName: ing.ingredientName,
+          modification: `${chosen} ${ing.ingredientName}`,
+          price,
+          state: chosen,
+        });
+      }
+    });
+
     addItem({
       productId: product.id,
       productName: product.name,
@@ -123,6 +223,7 @@ export function ProductDetailModal({
       variantName: activeVariant?.name ?? null,
       unitPrice: basePrice,
       customizations,
+      ingredientModifications: ingredientMods,
       quantity,
       notes,
     });
@@ -283,6 +384,130 @@ export function ProductDetailModal({
               </div>
             </div>
           ))}
+
+          {/* Ingredientes */}
+          {productIngredients.length > 0 && (
+            <div className="mt-5">
+              <h3 className="text-sm font-semibold text-gray-700">
+                Ingredientes
+              </h3>
+              <div className="mt-2 space-y-2">
+                {productIngredients.map((ing) => {
+                  const selection = ingredientSelections.get(ing.ingredientId);
+                  const addPrice = parseFloat(ing.additionalPrice);
+
+                  if (ing.ingredientType === "QUANTITY") {
+                    const currentQty = selection?.quantity ?? ing.defaultQuantity;
+                    const extraQty = Math.max(0, currentQty - ing.defaultQuantity);
+                    return (
+                      <div
+                        key={ing.ingredientId}
+                        className="flex items-center justify-between rounded-lg px-3 py-2.5 hover:bg-gray-50"
+                      >
+                        <div>
+                          <span className="text-sm">{ing.ingredientName}</span>
+                          {addPrice > 0 && (
+                            <span className="ml-1 text-xs text-gray-400">
+                              ({formatCurrency(addPrice)}/un)
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {extraQty > 0 && addPrice > 0 && (
+                            <span className="text-xs text-primary font-medium">
+                              +{formatCurrency(extraQty * addPrice)}
+                            </span>
+                          )}
+                          <div className="flex items-center gap-1 rounded-full border border-gray-200">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newMap = new Map(ingredientSelections);
+                                newMap.set(ing.ingredientId, {
+                                  quantity: Math.max(0, currentQty - 1),
+                                });
+                                setIngredientSelections(newMap);
+                              }}
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+                            >
+                              <Minus className="h-3.5 w-3.5" />
+                            </button>
+                            <span
+                              className={`w-6 text-center text-sm font-medium ${
+                                currentQty === 0 ? "text-red-500" : ""
+                              }`}
+                            >
+                              {currentQty}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const newMap = new Map(ingredientSelections);
+                                newMap.set(ing.ingredientId, {
+                                  quantity: currentQty + 1,
+                                });
+                                setIngredientSelections(newMap);
+                              }}
+                              className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+                            >
+                              <Plus className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // DESCRIPTION type
+                  const currentState = selection?.state ?? ing.defaultState;
+                  const states = ["SEM", "MENOS", "COM", "MAIS"] as const;
+                  return (
+                    <div
+                      key={ing.ingredientId}
+                      className="rounded-lg px-3 py-2.5 hover:bg-gray-50"
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm">{ing.ingredientName}</span>
+                        {addPrice > 0 &&
+                          ((currentState === "MAIS") ||
+                            (currentState === "COM" && ing.defaultState === "SEM")) && (
+                            <span className="text-xs text-primary font-medium">
+                              +{formatCurrency(addPrice)}
+                            </span>
+                          )}
+                      </div>
+                      <div className="flex gap-1">
+                        {states.map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => {
+                              const newMap = new Map(ingredientSelections);
+                              newMap.set(ing.ingredientId, { state: st });
+                              setIngredientSelections(newMap);
+                            }}
+                            className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                              currentState === st
+                                ? st === "SEM"
+                                  ? "bg-red-500 text-white"
+                                  : st === "MENOS"
+                                    ? "bg-amber-500 text-white"
+                                    : st === "COM"
+                                      ? "bg-green-500 text-white"
+                                      : "bg-blue-500 text-white"
+                                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Observações */}
           <div className="mt-5">

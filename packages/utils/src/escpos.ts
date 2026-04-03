@@ -95,6 +95,10 @@ export interface EscPosOrderData {
       customizationOptionName: string;
       price: string;
     }>;
+    ingredientModifications?: Array<{
+      modification: string;
+      price: string;
+    }>;
   }>;
 }
 
@@ -270,6 +274,17 @@ export function generateCustomerReceipt(
       }
     }
 
+    if (item.ingredientModifications) {
+      for (const mod of item.ingredientModifications) {
+        const modPrice =
+          parseFloat(mod.price) > 0
+            ? ` (${formatCurrencyPlain(mod.price)})`
+            : "";
+        bytes.push(...textToBytes(`  ${mod.modification}${modPrice}`));
+        bytes.push(...CMD.LINE_FEED);
+      }
+    }
+
     if (config.showItemNotes && item.notes) {
       bytes.push(...textToBytes(`  OBS: ${item.notes}`));
       bytes.push(...CMD.LINE_FEED);
@@ -419,6 +434,13 @@ export function generateKitchenTicket(
       }
     }
 
+    if (item.ingredientModifications) {
+      for (const mod of item.ingredientModifications) {
+        bytes.push(...textToBytes(`   ${mod.modification}`));
+        bytes.push(...CMD.LINE_FEED);
+      }
+    }
+
     if (item.notes) {
       bytes.push(...textToBytes(`   OBS: ${item.notes}`));
       bytes.push(...CMD.LINE_FEED);
@@ -520,6 +542,13 @@ export function generateDeliverySlip(
       )
     );
     bytes.push(...CMD.LINE_FEED);
+
+    if (item.ingredientModifications) {
+      for (const mod of item.ingredientModifications) {
+        bytes.push(...textToBytes(`  ${mod.modification}`));
+        bytes.push(...CMD.LINE_FEED);
+      }
+    }
   }
 
   // Total

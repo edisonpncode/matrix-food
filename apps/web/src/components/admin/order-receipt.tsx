@@ -38,6 +38,10 @@ interface OrderReceiptProps {
         customizationOptionName: string;
         price: string;
       }>;
+      ingredientModifications?: Array<{
+        modification: string;
+        price: string;
+      }>;
     }>;
   };
   deliveryPersonName?: string | null;
@@ -171,6 +175,17 @@ export function OrderReceipt({
                   + {cust.customizationOptionName}
                   {parseFloat(cust.price) > 0
                     ? ` (${formatCurrency(parseFloat(cust.price))})`
+                    : ""}
+                </p>
+              ))}
+            {/* Ingredient modifications */}
+            {item.ingredientModifications &&
+              item.ingredientModifications.length > 0 &&
+              item.ingredientModifications.map((mod, mi) => (
+                <p key={`ing-${mi}`} className="pl-3 text-[10px] text-gray-600 print:text-black">
+                  {mod.modification}
+                  {parseFloat(mod.price) > 0
+                    ? ` (${formatCurrency(parseFloat(mod.price))})`
                     : ""}
                 </p>
               ))}

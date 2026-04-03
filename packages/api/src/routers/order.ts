@@ -6,8 +6,11 @@ import {
   orders,
   orderItems,
   orderItemCustomizations,
+  orderItemIngredients,
   products,
   productVariants,
+  productIngredients,
+  ingredients,
   customizationOptions,
   cashRegisterSessions,
   cashRegisterTransactions,
@@ -36,12 +39,21 @@ const orderItemCustomizationInput = z.object({
   optionId: z.string().uuid(), // para buscar preço real no servidor
 });
 
+const orderItemIngredientInput = z.object({
+  ingredientId: z.string().uuid(),
+  /** Para QUANTITY: quantidade escolhida pelo cliente */
+  quantity: z.number().int().min(0).optional(),
+  /** Para DESCRIPTION: estado escolhido (SEM/COM/MENOS/MAIS) */
+  state: z.enum(["SEM", "COM", "MENOS", "MAIS"]).optional(),
+});
+
 const orderItemInput = z.object({
   productId: z.string().uuid(),
   productVariantId: z.string().uuid().nullable(),
   quantity: z.number().int().min(1),
   notes: z.string().optional(),
   customizations: z.array(orderItemCustomizationInput).default([]),
+  ingredients: z.array(orderItemIngredientInput).default([]),
 });
 
 const deliveryAddressInput = z.object({
@@ -192,6 +204,53 @@ async function ensureCustomerFromOrder(params: {
   return created.id;
 }
 
+/**
+ * Computa a modificação de um ingrediente para a comanda.
+ * Retorna null se não houve modificação (manteve o padrão).
+ */
+function computeIngredientModification(params: {
+  ingredientType: "QUANTITY" | "DESCRIPTION";
+  ingredientName: string;
+  defaultQuantity: number;
+  defaultState: string;
+  additionalPrice: number;
+  chosenQuantity?: number;
+  chosenState?: string;
+}): { modification: string; price: number; quantity: number } | null {
+  if (params.ingredientType === "QUANTITY") {
+    const chosen = params.chosenQuantity ?? params.defaultQuantity;
+    if (chosen === params.defaultQuantity) return null;
+    if (chosen === 0) {
+      return { modification: `SEM ${params.ingredientName}`, price: 0, quantity: 0 };
+    }
+    if (chosen > params.defaultQuantity) {
+      const diff = chosen - params.defaultQuantity;
+      return {
+        modification: `+${diff} ${params.ingredientName}`,
+        price: diff * params.additionalPrice,
+        quantity: chosen,
+      };
+    }
+    // Redução parcial (não zero)
+    const diff = params.defaultQuantity - chosen;
+    return { modification: `-${diff} ${params.ingredientName}`, price: 0, quantity: chosen };
+  }
+
+  // DESCRIPTION type
+  const chosen = params.chosenState ?? params.defaultState;
+  if (chosen === params.defaultState) return null;
+
+  let price = 0;
+  if (chosen === "MAIS") price = params.additionalPrice;
+  if (chosen === "COM" && params.defaultState === "SEM") price = params.additionalPrice;
+
+  return {
+    modification: `${chosen} ${params.ingredientName}`,
+    price,
+    quantity: 0,
+  };
+}
+
 export const orderRouter = createTRPCRouter({
   /**
    * Cria um novo pedido (público - clientes não logados).
@@ -289,8 +348,63 @@ export const orderRouter = createTRPCRouter({
             })
           );
 
+          // Calcular preço dos ingredientes
+          let ingredientsTotal = 0;
+          const resolvedIngredients: Array<{
+            ingredientName: string;
+            modification: string;
+            quantity: number;
+            price: string;
+          }> = [];
+
+          if (item.ingredients.length > 0) {
+            // Buscar configuração dos ingredientes deste produto
+            const prodIngs = await db
+              .select({
+                ingredientId: productIngredients.ingredientId,
+                defaultQuantity: productIngredients.defaultQuantity,
+                defaultState: productIngredients.defaultState,
+                additionalPrice: productIngredients.additionalPrice,
+                ingredientName: ingredients.name,
+                ingredientType: ingredients.type,
+              })
+              .from(productIngredients)
+              .innerJoin(
+                ingredients,
+                eq(productIngredients.ingredientId, ingredients.id)
+              )
+              .where(eq(productIngredients.productId, product.id));
+
+            const ingMap = new Map(prodIngs.map((pi) => [pi.ingredientId, pi]));
+
+            for (const ingInput of item.ingredients) {
+              const config = ingMap.get(ingInput.ingredientId);
+              if (!config) continue;
+
+              const mod = computeIngredientModification({
+                ingredientType: config.ingredientType,
+                ingredientName: config.ingredientName,
+                defaultQuantity: config.defaultQuantity,
+                defaultState: config.defaultState,
+                additionalPrice: parseFloat(config.additionalPrice),
+                chosenQuantity: ingInput.quantity,
+                chosenState: ingInput.state,
+              });
+
+              if (mod) {
+                ingredientsTotal += mod.price;
+                resolvedIngredients.push({
+                  ingredientName: config.ingredientName,
+                  modification: mod.modification,
+                  quantity: mod.quantity,
+                  price: mod.price.toFixed(2),
+                });
+              }
+            }
+          }
+
           const itemUnitPrice =
-            parseFloat(unitPrice) + customizationsTotal;
+            parseFloat(unitPrice) + customizationsTotal + ingredientsTotal;
           const totalPrice = itemUnitPrice * item.quantity;
 
           return {
@@ -303,6 +417,7 @@ export const orderRouter = createTRPCRouter({
             totalPrice: totalPrice.toFixed(2),
             notes: item.notes,
             customizations: resolvedCustomizations,
+            ingredientModifications: resolvedIngredients,
           };
         })
       );
@@ -519,6 +634,16 @@ export const orderRouter = createTRPCRouter({
             }))
           );
         }
+
+        // 8b. Criar modificações de ingredientes do item
+        if (item.ingredientModifications.length > 0) {
+          await db.insert(orderItemIngredients).values(
+            item.ingredientModifications.map((ing) => ({
+              orderItemId: orderItem.id,
+              ...ing,
+            }))
+          );
+        }
       }
 
       // 10. Registrar uso da promoção
@@ -601,17 +726,21 @@ export const orderRouter = createTRPCRouter({
         .from(orderItems)
         .where(eq(orderItems.orderId, order.id));
 
-      const itemsWithCustomizations = await Promise.all(
+      const itemsWithDetails = await Promise.all(
         items.map(async (item) => {
           const customizations = await db
             .select()
             .from(orderItemCustomizations)
             .where(eq(orderItemCustomizations.orderItemId, item.id));
-          return { ...item, customizations };
+          const ingredientMods = await db
+            .select()
+            .from(orderItemIngredients)
+            .where(eq(orderItemIngredients.orderItemId, item.id));
+          return { ...item, customizations, ingredientModifications: ingredientMods };
         })
       );
 
-      return { ...order, items: itemsWithCustomizations };
+      return { ...order, items: itemsWithDetails };
     }),
 
   /**
@@ -803,7 +932,61 @@ export const orderRouter = createTRPCRouter({
             })
           );
 
-          const itemUnitPrice = parseFloat(unitPrice) + customizationsTotal;
+          // Calcular preço dos ingredientes
+          let ingredientsTotal = 0;
+          const resolvedIngredients: Array<{
+            ingredientName: string;
+            modification: string;
+            quantity: number;
+            price: string;
+          }> = [];
+
+          if (item.ingredients.length > 0) {
+            const prodIngs = await db
+              .select({
+                ingredientId: productIngredients.ingredientId,
+                defaultQuantity: productIngredients.defaultQuantity,
+                defaultState: productIngredients.defaultState,
+                additionalPrice: productIngredients.additionalPrice,
+                ingredientName: ingredients.name,
+                ingredientType: ingredients.type,
+              })
+              .from(productIngredients)
+              .innerJoin(
+                ingredients,
+                eq(productIngredients.ingredientId, ingredients.id)
+              )
+              .where(eq(productIngredients.productId, product.id));
+
+            const ingMap = new Map(prodIngs.map((pi) => [pi.ingredientId, pi]));
+
+            for (const ingInput of item.ingredients) {
+              const config = ingMap.get(ingInput.ingredientId);
+              if (!config) continue;
+
+              const mod = computeIngredientModification({
+                ingredientType: config.ingredientType,
+                ingredientName: config.ingredientName,
+                defaultQuantity: config.defaultQuantity,
+                defaultState: config.defaultState,
+                additionalPrice: parseFloat(config.additionalPrice),
+                chosenQuantity: ingInput.quantity,
+                chosenState: ingInput.state,
+              });
+
+              if (mod) {
+                ingredientsTotal += mod.price;
+                resolvedIngredients.push({
+                  ingredientName: config.ingredientName,
+                  modification: mod.modification,
+                  quantity: mod.quantity,
+                  price: mod.price.toFixed(2),
+                });
+              }
+            }
+          }
+
+          const itemUnitPrice = parseFloat(unitPrice) + customizationsTotal + ingredientsTotal;
           const totalPrice = itemUnitPrice * item.quantity;
 
           return {
@@ -816,6 +999,7 @@ export const orderRouter = createTRPCRouter({
             totalPrice: totalPrice.toFixed(2),
             notes: item.notes,
             customizations: resolvedCustomizations,
+            ingredientModifications: resolvedIngredients,
           };
         })
       );
@@ -1032,6 +1216,16 @@ export const orderRouter = createTRPCRouter({
             item.customizations.map((c) => ({
               orderItemId: orderItem.id,
               ...c,
+            }))
+          );
+        }
+
+        // Inserir modificações de ingredientes
+        if (item.ingredientModifications.length > 0) {
+          await db.insert(orderItemIngredients).values(
+            item.ingredientModifications.map((ing) => ({
+              orderItemId: orderItem.id,
+              ...ing,
             }))
           );
         }

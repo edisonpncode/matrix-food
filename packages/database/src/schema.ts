@@ -103,6 +103,11 @@ export const cashSessionStatusEnum = pgEnum("cash_session_status", [
   "CLOSED",
 ]);
 
+export const ingredientTypeEnum = pgEnum("ingredient_type", [
+  "QUANTITY",
+  "DESCRIPTION",
+]);
+
 export const promotionTypeEnum = pgEnum("promotion_type", [
   "PERCENTAGE",
   "FIXED_AMOUNT",
@@ -551,6 +556,87 @@ export const customizationOptions = pgTable("customization_options", {
   price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
   sortOrder: integer("sort_order").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
+});
+
+// ============================================
+// INGREDIENTS (Catálogo de Ingredientes compartilhados)
+// ============================================
+
+export const ingredients = pgTable(
+  "ingredients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 255 }).notNull(),
+    /** QUANTITY = contável (ovo, queijo), DESCRIPTION = descritivo (maionese, milho) */
+    type: ingredientTypeEnum("type").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("ingredients_tenant_idx").on(table.tenantId),
+    uniqueIndex("ingredients_tenant_name_idx").on(table.tenantId, table.name),
+  ]
+);
+
+// ============================================
+// PRODUCT INGREDIENTS (Config por produto)
+// ============================================
+
+export const productIngredients = pgTable(
+  "product_ingredients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => ingredients.id, { onDelete: "cascade" }),
+    /** Para QUANTITY: quantidade padrão (ex: 1 queijo). Para DESCRIPTION: ignorado */
+    defaultQuantity: integer("default_quantity").notNull().default(1),
+    /** Para DESCRIPTION: estado padrão "COM" ou "SEM". Para QUANTITY: ignorado */
+    defaultState: varchar("default_state", { length: 10 }).notNull().default("COM"),
+    /** Preço por unidade adicional (QUANTITY) ou por upgrade (DESCRIPTION) */
+    additionalPrice: decimal("additional_price", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    /** Peso em gramas (opcional, para cálculo de custo) */
+    weightGrams: decimal("weight_grams", { precision: 10, scale: 2 }),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex("product_ingredient_unique_idx").on(
+      table.productId,
+      table.ingredientId
+    ),
+    index("product_ingredients_product_idx").on(table.productId),
+  ]
+);
+
+// ============================================
+// ORDER ITEM INGREDIENTS (Snapshot de modificações)
+// ============================================
+
+export const orderItemIngredients = pgTable("order_item_ingredients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  orderItemId: uuid("order_item_id")
+    .notNull()
+    .references(() => orderItems.id, { onDelete: "cascade" }),
+  /** Snapshot do nome do ingrediente */
+  ingredientName: varchar("ingredient_name", { length: 255 }).notNull(),
+  /** Texto da modificação: "SEM Queijo", "+2 Ovo", "MAIS Maionese" */
+  modification: varchar("modification", { length: 50 }).notNull(),
+  /** Quantidade escolhida (para analytics) */
+  quantity: integer("quantity").notNull().default(0),
+  /** Preço adicional cobrado */
+  price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
 });
 
 // ============================================
@@ -1116,6 +1202,7 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   orders: many(orders),
   promotions: many(promotions),
   deliveryAreas: many(deliveryAreas),
+  ingredients: many(ingredients),
 }));
 
 export const userTypesRelations = relations(userTypes, ({ one, many }) => ({
@@ -1197,6 +1284,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
   variants: many(productVariants),
   sizePrices: many(productSizePrices),
   customizationGroups: many(customizationGroups),
+  ingredients: many(productIngredients),
 }));
 
 export const productSizePricesRelations = relations(productSizePrices, ({ one }) => ({
@@ -1237,6 +1325,40 @@ export const customizationOptionsRelations = relations(
     group: one(customizationGroups, {
       fields: [customizationOptions.groupId],
       references: [customizationGroups.id],
+    }),
+  })
+);
+
+// --- Ingredient Relations ---
+
+export const ingredientsRelations = relations(ingredients, ({ one, many }) => ({
+  tenant: one(tenants, {
+    fields: [ingredients.tenantId],
+    references: [tenants.id],
+  }),
+  productIngredients: many(productIngredients),
+}));
+
+export const productIngredientsRelations = relations(
+  productIngredients,
+  ({ one }) => ({
+    product: one(products, {
+      fields: [productIngredients.productId],
+      references: [products.id],
+    }),
+    ingredient: one(ingredients, {
+      fields: [productIngredients.ingredientId],
+      references: [ingredients.id],
+    }),
+  })
+);
+
+export const orderItemIngredientsRelations = relations(
+  orderItemIngredients,
+  ({ one }) => ({
+    orderItem: one(orderItems, {
+      fields: [orderItemIngredients.orderItemId],
+      references: [orderItems.id],
     }),
   })
 );
@@ -1291,6 +1413,7 @@ export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
     references: [productVariants.id],
   }),
   customizations: many(orderItemCustomizations),
+  ingredientModifications: many(orderItemIngredients),
 }));
 
 export const orderItemCustomizationsRelations = relations(

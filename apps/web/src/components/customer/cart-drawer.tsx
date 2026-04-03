@@ -78,6 +78,17 @@ export function CartDrawer({
                           ))}
                         </div>
                       )}
+                      {(item.ingredientModifications ?? []).length > 0 && (
+                        <div className="mt-1">
+                          {item.ingredientModifications.map((m, i) => (
+                            <p key={i} className="text-xs text-gray-400">
+                              {m.modification}
+                              {m.price > 0 &&
+                                ` (${formatCurrency(m.price)})`}
+                            </p>
+                          ))}
+                        </div>
+                      )}
                       {item.notes && (
                         <p className="mt-1 text-xs italic text-gray-400">
                           {item.notes}

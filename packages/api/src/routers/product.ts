@@ -9,6 +9,8 @@ import {
   categories,
   customizationGroups,
   customizationOptions,
+  productIngredients,
+  ingredients,
   eq,
   and,
   asc,
@@ -30,6 +32,15 @@ const customizationOptionInput = z.object({
   price: z.string().default("0"),
   sortOrder: z.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
+});
+
+const productIngredientInput = z.object({
+  ingredientId: z.string().uuid(),
+  defaultQuantity: z.number().int().min(0).default(1),
+  defaultState: z.enum(["COM", "SEM"]).default("COM"),
+  additionalPrice: z.string().default("0"),
+  weightGrams: z.string().nullable().optional(),
+  sortOrder: z.number().int().min(0).default(0),
 });
 
 const customizationGroupInput = z.object({
@@ -106,6 +117,50 @@ export const productRouter = createTRPCRouter({
         variantsByProduct.set(v.productId, list);
       }
 
+      // Buscar ingredientes de todos os produtos
+      const allProductIds = allProducts.map((p) => p.id);
+      let allProdIngredients: Array<
+        typeof productIngredients.$inferSelect & {
+          ingredientName: string;
+          ingredientType: "QUANTITY" | "DESCRIPTION";
+        }
+      > = [];
+      if (allProductIds.length > 0) {
+        const raw = await db
+          .select({
+            id: productIngredients.id,
+            productId: productIngredients.productId,
+            ingredientId: productIngredients.ingredientId,
+            defaultQuantity: productIngredients.defaultQuantity,
+            defaultState: productIngredients.defaultState,
+            additionalPrice: productIngredients.additionalPrice,
+            weightGrams: productIngredients.weightGrams,
+            sortOrder: productIngredients.sortOrder,
+            ingredientName: ingredients.name,
+            ingredientType: ingredients.type,
+          })
+          .from(productIngredients)
+          .innerJoin(
+            ingredients,
+            eq(productIngredients.ingredientId, ingredients.id)
+          )
+          .where(
+            and(
+              inArray(productIngredients.productId, allProductIds),
+              eq(ingredients.isActive, true)
+            )
+          )
+          .orderBy(asc(productIngredients.sortOrder));
+        allProdIngredients = raw;
+      }
+
+      const ingredientsByProduct = new Map<string, typeof allProdIngredients>();
+      for (const pi of allProdIngredients) {
+        const list = ingredientsByProduct.get(pi.productId) ?? [];
+        list.push(pi);
+        ingredientsByProduct.set(pi.productId, list);
+      }
+
       // Agrupar produtos por categoria
       return cats.map((cat) => ({
         ...cat,
@@ -114,6 +169,7 @@ export const productRouter = createTRPCRouter({
           .map((p) => ({
             ...p,
             variants: variantsByProduct.get(p.id) ?? [],
+            ingredients: ingredientsByProduct.get(p.id) ?? [],
           })),
       }));
     }),
@@ -252,11 +308,39 @@ export const productRouter = createTRPCRouter({
           .where(eq(productSizePrices.productId, product.id))
           .orderBy(asc(categorySizes.sortOrder));
 
+        // Buscar ingredientes
+        const prodIngredients = await db
+          .select({
+            id: productIngredients.id,
+            productId: productIngredients.productId,
+            ingredientId: productIngredients.ingredientId,
+            defaultQuantity: productIngredients.defaultQuantity,
+            defaultState: productIngredients.defaultState,
+            additionalPrice: productIngredients.additionalPrice,
+            weightGrams: productIngredients.weightGrams,
+            sortOrder: productIngredients.sortOrder,
+            ingredientName: ingredients.name,
+            ingredientType: ingredients.type,
+          })
+          .from(productIngredients)
+          .innerJoin(
+            ingredients,
+            eq(productIngredients.ingredientId, ingredients.id)
+          )
+          .where(
+            and(
+              eq(productIngredients.productId, product.id),
+              eq(ingredients.isActive, true)
+            )
+          )
+          .orderBy(asc(productIngredients.sortOrder));
+
         return {
           ...product,
           variants,
           sizePrices: sizePricesRaw,
           customizationGroups: customizationGroupsList,
+          ingredients: prodIngredients,
         };
       })
     );
@@ -320,11 +404,34 @@ export const productRouter = createTRPCRouter({
         })
       );
 
+      // Buscar ingredientes do produto
+      const prodIngredients = await db
+        .select({
+          id: productIngredients.id,
+          productId: productIngredients.productId,
+          ingredientId: productIngredients.ingredientId,
+          defaultQuantity: productIngredients.defaultQuantity,
+          defaultState: productIngredients.defaultState,
+          additionalPrice: productIngredients.additionalPrice,
+          weightGrams: productIngredients.weightGrams,
+          sortOrder: productIngredients.sortOrder,
+          ingredientName: ingredients.name,
+          ingredientType: ingredients.type,
+        })
+        .from(productIngredients)
+        .innerJoin(
+          ingredients,
+          eq(productIngredients.ingredientId, ingredients.id)
+        )
+        .where(eq(productIngredients.productId, product.id))
+        .orderBy(asc(productIngredients.sortOrder));
+
       return {
         ...product,
         variants,
         sizePrices: sizePricesRaw,
         customizationGroups: groupsWithOptions,
+        ingredients: prodIngredients,
       };
     }),
 
@@ -387,10 +494,38 @@ export const productRouter = createTRPCRouter({
         })
       );
 
+      // Buscar ingredientes do produto
+      const prodIngredients = await db
+        .select({
+          id: productIngredients.id,
+          productId: productIngredients.productId,
+          ingredientId: productIngredients.ingredientId,
+          defaultQuantity: productIngredients.defaultQuantity,
+          defaultState: productIngredients.defaultState,
+          additionalPrice: productIngredients.additionalPrice,
+          weightGrams: productIngredients.weightGrams,
+          sortOrder: productIngredients.sortOrder,
+          ingredientName: ingredients.name,
+          ingredientType: ingredients.type,
+        })
+        .from(productIngredients)
+        .innerJoin(
+          ingredients,
+          eq(productIngredients.ingredientId, ingredients.id)
+        )
+        .where(
+          and(
+            eq(productIngredients.productId, product.id),
+            eq(ingredients.isActive, true)
+          )
+        )
+        .orderBy(asc(productIngredients.sortOrder));
+
       return {
         ...product,
         variants,
         customizationGroups: groupsWithOptions,
+        ingredients: prodIngredients,
       };
     }),
 
@@ -420,11 +555,12 @@ export const productRouter = createTRPCRouter({
           )
           .default([]),
         customizationGroups: z.array(customizationGroupInput).default([]),
+        ingredients: z.array(productIngredientInput).default([]),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
-      const { variants, sizePrices, customizationGroups: groups, ...productData } = input;
+      const { variants, sizePrices, customizationGroups: groups, ingredients: ingredientsList, ...productData } = input;
 
       // Criar produto
       const [product] = await db
@@ -479,6 +615,21 @@ export const productRouter = createTRPCRouter({
             }))
           );
         }
+      }
+
+      // Criar ingredientes do produto
+      if (ingredientsList.length > 0) {
+        await db.insert(productIngredients).values(
+          ingredientsList.map((ing) => ({
+            productId: product.id,
+            ingredientId: ing.ingredientId,
+            defaultQuantity: ing.defaultQuantity,
+            defaultState: ing.defaultState,
+            additionalPrice: ing.additionalPrice,
+            weightGrams: ing.weightGrams ?? null,
+            sortOrder: ing.sortOrder,
+          }))
+        );
       }
 
       return product;
@@ -677,6 +828,55 @@ export const productRouter = createTRPCRouter({
             productId: input.productId,
             sizeId: sp.sizeId,
             price: sp.price,
+          }))
+        );
+      }
+
+      return { success: true };
+    }),
+
+  /**
+   * Sincroniza ingredientes de um produto (delete all + insert).
+   */
+  syncIngredients: tenantProcedure
+    .input(
+      z.object({
+        productId: z.string().uuid(),
+        ingredients: z.array(productIngredientInput),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      // Verificar que o produto pertence ao tenant
+      const [product] = await db
+        .select({ id: products.id })
+        .from(products)
+        .where(
+          and(
+            eq(products.id, input.productId),
+            eq(products.tenantId, ctx.tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!product) return null;
+
+      // Deletar ingredientes existentes e inserir novos
+      await db
+        .delete(productIngredients)
+        .where(eq(productIngredients.productId, input.productId));
+
+      if (input.ingredients.length > 0) {
+        await db.insert(productIngredients).values(
+          input.ingredients.map((ing) => ({
+            productId: input.productId,
+            ingredientId: ing.ingredientId,
+            defaultQuantity: ing.defaultQuantity,
+            defaultState: ing.defaultState,
+            additionalPrice: ing.additionalPrice,
+            weightGrams: ing.weightGrams ?? null,
+            sortOrder: ing.sortOrder,
           }))
         );
       }

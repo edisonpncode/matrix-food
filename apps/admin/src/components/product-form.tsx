@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
-import { Plus, Trash2, Loader2, Ruler } from "lucide-react";
+import { Plus, Trash2, Loader2, Ruler, Search, X } from "lucide-react";
 import { ImageUploader } from "./image-uploader";
 
 interface Variant {
@@ -37,6 +37,17 @@ interface CustomizationGroup {
   options: CustomizationOption[];
 }
 
+interface ProductIngredientItem {
+  ingredientId: string;
+  ingredientName: string;
+  ingredientType: "QUANTITY" | "DESCRIPTION";
+  defaultQuantity: number;
+  defaultState: string;
+  additionalPrice: string;
+  weightGrams: string | null;
+  sortOrder: number;
+}
+
 interface ProductData {
   id: string;
   name: string;
@@ -51,12 +62,29 @@ interface ProductData {
   variants: Variant[];
   sizePrices?: { sizeId: string; sizeName?: string; price: string }[];
   customizationGroups: (CustomizationGroup & { id?: string })[];
+  ingredients?: Array<{
+    ingredientId: string;
+    ingredientName: string;
+    ingredientType: "QUANTITY" | "DESCRIPTION";
+    defaultQuantity: number;
+    defaultState: string;
+    additionalPrice: string;
+    weightGrams: string | null;
+    sortOrder: number;
+  }>;
 }
 
 export function ProductForm({ product }: { product?: ProductData }) {
   const router = useRouter();
   const utils = trpc.useUtils();
   const categoriesQuery = trpc.category.listAllWithSizes.useQuery();
+
+  const ingredientsQuery = trpc.ingredient.list.useQuery();
+  const quickCreateIngredient = trpc.ingredient.create.useMutation({
+    onSuccess: () => {
+      utils.ingredient.list.invalidate();
+    },
+  });
 
   const isEditing = !!product;
 
@@ -93,6 +121,29 @@ export function ProductForm({ product }: { product?: ProductData }) {
       })),
     }))
   );
+
+  const [productIngredientsList, setProductIngredientsList] = useState<
+    ProductIngredientItem[]
+  >(
+    (product?.ingredients ?? []).map((ing) => ({
+      ingredientId: ing.ingredientId,
+      ingredientName: ing.ingredientName,
+      ingredientType: ing.ingredientType,
+      defaultQuantity: ing.defaultQuantity,
+      defaultState: ing.defaultState,
+      additionalPrice: ing.additionalPrice,
+      weightGrams: ing.weightGrams,
+      sortOrder: ing.sortOrder,
+    }))
+  );
+  const [ingredientSearch, setIngredientSearch] = useState("");
+  const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
+  const [showCreateIngredientDialog, setShowCreateIngredientDialog] =
+    useState(false);
+  const [newIngredientName, setNewIngredientName] = useState("");
+  const [newIngredientType, setNewIngredientType] = useState<
+    "QUANTITY" | "DESCRIPTION"
+  >("QUANTITY");
 
   // Detectar se a categoria selecionada tem tamanhos
   const selectedCategory = categoriesQuery.data?.find(
@@ -147,12 +198,17 @@ export function ProductForm({ product }: { product?: ProductData }) {
       onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
     });
 
+  const syncIngredientsMutation = trpc.product.syncIngredients.useMutation({
+    onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
+  });
+
   const isPending =
     createMutation.isPending ||
     updateMutation.isPending ||
     syncVariantsMutation.isPending ||
     syncSizePricesMutation.isPending ||
-    syncCustomizationsMutation.isPending;
+    syncCustomizationsMutation.isPending ||
+    syncIngredientsMutation.isPending;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -197,6 +253,19 @@ export function ProductForm({ product }: { product?: ProductData }) {
         productId: product.id,
         groups: groupsForApi,
       });
+
+      // Sincronizar ingredientes
+      syncIngredientsMutation.mutate({
+        productId: product.id,
+        ingredients: productIngredientsList.map((ing, i) => ({
+          ingredientId: ing.ingredientId,
+          defaultQuantity: ing.defaultQuantity,
+          defaultState: ing.defaultState as "COM" | "SEM",
+          additionalPrice: ing.additionalPrice,
+          weightGrams: ing.weightGrams,
+          sortOrder: i,
+        })),
+      });
     } else {
       const groupsForApi = groups.map((g) => ({
         ...g,
@@ -216,6 +285,14 @@ export function ProductForm({ product }: { product?: ProductData }) {
           ? sizePrices.map((sp) => ({ sizeId: sp.sizeId, price: sp.price }))
           : [],
         customizationGroups: groupsForApi,
+        ingredients: productIngredientsList.map((ing, i) => ({
+          ingredientId: ing.ingredientId,
+          defaultQuantity: ing.defaultQuantity,
+          defaultState: ing.defaultState,
+          additionalPrice: ing.additionalPrice,
+          weightGrams: ing.weightGrams,
+          sortOrder: i,
+        })),
       });
     }
   }
@@ -592,6 +669,357 @@ export function ProductForm({ product }: { product?: ProductData }) {
           </div>
         </section>
       )}
+
+      {/* Ingredientes */}
+      <section className="rounded-lg border border-border bg-card p-5">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-foreground">
+            Ingredientes
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Ingredientes que compõem este produto (maionese, queijo, ovo, etc.)
+          </p>
+        </div>
+
+        {/* Lista de ingredientes adicionados */}
+        {productIngredientsList.length > 0 && (
+          <div className="space-y-3 mb-4">
+            {productIngredientsList.map((ing, index) => (
+              <div
+                key={ing.ingredientId}
+                className="rounded-md border border-input p-3 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm text-foreground">
+                      {ing.ingredientName}
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        ing.ingredientType === "QUANTITY"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                      }`}
+                    >
+                      {ing.ingredientType === "QUANTITY" ? "QTD" : "DESC"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setProductIngredientsList(
+                        productIngredientsList.filter((_, i) => i !== index)
+                      )
+                    }
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="grid gap-2 sm:grid-cols-3">
+                  {ing.ingredientType === "QUANTITY" ? (
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">
+                        Qtd padrão
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={ing.defaultQuantity}
+                        onChange={(e) => {
+                          const updated = [...productIngredientsList];
+                          updated[index] = {
+                            ...ing,
+                            defaultQuantity: Number(e.target.value),
+                          };
+                          setProductIngredientsList(updated);
+                        }}
+                        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                      />
+                    </div>
+                  ) : (
+                    <div>
+                      <label className="block text-xs text-muted-foreground mb-1">
+                        Padrão
+                      </label>
+                      <select
+                        value={ing.defaultState}
+                        onChange={(e) => {
+                          const updated = [...productIngredientsList];
+                          updated[index] = {
+                            ...ing,
+                            defaultState: e.target.value,
+                          };
+                          setProductIngredientsList(updated);
+                        }}
+                        className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                      >
+                        <option value="COM">COM</option>
+                        <option value="SEM">SEM</option>
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">
+                      Preço extra (R$)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={ing.additionalPrice}
+                      onChange={(e) => {
+                        const updated = [...productIngredientsList];
+                        updated[index] = {
+                          ...ing,
+                          additionalPrice: e.target.value,
+                        };
+                        setProductIngredientsList(updated);
+                      }}
+                      className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-muted-foreground mb-1">
+                      Peso (g) - opcional
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={ing.weightGrams ?? ""}
+                      onChange={(e) => {
+                        const updated = [...productIngredientsList];
+                        updated[index] = {
+                          ...ing,
+                          weightGrams: e.target.value || null,
+                        };
+                        setProductIngredientsList(updated);
+                      }}
+                      placeholder="Ex: 30"
+                      className="w-full rounded-md border border-input bg-background px-2 py-1 text-sm"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Combobox para adicionar ingrediente */}
+        <div className="relative">
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <input
+              type="text"
+              value={ingredientSearch}
+              onChange={(e) => {
+                setIngredientSearch(e.target.value);
+                setShowIngredientDropdown(true);
+              }}
+              onFocus={() => setShowIngredientDropdown(true)}
+              placeholder="Buscar ou criar ingrediente..."
+              className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
+            />
+          </div>
+
+          {showIngredientDropdown && (
+            <div className="absolute left-0 right-0 top-full z-10 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-card shadow-lg">
+              {(() => {
+                const existingIds = new Set(
+                  productIngredientsList.map((pi) => pi.ingredientId)
+                );
+                const filtered = (ingredientsQuery.data ?? [])
+                  .filter((ing) => ing.isActive)
+                  .filter((ing) => !existingIds.has(ing.id))
+                  .filter((ing) =>
+                    ing.name
+                      .toLowerCase()
+                      .includes(ingredientSearch.toLowerCase())
+                  );
+
+                const exactMatch = (ingredientsQuery.data ?? []).some(
+                  (ing) =>
+                    ing.name.toLowerCase() ===
+                    ingredientSearch.toLowerCase().trim()
+                );
+
+                return (
+                  <>
+                    {filtered.map((ing) => (
+                      <button
+                        key={ing.id}
+                        type="button"
+                        onClick={() => {
+                          setProductIngredientsList([
+                            ...productIngredientsList,
+                            {
+                              ingredientId: ing.id,
+                              ingredientName: ing.name,
+                              ingredientType: ing.type,
+                              defaultQuantity:
+                                ing.type === "QUANTITY" ? 1 : 0,
+                              defaultState: "COM",
+                              additionalPrice: "0",
+                              weightGrams: null,
+                              sortOrder: productIngredientsList.length,
+                            },
+                          ]);
+                          setIngredientSearch("");
+                          setShowIngredientDropdown(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-accent text-left"
+                      >
+                        <span>{ing.name}</span>
+                        <span
+                          className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-xs ${
+                            ing.type === "QUANTITY"
+                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                          }`}
+                        >
+                          {ing.type === "QUANTITY" ? "QTD" : "DESC"}
+                        </span>
+                      </button>
+                    ))}
+                    {filtered.length === 0 && !ingredientSearch.trim() && (
+                      <div className="px-3 py-2 text-sm text-muted-foreground">
+                        Digite para buscar ou criar
+                      </div>
+                    )}
+                    {ingredientSearch.trim() && !exactMatch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewIngredientName(ingredientSearch.trim());
+                          setShowCreateIngredientDialog(true);
+                          setShowIngredientDropdown(false);
+                        }}
+                        className="flex w-full items-center gap-2 px-3 py-2 text-sm text-primary hover:bg-accent text-left border-t border-border"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Criar &quot;{ingredientSearch.trim()}&quot;
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+
+        {/* Dialog para criar ingrediente inline */}
+        {showCreateIngredientDialog && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="w-full max-w-sm rounded-lg bg-card p-6 shadow-xl">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold">Novo Ingrediente</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateIngredientDialog(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">Nome</label>
+                  <input
+                    type="text"
+                    value={newIngredientName}
+                    onChange={(e) => setNewIngredientName(e.target.value)}
+                    className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                    autoFocus
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Tipo</label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setNewIngredientType("QUANTITY")}
+                      className={`flex-1 rounded-md border px-3 py-2.5 text-sm font-medium transition-colors ${
+                        newIngredientType === "QUANTITY"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-input bg-background text-muted-foreground"
+                      }`}
+                    >
+                      <div className="font-semibold text-xs">Quantidade</div>
+                      <div className="text-xs mt-0.5 opacity-70">
+                        ovo, queijo, bife
+                      </div>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setNewIngredientType("DESCRIPTION")}
+                      className={`flex-1 rounded-md border px-3 py-2.5 text-sm font-medium transition-colors ${
+                        newIngredientType === "DESCRIPTION"
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-input bg-background text-muted-foreground"
+                      }`}
+                    >
+                      <div className="font-semibold text-xs">Descrição</div>
+                      <div className="text-xs mt-0.5 opacity-70">
+                        maionese, milho
+                      </div>
+                    </button>
+                  </div>
+                </div>
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    disabled={
+                      !newIngredientName.trim() ||
+                      quickCreateIngredient.isPending
+                    }
+                    onClick={async () => {
+                      const created = await quickCreateIngredient.mutateAsync({
+                        name: newIngredientName.trim(),
+                        type: newIngredientType,
+                      });
+                      if (created) {
+                        setProductIngredientsList([
+                          ...productIngredientsList,
+                          {
+                            ingredientId: created.id,
+                            ingredientName: created.name,
+                            ingredientType: created.type,
+                            defaultQuantity:
+                              created.type === "QUANTITY" ? 1 : 0,
+                            defaultState: "COM",
+                            additionalPrice: "0",
+                            weightGrams: null,
+                            sortOrder: productIngredientsList.length,
+                          },
+                        ]);
+                      }
+                      setShowCreateIngredientDialog(false);
+                      setIngredientSearch("");
+                      setNewIngredientName("");
+                    }}
+                    className="flex-1 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                  >
+                    {quickCreateIngredient.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin mx-auto" />
+                    ) : (
+                      "Criar"
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowCreateIngredientDialog(false)}
+                    className="rounded-md border border-input px-4 py-2 text-sm font-medium text-muted-foreground"
+                  >
+                    Cancelar
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+      </section>
 
       {/* Personalizações */}
       <section className="rounded-lg border border-border bg-card p-5">
