@@ -288,7 +288,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
         ingredients: productIngredientsList.map((ing, i) => ({
           ingredientId: ing.ingredientId,
           defaultQuantity: ing.defaultQuantity,
-          defaultState: ing.defaultState,
+          defaultState: ing.defaultState as "COM" | "SEM",
           additionalPrice: ing.additionalPrice,
           weightGrams: ing.weightGrams,
           sortOrder: i,

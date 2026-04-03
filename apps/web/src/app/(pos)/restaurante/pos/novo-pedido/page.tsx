@@ -627,7 +627,7 @@ export default function NovoPedidoPage() {
           customizationOptionName: c.optionName,
           optionId: c.optionId,
         })),
-        ingredients: ((item as Record<string, unknown>).ingredientModifications as Array<{
+        ingredients: ((item as unknown as Record<string, unknown>).ingredientModifications as Array<{
           ingredientId: string;
           quantity?: number;
           state?: string;
