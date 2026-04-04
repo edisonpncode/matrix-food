@@ -33,7 +33,7 @@ export function MenuPreviewCard({
       {/* Header */}
       <div className="flex items-center gap-2 bg-primary/5 px-4 py-3">
         <ClipboardList className="h-5 w-5 text-primary" />
-        <span className="font-semibold text-foreground">Cardápio Extraído</span>
+        <span className="font-semibold text-foreground">Cardapio Extraido</span>
         <span className="ml-auto rounded-full bg-primary/10 px-2.5 py-0.5 text-xs font-medium text-primary">
           {menu.categories.length} categorias, {totalProducts} produtos
         </span>
@@ -104,7 +104,7 @@ export function MenuPreviewCard({
               Importando...
             </>
           ) : (
-            "Importar Cardápio"
+            "Importar Cardapio"
           )}
         </button>
       </div>
