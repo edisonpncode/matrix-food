@@ -385,129 +385,162 @@ export function ProductDetailModal({
             </div>
           ))}
 
-          {/* Ingredientes */}
-          {productIngredients.length > 0 && (
-            <div className="mt-5">
-              <h3 className="text-sm font-semibold text-gray-700">
-                Ingredientes
-              </h3>
-              <div className="mt-2 space-y-2">
-                {productIngredients.map((ing) => {
-                  const selection = ingredientSelections.get(ing.ingredientId);
-                  const addPrice = parseFloat(ing.additionalPrice);
+          {/* Ingredientes e Extras */}
+          {productIngredients.length > 0 && (() => {
+            // Separar: ingredientes normais (já vem no produto) vs extras (qty=0 ou state=SEM)
+            const normalIngredients = productIngredients.filter(
+              (ing) =>
+                (ing.ingredientType === "QUANTITY" && ing.defaultQuantity > 0) ||
+                (ing.ingredientType === "DESCRIPTION" && ing.defaultState !== "SEM")
+            );
+            const extraIngredients = productIngredients.filter(
+              (ing) =>
+                (ing.ingredientType === "QUANTITY" && ing.defaultQuantity === 0) ||
+                (ing.ingredientType === "DESCRIPTION" && ing.defaultState === "SEM")
+            );
 
-                  if (ing.ingredientType === "QUANTITY") {
-                    const currentQty = selection?.quantity ?? ing.defaultQuantity;
-                    const extraQty = Math.max(0, currentQty - ing.defaultQuantity);
-                    return (
-                      <div
-                        key={ing.ingredientId}
-                        className="flex items-center justify-between rounded-lg px-3 py-2.5 hover:bg-gray-50"
-                      >
-                        <div>
-                          <span className="text-sm">{ing.ingredientName}</span>
-                          {addPrice > 0 && (
-                            <span className="ml-1 text-xs text-gray-400">
-                              ({formatCurrency(addPrice)}/un)
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {extraQty > 0 && addPrice > 0 && (
-                            <span className="text-xs text-primary font-medium">
-                              +{formatCurrency(extraQty * addPrice)}
-                            </span>
-                          )}
-                          <div className="flex items-center gap-1 rounded-full border border-gray-200">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newMap = new Map(ingredientSelections);
-                                newMap.set(ing.ingredientId, {
-                                  quantity: Math.max(0, currentQty - 1),
-                                });
-                                setIngredientSelections(newMap);
-                              }}
-                              className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
-                            >
-                              <Minus className="h-3.5 w-3.5" />
-                            </button>
-                            <span
-                              className={`w-6 text-center text-sm font-medium ${
-                                currentQty === 0 ? "text-red-500" : ""
-                              }`}
-                            >
-                              {currentQty}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const newMap = new Map(ingredientSelections);
-                                newMap.set(ing.ingredientId, {
-                                  quantity: currentQty + 1,
-                                });
-                                setIngredientSelections(newMap);
-                              }}
-                              className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
-                            >
-                              <Plus className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  }
+            const renderIngredient = (ing: typeof productIngredients[0]) => {
+              const selection = ingredientSelections.get(ing.ingredientId);
+              const addPrice = parseFloat(ing.additionalPrice);
 
-                  // DESCRIPTION type
-                  const currentState = selection?.state ?? ing.defaultState;
-                  const states = ["SEM", "MENOS", "COM", "MAIS"] as const;
-                  return (
-                    <div
-                      key={ing.ingredientId}
-                      className="rounded-lg px-3 py-2.5 hover:bg-gray-50"
-                    >
-                      <div className="flex items-center justify-between mb-1.5">
-                        <span className="text-sm">{ing.ingredientName}</span>
-                        {addPrice > 0 &&
-                          ((currentState === "MAIS") ||
-                            (currentState === "COM" && ing.defaultState === "SEM")) && (
-                            <span className="text-xs text-primary font-medium">
-                              +{formatCurrency(addPrice)}
-                            </span>
-                          )}
-                      </div>
-                      <div className="flex gap-1">
-                        {states.map((st) => (
-                          <button
-                            key={st}
-                            type="button"
-                            onClick={() => {
-                              const newMap = new Map(ingredientSelections);
-                              newMap.set(ing.ingredientId, { state: st });
-                              setIngredientSelections(newMap);
-                            }}
-                            className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
-                              currentState === st
-                                ? st === "SEM"
-                                  ? "bg-red-500 text-white"
-                                  : st === "MENOS"
-                                    ? "bg-amber-500 text-white"
-                                    : st === "COM"
-                                      ? "bg-green-500 text-white"
-                                      : "bg-blue-500 text-white"
-                                : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-                            }`}
-                          >
-                            {st}
-                          </button>
-                        ))}
+              if (ing.ingredientType === "QUANTITY") {
+                const currentQty = selection?.quantity ?? ing.defaultQuantity;
+                const extraQty = Math.max(0, currentQty - ing.defaultQuantity);
+                return (
+                  <div
+                    key={ing.ingredientId}
+                    className="flex items-center justify-between rounded-lg px-3 py-2.5 hover:bg-gray-50"
+                  >
+                    <div>
+                      <span className="text-sm">{ing.ingredientName}</span>
+                      {addPrice > 0 && (
+                        <span className="ml-1 text-xs text-gray-400">
+                          ({formatCurrency(addPrice)}/un)
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {extraQty > 0 && addPrice > 0 && (
+                        <span className="text-xs text-primary font-medium">
+                          +{formatCurrency(extraQty * addPrice)}
+                        </span>
+                      )}
+                      <div className="flex items-center gap-1 rounded-full border border-gray-200">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newMap = new Map(ingredientSelections);
+                            newMap.set(ing.ingredientId, {
+                              quantity: Math.max(0, currentQty - 1),
+                            });
+                            setIngredientSelections(newMap);
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+                        >
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                        <span
+                          className={`w-6 text-center text-sm font-medium ${
+                            currentQty === 0 ? "text-red-500" : ""
+                          }`}
+                        >
+                          {currentQty}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const newMap = new Map(ingredientSelections);
+                            newMap.set(ing.ingredientId, {
+                              quantity: currentQty + 1,
+                            });
+                            setIngredientSelections(newMap);
+                          }}
+                          className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
                       </div>
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+                  </div>
+                );
+              }
+
+              // DESCRIPTION type
+              const currentState = selection?.state ?? ing.defaultState;
+              const states = ["SEM", "MENOS", "COM", "MAIS"] as const;
+              return (
+                <div
+                  key={ing.ingredientId}
+                  className="rounded-lg px-3 py-2.5 hover:bg-gray-50"
+                >
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-sm">{ing.ingredientName}</span>
+                    {addPrice > 0 &&
+                      ((currentState === "MAIS") ||
+                        (currentState === "COM" && ing.defaultState === "SEM")) && (
+                        <span className="text-xs text-primary font-medium">
+                          +{formatCurrency(addPrice)}
+                        </span>
+                      )}
+                  </div>
+                  <div className="flex gap-1">
+                    {states.map((st) => (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => {
+                          const newMap = new Map(ingredientSelections);
+                          newMap.set(ing.ingredientId, { state: st });
+                          setIngredientSelections(newMap);
+                        }}
+                        className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                          currentState === st
+                            ? st === "SEM"
+                              ? "bg-red-500 text-white"
+                              : st === "MENOS"
+                                ? "bg-amber-500 text-white"
+                                : st === "COM"
+                                  ? "bg-green-500 text-white"
+                                  : "bg-blue-500 text-white"
+                            : "bg-gray-100 text-gray-600 hover:bg-gray-200"
+                        }`}
+                      >
+                        {st}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            };
+
+            return (
+              <>
+                {/* Ingredientes normais (já vêm no produto) */}
+                {normalIngredients.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      Ingredientes
+                    </h3>
+                    <div className="mt-2 space-y-2">
+                      {normalIngredients.map(renderIngredient)}
+                    </div>
+                  </div>
+                )}
+
+                {/* Extras (qty=0 ou state=SEM — não vêm por padrão) */}
+                {extraIngredients.length > 0 && (
+                  <div className="mt-5">
+                    <h3 className="text-sm font-semibold text-gray-700">
+                      Extras
+                    </h3>
+                    <div className="mt-2 space-y-2">
+                      {extraIngredients.map(renderIngredient)}
+                    </div>
+                  </div>
+                )}
+              </>
+            );
+          })()}
 
           {/* Observações */}
           <div className="mt-5">

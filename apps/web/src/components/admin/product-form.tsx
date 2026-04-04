@@ -20,22 +20,6 @@ interface SizePriceInput {
   price: string;
 }
 
-interface CustomizationOption {
-  name: string;
-  price: string;
-  sortOrder: number;
-  isActive: boolean;
-}
-
-interface CustomizationGroup {
-  name: string;
-  description: string | null;
-  minSelections: number;
-  maxSelections: number;
-  isRequired: boolean;
-  sortOrder: number;
-  options: CustomizationOption[];
-}
 
 interface ProductIngredientItem {
   ingredientId: string;
@@ -61,7 +45,6 @@ interface ProductData {
   isActive: boolean;
   variants: Variant[];
   sizePrices?: { sizeId: string; sizeName?: string; price: string }[];
-  customizationGroups: (CustomizationGroup & { id?: string })[];
   ingredients?: Array<{
     ingredientId: string;
     ingredientName: string;
@@ -105,22 +88,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
     product?.variants ?? []
   );
   const [sizePrices, setSizePrices] = useState<SizePriceInput[]>([]);
-  const [groups, setGroups] = useState<CustomizationGroup[]>(
-    (product?.customizationGroups ?? []).map((g) => ({
-      name: g.name,
-      description: g.description || "",
-      minSelections: g.minSelections,
-      maxSelections: g.maxSelections,
-      isRequired: g.isRequired,
-      sortOrder: g.sortOrder,
-      options: g.options.map((o) => ({
-        name: o.name,
-        price: o.price,
-        sortOrder: o.sortOrder,
-        isActive: o.isActive,
-      })),
-    }))
-  );
 
   const [productIngredientsList, setProductIngredientsList] = useState<
     ProductIngredientItem[]
@@ -193,11 +160,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
     onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
   });
 
-  const syncCustomizationsMutation =
-    trpc.product.syncCustomizations.useMutation({
-      onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
-    });
-
   const syncIngredientsMutation = trpc.product.syncIngredients.useMutation({
     onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
   });
@@ -207,7 +169,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
     updateMutation.isPending ||
     syncVariantsMutation.isPending ||
     syncSizePricesMutation.isPending ||
-    syncCustomizationsMutation.isPending ||
     syncIngredientsMutation.isPending;
 
   function handleSubmit(e: React.FormEvent) {
@@ -244,16 +205,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
         });
       }
 
-      // Sincronizar personalizações
-      const groupsForApi = groups.map((g) => ({
-        ...g,
-        description: g.description ?? undefined,
-      }));
-      syncCustomizationsMutation.mutate({
-        productId: product.id,
-        groups: groupsForApi,
-      });
-
       // Sincronizar ingredientes
       syncIngredientsMutation.mutate({
         productId: product.id,
@@ -267,10 +218,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
         })),
       });
     } else {
-      const groupsForApi = groups.map((g) => ({
-        ...g,
-        description: g.description ?? undefined,
-      }));
       createMutation.mutate({
         name,
         description: description || undefined,
@@ -284,7 +231,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
         sizePrices: categoryHasSizes
           ? sizePrices.map((sp) => ({ sizeId: sp.sizeId, price: sp.price }))
           : [],
-        customizationGroups: groupsForApi,
         ingredients: productIngredientsList.map((ing, i) => ({
           ingredientId: ing.ingredientId,
           defaultQuantity: ing.defaultQuantity,
@@ -323,90 +269,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
 
   function removeVariant(index: number) {
     setVariants(variants.filter((_, i) => i !== index));
-  }
-
-  // --- Customization groups helpers ---
-  function addGroup() {
-    setGroups([
-      ...groups,
-      {
-        name: "",
-        description: "",
-        minSelections: 0,
-        maxSelections: 5,
-        isRequired: false,
-        sortOrder: groups.length,
-        options: [],
-      },
-    ]);
-  }
-
-  function updateGroup(
-    index: number,
-    field: keyof CustomizationGroup,
-    value: string | number | boolean | CustomizationOption[]
-  ) {
-    setGroups(
-      groups.map((g, i) => (i === index ? { ...g, [field]: value } : g))
-    );
-  }
-
-  function removeGroup(index: number) {
-    setGroups(groups.filter((_, i) => i !== index));
-  }
-
-  function addOption(groupIndex: number) {
-    setGroups(
-      groups.map((g, i) =>
-        i === groupIndex
-          ? {
-              ...g,
-              options: [
-                ...g.options,
-                {
-                  name: "",
-                  price: "0",
-                  sortOrder: g.options.length,
-                  isActive: true,
-                },
-              ],
-            }
-          : g
-      )
-    );
-  }
-
-  function updateOption(
-    groupIndex: number,
-    optIndex: number,
-    field: keyof CustomizationOption,
-    value: string | number | boolean
-  ) {
-    setGroups(
-      groups.map((g, gi) =>
-        gi === groupIndex
-          ? {
-              ...g,
-              options: g.options.map((o, oi) =>
-                oi === optIndex ? { ...o, [field]: value } : o
-              ),
-            }
-          : g
-      )
-    );
-  }
-
-  function removeOption(groupIndex: number, optIndex: number) {
-    setGroups(
-      groups.map((g, gi) =>
-        gi === groupIndex
-          ? {
-              ...g,
-              options: g.options.filter((_, i) => i !== optIndex),
-            }
-          : g
-      )
-    );
   }
 
   return (
@@ -701,7 +563,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
                           : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                       }`}
                     >
-                      {ing.ingredientType === "QUANTITY" ? "QTD" : "DESC"}
+                      {ing.ingredientType === "QUANTITY" ? "Quantidade" : "Descrição"}
                     </span>
                   </div>
                   <button
@@ -886,7 +748,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
                               : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
                           }`}
                         >
-                          {ing.type === "QUANTITY" ? "QTD" : "DESC"}
+                          {ing.type === "QUANTITY" ? "Quantidade" : "Descrição"}
                         </span>
                       </button>
                     ))}
@@ -1016,151 +878,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
           </div>
         </div>
       )}
-
-      {/* Personalizações */}
-      <section className="rounded-lg border border-border bg-card p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-foreground">
-              Personalizações
-            </h2>
-            <p className="text-sm text-muted-foreground">
-              Adicionais, remover ingredientes, escolher molho, etc.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={addGroup}
-            className="flex items-center gap-1 text-sm text-primary hover:underline"
-          >
-            <Plus className="h-4 w-4" /> Novo Grupo
-          </button>
-        </div>
-
-        {groups.length === 0 && (
-          <p className="text-sm text-muted-foreground">
-            Nenhum grupo de personalização.
-          </p>
-        )}
-
-        <div className="space-y-4">
-          {groups.map((group, gi) => (
-            <div
-              key={gi}
-              className="rounded-md border border-input p-4 space-y-3"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 grid gap-3 sm:grid-cols-2">
-                  <input
-                    type="text"
-                    value={group.name}
-                    onChange={(e) => updateGroup(gi, "name", e.target.value)}
-                    placeholder="Nome do grupo (ex: Adicionais)"
-                    className="rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                  />
-                  <div className="flex gap-2">
-                    <input
-                      type="number"
-                      min="0"
-                      value={group.minSelections}
-                      onChange={(e) =>
-                        updateGroup(gi, "minSelections", Number(e.target.value))
-                      }
-                      className="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-                      title="Mínimo"
-                    />
-                    <span className="self-center text-sm text-muted-foreground">
-                      a
-                    </span>
-                    <input
-                      type="number"
-                      min="1"
-                      value={group.maxSelections}
-                      onChange={(e) =>
-                        updateGroup(gi, "maxSelections", Number(e.target.value))
-                      }
-                      className="w-16 rounded-md border border-input bg-background px-2 py-1.5 text-sm"
-                      title="Máximo"
-                    />
-                    <span className="self-center text-xs text-muted-foreground">
-                      seleções
-                    </span>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removeGroup(gi)}
-                  className="text-muted-foreground hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
-
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={group.isRequired}
-                  onChange={(e) =>
-                    updateGroup(gi, "isRequired", e.target.checked)
-                  }
-                />
-                <span className="text-foreground">
-                  Obrigatório (cliente deve escolher)
-                </span>
-              </label>
-
-              {/* Opções */}
-              <div className="ml-4 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium text-muted-foreground">
-                    Opções
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => addOption(gi)}
-                    className="text-xs text-primary hover:underline"
-                  >
-                    + Opção
-                  </button>
-                </div>
-                {group.options.map((opt, oi) => (
-                  <div key={oi} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={opt.name}
-                      onChange={(e) =>
-                        updateOption(gi, oi, "name", e.target.value)
-                      }
-                      placeholder="Ex: Bacon"
-                      className="flex-1 rounded-md border border-input bg-background px-2 py-1 text-sm"
-                    />
-                    <div className="flex items-center gap-1">
-                      <span className="text-xs text-muted-foreground">R$</span>
-                      <input
-                        type="number"
-                        step="0.01"
-                        min="0"
-                        value={opt.price}
-                        onChange={(e) =>
-                          updateOption(gi, oi, "price", e.target.value)
-                        }
-                        className="w-20 rounded-md border border-input bg-background px-2 py-1 text-sm"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => removeOption(gi, oi)}
-                      className="text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
 
       {/* Botões */}
       <div className="flex gap-3">
