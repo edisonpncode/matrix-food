@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
-import { Plus, Trash2, Loader2, Ruler } from "lucide-react";
+import { Plus, Trash2, Loader2, Ruler, Search, X } from "lucide-react";
 import { ImageUploader } from "./image-uploader";
 
 interface Variant {
@@ -37,6 +37,17 @@ interface CustomizationGroup {
   options: CustomizationOption[];
 }
 
+interface ProductIngredientItem {
+  ingredientId: string;
+  ingredientName: string;
+  ingredientType: "QUANTITY" | "DESCRIPTION";
+  defaultQuantity: number;
+  defaultState: string;
+  additionalPrice: string;
+  weightGrams: string | null;
+  sortOrder: number;
+}
+
 interface ProductData {
   id: string;
   name: string;
@@ -51,12 +62,29 @@ interface ProductData {
   variants: Variant[];
   sizePrices?: { sizeId: string; sizeName?: string; price: string }[];
   customizationGroups: (CustomizationGroup & { id?: string })[];
+  ingredients?: Array<{
+    ingredientId: string;
+    ingredientName: string;
+    ingredientType: "QUANTITY" | "DESCRIPTION";
+    defaultQuantity: number;
+    defaultState: string;
+    additionalPrice: string;
+    weightGrams: string | null;
+    sortOrder: number;
+  }>;
 }
 
 export function ProductForm({ product }: { product?: ProductData }) {
   const router = useRouter();
   const utils = trpc.useUtils();
   const categoriesQuery = trpc.category.listAllWithSizes.useQuery();
+
+  const ingredientsQuery = trpc.ingredient.list.useQuery();
+  const quickCreateIngredient = trpc.ingredient.create.useMutation({
+    onSuccess: () => {
+      utils.ingredient.list.invalidate();
+    },
+  });
 
   const isEditing = !!product;
 
@@ -93,6 +121,29 @@ export function ProductForm({ product }: { product?: ProductData }) {
       })),
     }))
   );
+
+  const [productIngredientsList, setProductIngredientsList] = useState<
+    ProductIngredientItem[]
+  >(
+    (product?.ingredients ?? []).map((ing) => ({
+      ingredientId: ing.ingredientId,
+      ingredientName: ing.ingredientName,
+      ingredientType: ing.ingredientType,
+      defaultQuantity: ing.defaultQuantity,
+      defaultState: ing.defaultState,
+      additionalPrice: ing.additionalPrice,
+      weightGrams: ing.weightGrams,
+      sortOrder: ing.sortOrder,
+    }))
+  );
+  const [ingredientSearch, setIngredientSearch] = useState("");
+  const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
+  const [showCreateIngredientDialog, setShowCreateIngredientDialog] =
+    useState(false);
+  const [newIngredientName, setNewIngredientName] = useState("");
+  const [newIngredientType, setNewIngredientType] = useState<
+    "QUANTITY" | "DESCRIPTION"
+  >("QUANTITY");
 
   // Detectar se a categoria selecionada tem tamanhos
   const selectedCategory = categoriesQuery.data?.find(
@@ -147,12 +198,17 @@ export function ProductForm({ product }: { product?: ProductData }) {
       onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
     });
 
+  const syncIngredientsMutation = trpc.product.syncIngredients.useMutation({
+    onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
+  });
+
   const isPending =
     createMutation.isPending ||
     updateMutation.isPending ||
     syncVariantsMutation.isPending ||
     syncSizePricesMutation.isPending ||
-    syncCustomizationsMutation.isPending;
+    syncCustomizationsMutation.isPending ||
+    syncIngredientsMutation.isPending;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -197,6 +253,19 @@ export function ProductForm({ product }: { product?: ProductData }) {
         productId: product.id,
         groups: groupsForApi,
       });
+
+      // Sincronizar ingredientes
+      syncIngredientsMutation.mutate({
+        productId: product.id,
+        ingredients: productIngredientsList.map((ing, i) => ({
+          ingredientId: ing.ingredientId,
+          defaultQuantity: ing.defaultQuantity,
+          defaultState: ing.defaultState as "COM" | "SEM",
+          additionalPrice: ing.additionalPrice,
+          weightGrams: ing.weightGrams,
+          sortOrder: i,
+        })),
+      });
     } else {
       const groupsForApi = groups.map((g) => ({
         ...g,
@@ -216,6 +285,14 @@ export function ProductForm({ product }: { product?: ProductData }) {
           ? sizePrices.map((sp) => ({ sizeId: sp.sizeId, price: sp.price }))
           : [],
         customizationGroups: groupsForApi,
+        ingredients: productIngredientsList.map((ing, i) => ({
+          ingredientId: ing.ingredientId,
+          defaultQuantity: ing.defaultQuantity,
+          defaultState: ing.defaultState as "COM" | "SEM",
+          additionalPrice: ing.additionalPrice,
+          weightGrams: ing.weightGrams,
+          sortOrder: i,
+        })),
       });
     }
   }
@@ -591,6 +668,353 @@ export function ProductForm({ product }: { product?: ProductData }) {
             ))}
           </div>
         </section>
+      )}
+
+      {/* Ingredientes */}
+      <section className="rounded-lg border border-border bg-card p-5">
+        <div className="mb-4">
+          <h2 className="text-lg font-semibold text-foreground">
+            Ingredientes
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Ingredientes que compõem este produto (maionese, queijo, ovo, etc.)
+          </p>
+        </div>
+
+        {/* Lista de ingredientes adicionados */}
+        {productIngredientsList.length > 0 && (
+          <div className="space-y-3 mb-4">
+            {productIngredientsList.map((ing, index) => (
+              <div
+                key={ing.ingredientId}
+                className="rounded-md border border-input p-3 space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm text-foreground">
+                      {ing.ingredientName}
+                    </span>
+                    <span
+                      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                        ing.ingredientType === "QUANTITY"
+                          ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                          : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                      }`}
+                    >
+                      {ing.ingredientType === "QUANTITY" ? "QTD" : "DESC"}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setProductIngredientsList(
+                        productIngredientsList.filter((_, i) => i !== index)
+                      )
+                    }
+                    className="text-muted-foreground hover:text-destructive"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-3">
+                  {ing.ingredientType === "QUANTITY" ? (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-muted-foreground whitespace-nowrap">
+                        Qtd padrao
+                      </label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={ing.defaultQuantity}
+                        onChange={(e) => {
+                          setProductIngredientsList((prev) =>
+                            prev.map((item, i) =>
+                              i === index
+                                ? { ...item, defaultQuantity: parseInt(e.target.value) || 0 }
+                                : item
+                            )
+                          );
+                        }}
+                        className="w-16 rounded-md border border-input bg-background px-2 py-1 text-sm text-center"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs text-muted-foreground whitespace-nowrap">
+                        Padrao
+                      </label>
+                      <select
+                        value={ing.defaultState}
+                        onChange={(e) => {
+                          setProductIngredientsList((prev) =>
+                            prev.map((item, i) =>
+                              i === index
+                                ? { ...item, defaultState: e.target.value }
+                                : item
+                            )
+                          );
+                        }}
+                        className="rounded-md border border-input bg-background px-2 py-1 text-sm"
+                      >
+                        <option value="COM">COM</option>
+                        <option value="SEM">SEM</option>
+                      </select>
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap">
+                      Preco extra (R$)
+                    </label>
+                    <input
+                      type="text"
+                      value={ing.additionalPrice}
+                      onChange={(e) => {
+                        setProductIngredientsList((prev) =>
+                          prev.map((item, i) =>
+                            i === index
+                              ? { ...item, additionalPrice: e.target.value }
+                              : item
+                          )
+                        );
+                      }}
+                      className="w-20 rounded-md border border-input bg-background px-2 py-1 text-sm text-center"
+                      placeholder="0.00"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs text-muted-foreground whitespace-nowrap">
+                      Peso (g)
+                    </label>
+                    <input
+                      type="text"
+                      value={ing.weightGrams ?? ""}
+                      onChange={(e) => {
+                        setProductIngredientsList((prev) =>
+                          prev.map((item, i) =>
+                            i === index
+                              ? { ...item, weightGrams: e.target.value || null }
+                              : item
+                          )
+                        );
+                      }}
+                      className="w-20 rounded-md border border-input bg-background px-2 py-1 text-sm text-center"
+                      placeholder="0"
+                    />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Buscar e adicionar ingrediente */}
+        <div className="relative">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                value={ingredientSearch}
+                onChange={(e) => {
+                  setIngredientSearch(e.target.value);
+                  setShowIngredientDropdown(true);
+                }}
+                onFocus={() => setShowIngredientDropdown(true)}
+                placeholder="Buscar ingrediente..."
+                className="w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm"
+              />
+            </div>
+          </div>
+
+          {showIngredientDropdown && ingredientSearch.trim() && (
+            <div className="absolute z-10 mt-1 w-full rounded-md border border-border bg-card shadow-lg max-h-48 overflow-y-auto">
+              {(() => {
+                const addedIds = new Set(
+                  productIngredientsList.map((pi) => pi.ingredientId)
+                );
+                const filtered = (ingredientsQuery.data ?? [])
+                  .filter(
+                    (ing) =>
+                      ing.isActive &&
+                      !addedIds.has(ing.id) &&
+                      ing.name
+                        .toLowerCase()
+                        .includes(ingredientSearch.toLowerCase())
+                  );
+
+                const exactMatch = (ingredientsQuery.data ?? []).some(
+                  (ing) =>
+                    ing.name.toLowerCase() ===
+                    ingredientSearch.trim().toLowerCase()
+                );
+
+                return (
+                  <>
+                    {filtered.map((ing) => (
+                      <button
+                        key={ing.id}
+                        type="button"
+                        onClick={() => {
+                          setProductIngredientsList([
+                            ...productIngredientsList,
+                            {
+                              ingredientId: ing.id,
+                              ingredientName: ing.name,
+                              ingredientType: ing.type,
+                              defaultQuantity:
+                                ing.type === "QUANTITY" ? 1 : 0,
+                              defaultState:
+                                ing.type === "DESCRIPTION" ? "COM" : "",
+                              additionalPrice: "0",
+                              weightGrams: null,
+                              sortOrder: productIngredientsList.length,
+                            },
+                          ]);
+                          setIngredientSearch("");
+                          setShowIngredientDropdown(false);
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left hover:bg-accent"
+                      >
+                        <span>{ing.name}</span>
+                        <span
+                          className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[10px] font-medium ${
+                            ing.type === "QUANTITY"
+                              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                          }`}
+                        >
+                          {ing.type === "QUANTITY" ? "QTD" : "DESC"}
+                        </span>
+                      </button>
+                    ))}
+                    {filtered.length === 0 && !exactMatch && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNewIngredientName(ingredientSearch.trim());
+                          setShowCreateIngredientDialog(true);
+                          setShowIngredientDropdown(false);
+                        }}
+                        className="flex items-center gap-2 w-full px-3 py-2 text-sm text-left text-primary hover:bg-accent"
+                      >
+                        <Plus className="h-4 w-4" />
+                        Criar &quot;{ingredientSearch.trim()}&quot;
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Dialog para criar ingrediente */}
+      {showCreateIngredientDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-lg bg-card p-6 shadow-xl border border-border">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Novo Ingrediente</h3>
+              <button
+                type="button"
+                onClick={() => setShowCreateIngredientDialog(false)}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Nome</label>
+                <input
+                  type="text"
+                  value={newIngredientName}
+                  onChange={(e) => setNewIngredientName(e.target.value)}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium mb-2">Tipo</label>
+                <div className="flex gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setNewIngredientType("QUANTITY")}
+                    className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                      newIngredientType === "QUANTITY"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-input bg-background text-muted-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <div className="font-semibold">Quantidade</div>
+                    <div className="text-xs mt-1 opacity-70">ovo, queijo, bife</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewIngredientType("DESCRIPTION")}
+                    className={`flex-1 rounded-md border px-3 py-2 text-sm font-medium transition-colors ${
+                      newIngredientType === "DESCRIPTION"
+                        ? "border-primary bg-primary/10 text-primary"
+                        : "border-input bg-background text-muted-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <div className="font-semibold">Descricao</div>
+                    <div className="text-xs mt-1 opacity-70">maionese, milho</div>
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  disabled={quickCreateIngredient.isPending || !newIngredientName.trim()}
+                  onClick={async () => {
+                    const result = await quickCreateIngredient.mutateAsync({
+                      name: newIngredientName.trim(),
+                      type: newIngredientType,
+                    });
+                    if (result) {
+                      setProductIngredientsList([
+                        ...productIngredientsList,
+                        {
+                          ingredientId: result.id,
+                          ingredientName: result.name,
+                          ingredientType: result.type,
+                          defaultQuantity:
+                            result.type === "QUANTITY" ? 1 : 0,
+                          defaultState:
+                            result.type === "DESCRIPTION" ? "COM" : "",
+                          additionalPrice: "0",
+                          weightGrams: null,
+                          sortOrder: productIngredientsList.length,
+                        },
+                      ]);
+                    }
+                    setShowCreateIngredientDialog(false);
+                    setIngredientSearch("");
+                  }}
+                  className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                >
+                  {quickCreateIngredient.isPending && (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  )}
+                  Criar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowCreateIngredientDialog(false)}
+                  className="rounded-md border border-input px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent"
+                >
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Personalizações */}

@@ -21,6 +21,7 @@ import {
   Monitor,
   Printer,
   Sparkles,
+  Egg,
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
@@ -31,6 +32,7 @@ const menuItems = [
   { href: "/restaurante/admin/pedidos", label: "Pedidos", icon: ClipboardList },
   { href: "/restaurante/admin/categorias", label: "Categorias", icon: FolderOpen },
   { href: "/restaurante/admin/produtos", label: "Produtos", icon: ShoppingBag },
+  { href: "/restaurante/admin/ingredientes", label: "Ingredientes", icon: Egg },
   { href: "/restaurante/admin/clientes", label: "Clientes", icon: UserCircle },
   { href: "/restaurante/admin/areas-entrega", label: "Áreas de Entrega", icon: MapPin },
   { href: "/restaurante/admin/promocoes", label: "Promoções", icon: Tag },
