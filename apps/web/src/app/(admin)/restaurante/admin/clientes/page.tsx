@@ -10,12 +10,13 @@ import {
   Plus,
   Phone,
   CreditCard,
-  Calendar,
   Loader2,
   Mail,
   User,
   ChevronLeft,
   ChevronRight,
+  Eye,
+  Trash2,
 } from "lucide-react";
 
 export default function ClientesPage() {
@@ -33,7 +34,7 @@ export default function ClientesPage() {
   const [cpf, setCpf] = useState("");
   const [email, setEmail] = useState("");
 
-  const limit = 10;
+  const limit = 20;
 
   const { data, isLoading } = trpc.customer.listTopCustomers.useQuery({
     query: searchQuery,
@@ -46,6 +47,12 @@ export default function ClientesPage() {
       utils.customer.listTopCustomers.invalidate();
       setShowForm(false);
       resetForm();
+    },
+  });
+
+  const deleteMutation = trpc.customer.delete.useMutation({
+    onSuccess: () => {
+      utils.customer.listTopCustomers.invalidate();
     },
   });
 
@@ -69,7 +76,14 @@ export default function ClientesPage() {
       phone,
       cpf: cpf ? cpf.replace(/\D/g, "") : undefined,
       email: email || undefined,
+      source: "MANUAL",
     });
+  }
+
+  function handleDelete(id: string, customerName: string) {
+    if (confirm(`Tem certeza que deseja excluir o cliente "${customerName}"?`)) {
+      deleteMutation.mutate({ id });
+    }
   }
 
   function formatCpf(value: string): string {
@@ -81,21 +95,54 @@ export default function ClientesPage() {
     return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
   }
 
-  function handleCpfChange(value: string) {
-    setCpf(formatCpf(value));
+  function formatPhoneInput(value: string): string {
+    const digits = value.replace(/\D/g, "").slice(0, 11);
+    if (digits.length <= 2) return digits;
+    if (digits.length <= 7) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+
+  function formatDateTime(date: Date | string | null): string {
+    if (!date) return "-";
+    const d = new Date(date);
+    return d.toLocaleString("pt-BR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }
+
+  function getNeighborhood(addresses: unknown): string {
+    if (!Array.isArray(addresses) || addresses.length === 0) return "-";
+    const first = addresses[0] as { neighborhood?: string };
+    return first?.neighborhood || "-";
+  }
+
+  const SOURCE_LABELS: Record<string, string> = {
+    POS: "POS",
+    ONLINE: "App/Site",
+    MANUAL: "Manual",
+  };
+
+  function getSourceLabel(source: string | null | undefined): string {
+    if (!source) return "-";
+    return SOURCE_LABELS[source] ?? source;
   }
 
   const customers = data?.items ?? [];
   const totalPages = data?.totalPages ?? 1;
+  const totalCustomers = data?.total ?? 0;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Clientes</h1>
-          <p className="mt-1 text-muted-foreground">
-            Gerencie seus clientes e visualize o historico de compras
+          <p className="mt-1 text-sm text-muted-foreground">
+            {totalCustomers} clientes cadastrados
           </p>
         </div>
         <button
@@ -139,8 +186,7 @@ export default function ClientesPage() {
         >
           <h3 className="mb-3 font-semibold text-foreground">Novo Cliente</h3>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            {/* Nome */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
                 Nome *
@@ -157,8 +203,6 @@ export default function ClientesPage() {
                 />
               </div>
             </div>
-
-            {/* Telefone */}
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
                 Telefone *
@@ -168,15 +212,13 @@ export default function ClientesPage() {
                 <input
                   type="tel"
                   value={phone}
-                  onChange={(e) => setPhone(e.target.value)}
-                  placeholder="(11) 99999-9999"
+                  onChange={(e) => setPhone(formatPhoneInput(e.target.value))}
+                  placeholder="(00) 00000-0000"
                   required
                   className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
             </div>
-
-            {/* CPF */}
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
                 CPF
@@ -186,15 +228,13 @@ export default function ClientesPage() {
                 <input
                   type="text"
                   value={cpf}
-                  onChange={(e) => handleCpfChange(e.target.value)}
+                  onChange={(e) => setCpf(formatCpf(e.target.value))}
                   placeholder="000.000.000-00"
                   maxLength={14}
                   className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
               </div>
             </div>
-
-            {/* Email */}
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
                 Email
@@ -212,7 +252,6 @@ export default function ClientesPage() {
             </div>
           </div>
 
-          {/* Error */}
           {createMutation.error && (
             <div className="mt-3 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive">
               {createMutation.error.message}
@@ -244,106 +283,148 @@ export default function ClientesPage() {
         </form>
       )}
 
-      {/* Customer List */}
-      <div className="space-y-2">
-        {isLoading && (
-          <div className="flex items-center justify-center py-12">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </div>
-        )}
+      {/* Customer Table */}
+      {isLoading && (
+        <div className="flex items-center justify-center py-12">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      )}
 
-        {!isLoading && customers.length === 0 && (
-          <div className="rounded-lg border border-dashed border-border py-12 text-center">
-            <Users className="mx-auto h-10 w-10 text-muted-foreground" />
-            <p className="mt-2 text-muted-foreground">
-              {searchQuery
-                ? "Nenhum cliente encontrado com essa busca."
-                : "Nenhum cliente cadastrado ainda."}
-            </p>
-          </div>
-        )}
+      {!isLoading && customers.length === 0 && (
+        <div className="rounded-lg border border-dashed border-border py-12 text-center">
+          <Users className="mx-auto h-10 w-10 text-muted-foreground" />
+          <p className="mt-2 text-muted-foreground">
+            {searchQuery
+              ? "Nenhum cliente encontrado com essa busca."
+              : "Nenhum cliente cadastrado ainda."}
+          </p>
+        </div>
+      )}
 
-        {customers.map((customer: (typeof customers)[number]) => (
-          <div
-            key={customer.id}
-            onClick={() =>
-              router.push(`/restaurante/admin/clientes/${customer.id}`)
-            }
-            className="cursor-pointer rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/50"
-          >
-            <div className="flex items-center justify-between">
-              <div className="min-w-0 flex-1">
-                {/* Name and contact */}
-                <div className="flex items-center gap-3 flex-wrap">
-                  <h3 className="font-bold text-foreground truncate">
-                    {customer.name}
-                  </h3>
-                  {customer.phone && (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Phone className="h-3 w-3" />
-                      {customer.phone}
-                    </span>
-                  )}
-                  {customer.cpf && (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <CreditCard className="h-3 w-3" />
-                      {customer.cpf}
-                    </span>
-                  )}
-                </div>
-
-                {/* Stats */}
-                <div className="mt-1 flex items-center gap-4 text-sm text-muted-foreground">
-                  <span>
-                    {customer.totalOrders} pedidos |{" "}
-                    {formatCurrency(parseFloat(String(customer.totalSpent)))} gasto
-                  </span>
-                </div>
-
-                {/* Last order */}
-                <div className="mt-1 flex items-center gap-1 text-xs text-muted-foreground">
-                  <Calendar className="h-3 w-3" />
-                  {customer.lastOrderAt ? (
-                    <span>
-                      Ultimo pedido:{" "}
-                      {new Date(customer.lastOrderAt).toLocaleDateString(
-                        "pt-BR"
+      {!isLoading && customers.length > 0 && (
+        <div className="rounded-lg border border-border bg-card overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border bg-muted/50 text-left">
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">Cliente</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">Telefone</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">CPF</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">Bairro</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">Cliente desde</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">Ultimo pedido</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Compras</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Pontos</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Faturado</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Ticket medio</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground">Origem</th>
+                <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Acoes</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {customers.map((customer) => {
+                const totalSpent = parseFloat(String(customer.totalSpent));
+                const ticketMedio =
+                  customer.totalOrders > 0 ? totalSpent / customer.totalOrders : 0;
+                return (
+                  <tr
+                    key={customer.id}
+                    className="text-foreground hover:bg-muted/30 transition-colors"
+                  >
+                    <td className="px-3 py-2.5 font-medium whitespace-nowrap">
+                      {customer.name}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
+                      {customer.phone || "-"}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
+                      {customer.cpf || "-"}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
+                      {getNeighborhood(customer.addresses)}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
+                      {formatDateTime(customer.firstOrderAt)}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap text-muted-foreground">
+                      {formatDateTime(customer.lastOrderAt)}
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      {customer.totalOrders}
+                    </td>
+                    <td className="px-3 py-2.5 text-center">
+                      {customer.loyaltyPointsBalance}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-medium">
+                      {formatCurrency(totalSpent)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-muted-foreground">
+                      {formatCurrency(ticketMedio)}
+                    </td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      {customer.source ? (
+                        <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
+                          {getSourceLabel(customer.source)}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">-</span>
                       )}
-                    </span>
-                  ) : (
-                    <span>Nenhum pedido</span>
-                  )}
-                </div>
-              </div>
-
-              <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-            </div>
-          </div>
-        ))}
-      </div>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <div className="flex items-center justify-center gap-1">
+                        <button
+                          onClick={() =>
+                            router.push(`/restaurante/admin/clientes/${customer.id}`)
+                          }
+                          className="rounded-md p-1.5 text-primary hover:bg-primary/10 transition-colors"
+                          title="Visualizar cliente"
+                        >
+                          <Eye className="h-4 w-4" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(customer.id, customer.name);
+                          }}
+                          disabled={deleteMutation.isPending}
+                          className="rounded-md p-1.5 text-destructive hover:bg-destructive/10 transition-colors"
+                          title="Excluir cliente"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            className="flex items-center gap-1 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
-          >
-            <ChevronLeft className="h-4 w-4" />
-            Anterior
-          </button>
+        <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">
-            Pagina {page} de {totalPages}
+            Pagina {page} de {totalPages} ({totalCustomers} clientes)
           </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page >= totalPages}
-            className="flex items-center gap-1 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
-          >
-            Proximo
-            <ChevronRight className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className="flex items-center gap-1 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              Anterior
+            </button>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page >= totalPages}
+              className="flex items-center gap-1 rounded-md border border-border px-3 py-2 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+            >
+              Proximo
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       )}
     </div>

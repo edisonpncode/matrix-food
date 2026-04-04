@@ -222,6 +222,7 @@ export const customerRouter = createTRPCRouter({
         phone: z.string().min(1).max(20),
         cpf: z.string().max(14).optional(),
         email: z.string().email().optional(),
+        source: z.string().max(50).optional(),
         address: addressSchema.optional(),
       })
     )
@@ -269,6 +270,7 @@ export const customerRouter = createTRPCRouter({
           phone: input.phone,
           cpf: input.cpf ?? null,
           email: input.email ?? null,
+          source: input.source ?? "MANUAL",
           addresses,
         })
         .returning();
@@ -475,6 +477,8 @@ export const customerRouter = createTRPCRouter({
           email: customers.email,
           phone: customers.phone,
           cpf: customers.cpf,
+          source: customers.source,
+          addresses: customers.addresses,
           createdAt: customers.createdAt,
           loyaltyPointsBalance: customerTenants.loyaltyPointsBalance,
           totalOrders: customerTenants.totalOrders,
@@ -570,5 +574,52 @@ export const customerRouter = createTRPCRouter({
         limit: input.limit,
         totalPages: Math.ceil((countResult?.total ?? 0) / input.limit),
       };
+    }),
+
+  /**
+   * Remove um cliente (e seus vínculos com o tenant).
+   * Os pedidos são preservados (customerId será null via onDelete: set null).
+   */
+  delete: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      // Verificar se o cliente pertence a este tenant
+      const [tenantLink] = await db
+        .select()
+        .from(customerTenants)
+        .where(
+          and(
+            eq(customerTenants.customerId, input.id),
+            eq(customerTenants.tenantId, ctx.tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!tenantLink) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Cliente não encontrado neste restaurante.",
+        });
+      }
+
+      // Remover vínculo com o tenant
+      await db
+        .delete(customerTenants)
+        .where(eq(customerTenants.id, tenantLink.id));
+
+      // Verificar se o cliente tem vínculo com outros tenants
+      const [otherLinks] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(customerTenants)
+        .where(eq(customerTenants.customerId, input.id));
+
+      // Se não tem mais vínculos, deletar o cliente completamente
+      if ((otherLinks?.count ?? 0) === 0) {
+        await db.delete(customers).where(eq(customers.id, input.id));
+      }
+
+      return { success: true };
     }),
 });

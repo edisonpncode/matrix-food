@@ -87,8 +87,9 @@ async function ensureCustomerFromOrder(params: {
   customerPhone: string;
   cpf?: string;
   deliveryAddress?: DeliveryAddressForCustomer | null;
+  source?: string;
 }): Promise<string | null> {
-  const { db, tenantId, customerName, customerPhone, cpf, deliveryAddress } = params;
+  const { db, tenantId, customerName, customerPhone, cpf, deliveryAddress, source } = params;
 
   // Sem telefone = sem cadastro automático
   const cleanPhone = customerPhone?.trim();
@@ -189,6 +190,7 @@ async function ensureCustomerFromOrder(params: {
       phone: cleanPhone,
       cpf: cpf ?? null,
       email: null,
+      source: source ?? null,
       addresses,
     })
     .returning();
@@ -571,6 +573,7 @@ export const orderRouter = createTRPCRouter({
         customerName: input.customerName,
         customerPhone: input.customerPhone,
         deliveryAddress: input.deliveryAddress,
+        source: "ONLINE",
       });
 
       // 9. Criar pedido + itens em transação
@@ -1153,6 +1156,7 @@ export const orderRouter = createTRPCRouter({
              customerPhone: input.customerPhone,
              cpf: input.cpf,
              deliveryAddress: input.deliveryAddress,
+             source: "POS",
            });
 
       // Criar pedido com source POS
