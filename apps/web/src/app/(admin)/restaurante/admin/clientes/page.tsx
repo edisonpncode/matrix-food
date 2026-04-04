@@ -17,6 +17,9 @@ import {
   ChevronRight,
   Eye,
   Trash2,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
 } from "lucide-react";
 
 export default function ClientesPage() {
@@ -27,6 +30,21 @@ export default function ClientesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [showForm, setShowForm] = useState(false);
+
+  // Sort
+  type SortKey = "name" | "phone" | "cpf" | "neighborhood" | "firstOrderAt" | "lastOrderAt" | "totalOrders" | "loyaltyPointsBalance" | "totalSpent" | "ticketMedio" | "source";
+  type SortDir = "asc" | "desc";
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  function toggleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
 
   // Form fields
   const [name, setName] = useState("");
@@ -131,9 +149,79 @@ export default function ClientesPage() {
     return SOURCE_LABELS[source] ?? source;
   }
 
-  const customers = data?.items ?? [];
+  const rawCustomers = data?.items ?? [];
   const totalPages = data?.totalPages ?? 1;
   const totalCustomers = data?.total ?? 0;
+
+  // Ordenação client-side
+  const customers = [...rawCustomers].sort((a, b) => {
+    if (!sortKey) return 0;
+    const dir = sortDir === "asc" ? 1 : -1;
+
+    switch (sortKey) {
+      case "name":
+        return dir * (a.name || "").localeCompare(b.name || "");
+      case "phone":
+        return dir * (a.phone || "").localeCompare(b.phone || "");
+      case "cpf":
+        return dir * (a.cpf || "").localeCompare(b.cpf || "");
+      case "neighborhood": {
+        const na = getNeighborhood(a.addresses);
+        const nb = getNeighborhood(b.addresses);
+        return dir * na.localeCompare(nb);
+      }
+      case "firstOrderAt": {
+        const da = a.firstOrderAt ? new Date(a.firstOrderAt).getTime() : 0;
+        const db = b.firstOrderAt ? new Date(b.firstOrderAt).getTime() : 0;
+        return dir * (da - db);
+      }
+      case "lastOrderAt": {
+        const da = a.lastOrderAt ? new Date(a.lastOrderAt).getTime() : 0;
+        const db = b.lastOrderAt ? new Date(b.lastOrderAt).getTime() : 0;
+        return dir * (da - db);
+      }
+      case "totalOrders":
+        return dir * (a.totalOrders - b.totalOrders);
+      case "loyaltyPointsBalance":
+        return dir * (a.loyaltyPointsBalance - b.loyaltyPointsBalance);
+      case "totalSpent":
+        return dir * (parseFloat(String(a.totalSpent)) - parseFloat(String(b.totalSpent)));
+      case "ticketMedio": {
+        const ta = a.totalOrders > 0 ? parseFloat(String(a.totalSpent)) / a.totalOrders : 0;
+        const tb = b.totalOrders > 0 ? parseFloat(String(b.totalSpent)) / b.totalOrders : 0;
+        return dir * (ta - tb);
+      }
+      case "source":
+        return dir * (a.source || "").localeCompare(b.source || "");
+      default:
+        return 0;
+    }
+  });
+
+  // Componente do cabeçalho ordenável
+  function SortHeader({ label, column, align }: { label: string; column: SortKey; align?: "center" | "right" }) {
+    const isActive = sortKey === column;
+    const alignClass = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
+    return (
+      <th
+        className={`px-3 py-2.5 font-medium text-muted-foreground cursor-pointer select-none hover:text-foreground transition-colors ${align === "right" ? "text-right" : align === "center" ? "text-center" : ""}`}
+        onClick={() => toggleSort(column)}
+      >
+        <span className={`inline-flex items-center gap-1 ${alignClass}`}>
+          {label}
+          {isActive ? (
+            sortDir === "asc" ? (
+              <ArrowUp className="h-3 w-3 text-primary" />
+            ) : (
+              <ArrowDown className="h-3 w-3 text-primary" />
+            )
+          ) : (
+            <ArrowUpDown className="h-3 w-3 opacity-30" />
+          )}
+        </span>
+      </th>
+    );
+  }
 
   return (
     <div className="space-y-4">
@@ -306,17 +394,17 @@ export default function ClientesPage() {
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-border bg-muted/50 text-left">
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">Cliente</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">Telefone</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">CPF</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">Bairro</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">Cliente desde</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">Ultimo pedido</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Compras</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Pontos</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Faturado</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground text-right">Ticket medio</th>
-                <th className="px-3 py-2.5 font-medium text-muted-foreground">Origem</th>
+                <SortHeader label="Cliente" column="name" />
+                <SortHeader label="Telefone" column="phone" />
+                <SortHeader label="CPF" column="cpf" />
+                <SortHeader label="Bairro" column="neighborhood" />
+                <SortHeader label="Cliente desde" column="firstOrderAt" />
+                <SortHeader label="Ultimo pedido" column="lastOrderAt" />
+                <SortHeader label="Compras" column="totalOrders" align="center" />
+                <SortHeader label="Pontos" column="loyaltyPointsBalance" align="center" />
+                <SortHeader label="Faturado" column="totalSpent" align="right" />
+                <SortHeader label="Ticket medio" column="ticketMedio" align="right" />
+                <SortHeader label="Origem" column="source" />
                 <th className="px-3 py-2.5 font-medium text-muted-foreground text-center">Acoes</th>
               </tr>
             </thead>
