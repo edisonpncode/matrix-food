@@ -2,6 +2,6 @@
 
 import { NovoPedidoContent } from "@/components/pos/novo-pedido-content";
 
-export default function NovoPedidoPage() {
+export default function AdminNovoPedidoPage() {
   return <NovoPedidoContent />;
 }

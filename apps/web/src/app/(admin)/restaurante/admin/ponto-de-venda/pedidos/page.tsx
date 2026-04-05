@@ -2,6 +2,6 @@
 
 import { PedidosContent } from "@/components/pos/pedidos-content";
 
-export default function PedidosPage() {
+export default function AdminPedidosPage() {
   return <PedidosContent />;
 }

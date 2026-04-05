@@ -10,6 +10,7 @@ import {
   Settings,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
   Store,
   Tag,
   Star,
@@ -22,35 +23,254 @@ import {
   Printer,
   Sparkles,
   Egg,
+  PlusCircle,
+  Banknote,
+  Package,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import type { LucideIcon } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 
-const menuItems = [
+type MenuItem = {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  highlight?: true | "ai";
+};
+
+type MenuGroup = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  highlight?: true | "ai";
+  children: MenuItem[];
+};
+
+type SidebarEntry = MenuItem | MenuGroup;
+
+function isGroup(entry: SidebarEntry): entry is MenuGroup {
+  return "children" in entry;
+}
+
+const sidebarEntries: SidebarEntry[] = [
   { href: "/restaurante/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/restaurante/pos", label: "Ponto de Venda", icon: Monitor, highlight: true },
-  { href: "/restaurante/admin/pedidos", label: "Pedidos", icon: ClipboardList },
-  { href: "/restaurante/admin/categorias", label: "Categorias", icon: FolderOpen },
-  { href: "/restaurante/admin/produtos", label: "Produtos", icon: ShoppingBag },
-  { href: "/restaurante/admin/ingredientes", label: "Ingredientes", icon: Egg },
-  { href: "/restaurante/admin/clientes", label: "Clientes", icon: UserCircle },
-  { href: "/restaurante/admin/areas-entrega", label: "Áreas de Entrega", icon: MapPin },
-  { href: "/restaurante/admin/promocoes", label: "Promoções", icon: Tag },
-  { href: "/restaurante/admin/fidelidade", label: "Fidelidade", icon: Star },
-  { href: "/restaurante/admin/avaliacoes", label: "Avaliações", icon: MessageSquare },
-  { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users },
   { href: "/restaurante/admin/mini-max", label: "Neo Assistente", icon: Sparkles, highlight: "ai" as const },
+  {
+    id: "pos",
+    label: "Ponto de Venda",
+    icon: Monitor,
+    highlight: true,
+    children: [
+      { href: "/restaurante/admin/ponto-de-venda/pedidos", label: "Pedidos", icon: ClipboardList },
+      { href: "/restaurante/admin/ponto-de-venda/novo-pedido", label: "Novo Pedido", icon: PlusCircle },
+      { href: "/restaurante/admin/ponto-de-venda/caixa", label: "Caixa", icon: Banknote },
+    ],
+  },
+  {
+    id: "produto",
+    label: "Produto",
+    icon: Package,
+    children: [
+      { href: "/restaurante/admin/categorias", label: "Categorias", icon: FolderOpen },
+      { href: "/restaurante/admin/produtos", label: "Produtos", icon: ShoppingBag },
+      { href: "/restaurante/admin/ingredientes", label: "Ingredientes", icon: Egg },
+      { href: "/restaurante/admin/promocoes", label: "Promoções", icon: Tag },
+    ],
+  },
+  {
+    id: "cliente",
+    label: "Cliente",
+    icon: UserCircle,
+    children: [
+      { href: "/restaurante/admin/clientes", label: "Clientes", icon: UserCircle },
+      { href: "/restaurante/admin/fidelidade", label: "Fidelidade", icon: Star },
+      { href: "/restaurante/admin/avaliacoes", label: "Avaliações", icon: MessageSquare },
+    ],
+  },
+  {
+    id: "config",
+    label: "Configurações",
+    icon: Settings,
+    children: [
+      { href: "/restaurante/admin/configuracoes", label: "Dados Empresa", icon: Settings },
+      { href: "/restaurante/admin/areas-entrega", label: "Áreas de Entrega", icon: MapPin },
+      { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users },
+      { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer },
+    ],
+  },
   { href: "/restaurante/admin/assinatura", label: "Assinatura", icon: CreditCard },
-  { href: "/restaurante/admin/configuracoes", label: "Configurações", icon: Settings },
-  { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer },
 ];
+
+function isChildActive(group: MenuGroup, pathname: string): boolean {
+  return group.children.some((child) => {
+    if (child.href === "/restaurante/admin/configuracoes") {
+      return pathname === child.href;
+    }
+    return pathname.startsWith(child.href);
+  });
+}
 
 export function AdminSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const { data: tenant } = trpc.tenant.getById.useQuery();
 
   const restaurantName = tenant?.name || "Meu Restaurante";
+
+  // Auto-expand groups with active children
+  useEffect(() => {
+    const autoOpen = new Set<string>();
+    for (const entry of sidebarEntries) {
+      if (isGroup(entry) && isChildActive(entry, pathname)) {
+        autoOpen.add(entry.id);
+      }
+    }
+    if (autoOpen.size > 0) {
+      setOpenGroups((prev) => new Set([...prev, ...autoOpen]));
+    }
+  }, [pathname]);
+
+  function toggleGroup(id: string) {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function isItemActive(href: string): boolean {
+    if (href === "/restaurante/admin") {
+      return pathname === "/restaurante/admin";
+    }
+    if (href === "/restaurante/admin/configuracoes") {
+      return pathname === href;
+    }
+    return pathname.startsWith(href);
+  }
+
+  function getHighlightClasses(
+    highlight: true | "ai" | undefined,
+    isActive: boolean
+  ): string {
+    if (highlight === "ai" && !isActive) {
+      return "bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-700 hover:to-purple-700";
+    }
+    if (highlight === true && !isActive) {
+      return "bg-green-600 text-white hover:bg-green-700";
+    }
+    if (isActive) {
+      return "bg-primary text-primary-foreground";
+    }
+    return "text-muted-foreground hover:bg-accent hover:text-accent-foreground";
+  }
+
+  function renderSimpleItem(item: MenuItem) {
+    const active = isItemActive(item.href);
+    return (
+      <Link
+        key={item.href}
+        href={item.href}
+        className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${getHighlightClasses(item.highlight, active)}`}
+        title={collapsed ? item.label : undefined}
+      >
+        <item.icon className="h-5 w-5 shrink-0" />
+        {!collapsed && <span>{item.label}</span>}
+      </Link>
+    );
+  }
+
+  function renderGroup(group: MenuGroup) {
+    const groupActive = isChildActive(group, pathname);
+    const isOpen = openGroups.has(group.id);
+
+    if (collapsed) {
+      // Collapsed: show icon with hover popup
+      return (
+        <div key={group.id} className="relative group/menu">
+          <button
+            className={`flex w-full items-center justify-center rounded-md px-3 py-2.5 transition-colors ${getHighlightClasses(group.highlight, groupActive)}`}
+            title={group.label}
+          >
+            <group.icon className="h-5 w-5 shrink-0" />
+          </button>
+          <div className="absolute left-full top-0 ml-1 hidden group-hover/menu:block z-50">
+            <div className="rounded-lg border border-border bg-card py-1 shadow-lg min-w-[180px]">
+              <p className="px-3 py-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                {group.label}
+              </p>
+              {group.children.map((child) => {
+                const childActive = isItemActive(child.href);
+                return (
+                  <Link
+                    key={child.href}
+                    href={child.href}
+                    className={`flex items-center gap-2 px-3 py-2 text-sm transition-colors ${
+                      childActive
+                        ? "bg-primary/10 text-primary font-medium"
+                        : "text-foreground hover:bg-accent"
+                    }`}
+                  >
+                    <child.icon className="h-4 w-4 shrink-0" />
+                    {child.label}
+                  </Link>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // Expanded: collapsible group
+    return (
+      <div key={group.id}>
+        <button
+          onClick={() => toggleGroup(group.id)}
+          className={`flex w-full items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
+            groupActive && !isOpen
+              ? getHighlightClasses(group.highlight, true)
+              : groupActive && isOpen
+                ? getHighlightClasses(group.highlight, false).replace(
+                    "text-muted-foreground",
+                    "text-foreground font-semibold"
+                  )
+                : getHighlightClasses(group.highlight, false)
+          }`}
+        >
+          <group.icon className="h-5 w-5 shrink-0" />
+          <span className="flex-1 text-left">{group.label}</span>
+          <ChevronDown
+            className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
+              isOpen ? "rotate-0" : "-rotate-90"
+            }`}
+          />
+        </button>
+        {isOpen && (
+          <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border pl-3">
+            {group.children.map((child) => {
+              const childActive = isItemActive(child.href);
+              return (
+                <Link
+                  key={child.href}
+                  href={child.href}
+                  className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm transition-colors ${
+                    childActive
+                      ? "bg-primary text-primary-foreground font-medium"
+                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+                  }`}
+                >
+                  <child.icon className="h-4 w-4 shrink-0" />
+                  <span>{child.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  }
 
   return (
     <aside
@@ -65,37 +285,10 @@ export function AdminSidebar() {
         )}
       </div>
 
-      <nav className="flex-1 space-y-1 p-2">
-        {menuItems.map((item) => {
-          const isActive =
-            item.href === "/restaurante/admin"
-              ? pathname === "/restaurante/admin"
-              : pathname.startsWith(item.href);
-
-          const highlightType = "highlight" in item ? item.highlight : undefined;
-          const isAiHighlight = highlightType === "ai";
-          const isPosHighlight = highlightType === true;
-
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                isAiHighlight && !isActive
-                  ? "bg-gradient-to-r from-violet-600 to-purple-600 text-white hover:from-violet-700 hover:to-purple-700"
-                  : isPosHighlight && !isActive
-                    ? "bg-green-600 text-white hover:bg-green-700"
-                    : isActive
-                      ? "bg-primary text-primary-foreground"
-                      : "text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              }`}
-              title={collapsed ? item.label : undefined}
-            >
-              <item.icon className="h-5 w-5 shrink-0" />
-              {!collapsed && <span>{item.label}</span>}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 space-y-1 overflow-y-auto p-2">
+        {sidebarEntries.map((entry) =>
+          isGroup(entry) ? renderGroup(entry) : renderSimpleItem(entry)
+        )}
       </nav>
 
       <button
