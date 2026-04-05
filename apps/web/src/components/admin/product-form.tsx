@@ -211,7 +211,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
         ingredients: productIngredientsList.map((ing, i) => ({
           ingredientId: ing.ingredientId,
           defaultQuantity: ing.defaultQuantity,
-          defaultState: ing.defaultState as "COM" | "SEM",
+          defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
           additionalPrice: ing.additionalPrice,
           weightGrams: ing.weightGrams,
           sortOrder: i,
@@ -234,7 +234,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
         ingredients: productIngredientsList.map((ing, i) => ({
           ingredientId: ing.ingredientId,
           defaultQuantity: ing.defaultQuantity,
-          defaultState: ing.defaultState as "COM" | "SEM",
+          defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
           additionalPrice: ing.additionalPrice,
           weightGrams: ing.weightGrams,
           sortOrder: i,
@@ -729,7 +729,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
                               defaultQuantity:
                                 ing.type === "QUANTITY" ? 1 : 0,
                               defaultState:
-                                ing.type === "DESCRIPTION" ? "COM" : "",
+                                ing.type === "DESCRIPTION" ? "COM" : "COM",
                               additionalPrice: "0",
                               weightGrams: null,
                               sortOrder: productIngredientsList.length,
@@ -849,7 +849,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
                           defaultQuantity:
                             result.type === "QUANTITY" ? 1 : 0,
                           defaultState:
-                            result.type === "DESCRIPTION" ? "COM" : "",
+                            result.type === "DESCRIPTION" ? "COM" : "COM",
                           additionalPrice: "0",
                           weightGrams: null,
                           sortOrder: productIngredientsList.length,
