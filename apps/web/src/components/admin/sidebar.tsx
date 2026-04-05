@@ -54,7 +54,7 @@ function isGroup(entry: SidebarEntry): entry is MenuGroup {
 
 const sidebarEntries: SidebarEntry[] = [
   { href: "/restaurante/admin", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/restaurante/admin/mini-max", label: "Neo Assistente", icon: Sparkles, highlight: "ai" as const },
+  { href: "/restaurante/admin/mini-max", label: "Neo Assistente", icon: Sparkles },
   {
     id: "pos",
     label: "Ponto de Venda",
