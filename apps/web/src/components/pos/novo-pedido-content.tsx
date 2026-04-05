@@ -63,7 +63,7 @@ export function NovoPedidoContent() {
     quickSale: false,
     deliveryFee: 0,
   });
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<string | "PROMOS" | null>(null);
   const [cartItems, setCartItems] = useState<POSCartItem[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
@@ -163,7 +163,7 @@ export function NovoPedidoContent() {
     });
   }, [promos]);
 
-  const filteredProducts = selectedCategory
+  const filteredProducts = selectedCategory && selectedCategory !== "PROMOS"
     ? products?.filter((p) => p.categoryId === selectedCategory)
     : products;
 
@@ -676,45 +676,9 @@ export function NovoPedidoContent() {
       <div className="flex flex-1 overflow-hidden">
       {/* Products Area */}
       <div className="flex-1 overflow-auto p-6">
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4">
           <h1 className="text-2xl font-bold">Novo Pedido</h1>
-
-          {/* Promos Button */}
-          {activePromos.length > 0 && (
-            <button
-              onClick={() => setShowPromos(true)}
-              className="flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-600 animate-pulse"
-            >
-              <Tag className="h-4 w-4" />
-              {activePromos.length} Promo{activePromos.length > 1 ? "s" : ""} Ativa{activePromos.length > 1 ? "s" : ""}
-            </button>
-          )}
         </div>
-
-        {/* Active Promos Banner */}
-        {activePromos.length > 0 && (
-          <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
-            {activePromos
-              .filter((p) => p.type === "COMBO" || p.type === "BUY_X_GET_Y")
-              .map((promo) => (
-                <button
-                  key={promo.id}
-                  onClick={() => applyCombo(promo)}
-                  className="flex-shrink-0 flex items-center gap-2 rounded-xl border-2 border-orange-300 bg-orange-50 px-4 py-2.5 text-sm font-medium text-orange-800 transition-all hover:border-orange-500 hover:bg-orange-100 hover:shadow-md active:scale-95"
-                >
-                  <Package className="h-4 w-4 text-orange-600" />
-                  <div className="text-left">
-                    <div className="font-bold">{promo.code.replace(/-/g, " ")}</div>
-                    <div className="text-xs text-orange-600">
-                      {promo.description || ""}
-                      {promo.bundlePrice &&
-                        ` — ${formatCurrency(parseFloat(promo.bundlePrice))}`}
-                    </div>
-                  </div>
-                </button>
-              ))}
-          </div>
-        )}
 
         {/* Category Tabs */}
         <div className="mb-4 flex gap-2 overflow-x-auto pb-1">
@@ -741,46 +705,94 @@ export function NovoPedidoContent() {
               {cat.name}
             </button>
           ))}
+          {activePromos.length > 0 && (
+            <button
+              onClick={() => setSelectedCategory("PROMOS")}
+              className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
+                selectedCategory === "PROMOS"
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-accent text-accent-foreground hover:bg-accent/80"
+              }`}
+            >
+              Promoções
+            </button>
+          )}
         </div>
 
-        {/* Products Grid */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {filteredProducts?.map((product) => (
-            <button
-              key={product.id}
-              onClick={() => handleSelectProduct(product as Product)}
-              className="flex flex-col items-center rounded-xl border-2 border-border bg-card p-4 text-center transition-all hover:border-primary hover:shadow-md active:scale-95"
-            >
-              {product.imageUrl ? (
-                <img
-                  src={product.imageUrl}
-                  alt={product.name}
-                  className="mb-2 h-16 w-16 rounded-lg object-cover"
-                />
-              ) : (
-                <div className="mb-2 flex h-16 w-16 items-center justify-center rounded-lg bg-accent text-2xl">
-                  🍔
-                </div>
-              )}
-              <span className="text-sm font-medium leading-tight">
-                {product.name}
-              </span>
-              <span className="mt-1 text-sm font-bold text-primary">
-                {(product as Product).sizePrices && (product as Product).sizePrices.length > 0
-                  ? `A partir de ${formatCurrency(
-                      Math.min(
-                        ...(product as Product).sizePrices.map((sp) =>
-                          parseFloat(sp.price)
+        {/* Promos Grid (when Promoções tab is selected) */}
+        {selectedCategory === "PROMOS" ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {activePromos.map((promo) => {
+              const isCombo = promo.type === "COMBO" || promo.type === "BUY_X_GET_Y";
+              return (
+                <button
+                  key={promo.id}
+                  onClick={() => {
+                    if (isCombo) {
+                      applyCombo(promo);
+                    } else {
+                      setShowPromos(true);
+                    }
+                  }}
+                  className="flex flex-col items-center rounded-xl border-2 border-orange-200 bg-card p-3 text-center transition-all hover:border-orange-500 hover:shadow-md active:scale-95"
+                >
+                  <span className="text-sm font-bold leading-tight">
+                    {promo.code.replace(/-/g, " ")}
+                  </span>
+                  {promo.description && (
+                    <span className="mt-1 text-xs text-muted-foreground leading-tight line-clamp-2">
+                      {promo.description}
+                    </span>
+                  )}
+                  <span className="mt-1 text-sm font-bold text-orange-600">
+                    {promo.bundlePrice
+                      ? formatCurrency(parseFloat(promo.bundlePrice))
+                      : promo.type === "PERCENTAGE"
+                        ? `${promo.value}% OFF`
+                        : promo.type === "FIXED_AMOUNT"
+                          ? `-${formatCurrency(parseFloat(promo.value))}`
+                          : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          /* Products Grid */
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+            {filteredProducts?.map((product) => (
+              <button
+                key={product.id}
+                onClick={() => handleSelectProduct(product as Product)}
+                className="flex flex-col items-center rounded-xl border-2 border-border bg-card p-3 text-center transition-all hover:border-primary hover:shadow-md active:scale-95"
+              >
+                {product.imageUrl && (
+                  <img
+                    src={product.imageUrl}
+                    alt={product.name}
+                    className="mb-2 h-16 w-16 rounded-lg object-cover"
+                  />
+                )}
+                <span className="text-sm font-medium leading-tight">
+                  {product.name}
+                </span>
+                <span className="mt-1 text-sm font-bold text-primary">
+                  {(product as Product).sizePrices && (product as Product).sizePrices.length > 0
+                    ? `A partir de ${formatCurrency(
+                        Math.min(
+                          ...(product as Product).sizePrices.map((sp) =>
+                            parseFloat(sp.price)
+                          )
                         )
-                      )
-                    )}`
-                  : product.variants.length > 0
-                    ? `${formatCurrency(parseFloat(product.variants[0]!.price))}`
-                    : formatCurrency(parseFloat(product.price))}
-              </span>
-            </button>
-          ))}
-        </div>
+                      )}`
+                    : product.variants.length > 0
+                      ? `${formatCurrency(parseFloat(product.variants[0]!.price))}`
+                      : formatCurrency(parseFloat(product.price))}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Cart Sidebar */}
