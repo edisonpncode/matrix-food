@@ -202,7 +202,6 @@ function createTools(tenantId: string | undefined) {
         categories: z.array(menuCategorySchema),
       }),
       execute: async ({ categories: cats }) => {
-        if (!tenantId) return { error: "Restaurante não identificado. Recarregue a página." };
         const totalProducts = cats.reduce((sum, c) => sum + c.products.length, 0);
         return {
           action: "preview",
