@@ -53,6 +53,7 @@ function createTools(tenantId: string) {
   return {
     /**
      * Busca conteúdo de uma URL (cardápio online, etc.)
+     * Detecta automaticamente plataformas conhecidas (pedir.delivery, etc.)
      */
     fetchUrl: tool({
       description:
@@ -61,21 +62,115 @@ function createTools(tenantId: string) {
         url: z.string().url().describe("URL para buscar"),
       }),
       execute: async ({ url }) => {
-        const res = await fetch(url, {
-          headers: { "User-Agent": "MatrixFood-Neo/1.0" },
-          signal: AbortSignal.timeout(10000),
-        });
-        if (!res.ok) return { error: `Erro ${res.status} ao acessar a URL.` };
-        const html = await res.text();
-        // Strip HTML tags, keep text
-        const text = html
-          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
-          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
-          .replace(/<[^>]+>/g, " ")
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 15000); // limit to 15k chars
-        return { content: text };
+        // Detectar plataformas conhecidas (SPAs que precisam de API)
+        const pedirMatch = url.match(
+          /pedir\.delivery\/app\/([^/]+)/
+        );
+        if (pedirMatch) {
+          const slug = pedirMatch[1];
+          try {
+            const apiRes = await fetch(
+              `https://api.multipedidos.com.br/restaurant/data/v2/${slug}`,
+              { signal: AbortSignal.timeout(15000) }
+            );
+            if (!apiRes.ok)
+              return { error: `Erro ${apiRes.status} ao acessar API do pedir.delivery.` };
+            const data = await apiRes.json();
+            const menu = data.menu;
+            const info = data.info;
+
+            // Formatar categorias e produtos do formato multipedidos
+            const extracted: {
+              name: string;
+              description?: string;
+              products: {
+                name: string;
+                description?: string;
+                price: string;
+                originalPrice?: string;
+                isNew?: boolean;
+              }[];
+            }[] = [];
+
+            if (menu?.general) {
+              for (const cat of menu.general) {
+                const prods = (cat.products || [])
+                  .filter((p: Record<string, unknown>) => p.available !== false)
+                  .map((p: Record<string, unknown>) => ({
+                    name: String(p.name || ""),
+                    description: p.description ? String(p.description) : undefined,
+                    price: String(Number(p.price || 0).toFixed(2)),
+                    originalPrice: p.oldPrice
+                      ? String(Number(p.oldPrice).toFixed(2))
+                      : undefined,
+                    isNew: p.tag === "new",
+                  }));
+                if (prods.length > 0) {
+                  extracted.push({
+                    name: String(cat.name || "Sem categoria"),
+                    description: cat.description
+                      ? String(cat.description)
+                      : undefined,
+                    products: prods,
+                  });
+                }
+              }
+            }
+
+            if (extracted.length > 0) {
+              const totalProducts = extracted.reduce(
+                (s, c) => s + c.products.length,
+                0
+              );
+              return {
+                source: "pedir.delivery",
+                restaurantName: info?.name || slug,
+                categories: extracted,
+                summary: `${extracted.length} categoria(s), ${totalProducts} produto(s) encontrados`,
+              };
+            }
+            return {
+              error:
+                "Cardápio encontrado mas sem produtos disponíveis no momento.",
+            };
+          } catch {
+            return { error: "Erro ao acessar API do pedir.delivery." };
+          }
+        }
+
+        // Fallback: fetch genérico para sites estáticos
+        try {
+          const res = await fetch(url, {
+            headers: { "User-Agent": "MatrixFood-Neo/1.0" },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) return { error: `Erro ${res.status} ao acessar a URL.` };
+          const html = await res.text();
+
+          // Detectar SPA vazio (Angular, React, etc.)
+          if (
+            html.includes("<app-root>") ||
+            (html.includes('id="root"') &&
+              !html.includes("<h1") &&
+              !html.includes("<p"))
+          ) {
+            return {
+              error:
+                "Este site usa JavaScript para carregar o conteúdo e não consigo ler diretamente. Por favor, tire um print/screenshot da tela do cardápio e envie a imagem que eu consigo extrair os dados!",
+            };
+          }
+
+          const text = html
+            .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+            .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+            .replace(/<[^>]+>/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 15000);
+          return { content: text };
+        } catch {
+          return { error: "Erro ao acessar a URL. Verifique se o link está correto." };
+        }
       },
     }),
 
