@@ -82,9 +82,16 @@ export default function NeoAssistentePage() {
           />
         ) : (
           <div className="mx-auto max-w-3xl space-y-4">
-            {messages.map((message) => (
+            {messages.map((message, idx) => (
               <div key={message.id}>
-                <ChatMessage message={message} />
+                <ChatMessage
+                  message={message}
+                  onAction={
+                    idx === messages.length - 1 && !isLoading
+                      ? (text) => sendMessage({ text })
+                      : undefined
+                  }
+                />
               </div>
             ))}
             {isLoading && <TypingIndicator />}
