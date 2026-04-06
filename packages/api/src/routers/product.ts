@@ -70,7 +70,7 @@ export const productRouter = createTRPCRouter({
         .where(
           and(
             eq(categories.tenantId, input.tenantId),
-            eq(categories.isActive, true)
+            eq(categories.isActivePublic, true)
           )
         )
         .orderBy(asc(categories.sortOrder));
@@ -82,7 +82,7 @@ export const productRouter = createTRPCRouter({
         .where(
           and(
             eq(products.tenantId, input.tenantId),
-            eq(products.isActive, true)
+            eq(products.isActivePublic, true)
           )
         )
         .orderBy(asc(products.sortOrder));
@@ -193,7 +193,7 @@ export const productRouter = createTRPCRouter({
           and(
             eq(products.tenantId, input.tenantId),
             eq(products.categoryId, input.categoryId),
-            eq(products.isActive, true)
+            eq(products.isActivePublic, true)
           )
         )
         .orderBy(asc(products.sortOrder));
@@ -252,7 +252,7 @@ export const productRouter = createTRPCRouter({
       .where(
         and(
           eq(products.tenantId, ctx.tenantId),
-          eq(products.isActive, true)
+          eq(products.isActivePOS, true)
         )
       )
       .orderBy(asc(products.sortOrder));
@@ -452,7 +452,7 @@ export const productRouter = createTRPCRouter({
           and(
             eq(products.id, input.id),
             eq(products.tenantId, input.tenantId),
-            eq(products.isActive, true)
+            eq(products.isActivePublic, true)
           )
         )
         .limit(1);
@@ -652,6 +652,8 @@ export const productRouter = createTRPCRouter({
         hasVariants: z.boolean().optional(),
         sortOrder: z.number().int().min(0).optional(),
         isActive: z.boolean().optional(),
+        isActivePublic: z.boolean().optional(),
+        isActivePOS: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

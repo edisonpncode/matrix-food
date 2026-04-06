@@ -15,7 +15,7 @@ export const categoryRouter = createTRPCRouter({
         .where(
           and(
             eq(categories.tenantId, input.tenantId),
-            eq(categories.isActive, true)
+            eq(categories.isActivePublic, true)
           )
         )
         .orderBy(asc(categories.sortOrder));
@@ -29,6 +29,22 @@ export const categoryRouter = createTRPCRouter({
       .select()
       .from(categories)
       .where(eq(categories.tenantId, ctx.tenantId))
+      .orderBy(asc(categories.sortOrder));
+  }),
+
+  /**
+   * Lista categorias ativas no POS (atendentes).
+   */
+  listForPOS: tenantProcedure.query(async ({ ctx }) => {
+    return getDb()
+      .select()
+      .from(categories)
+      .where(
+        and(
+          eq(categories.tenantId, ctx.tenantId),
+          eq(categories.isActivePOS, true)
+        )
+      )
       .orderBy(asc(categories.sortOrder));
   }),
 
@@ -153,6 +169,8 @@ export const categoryRouter = createTRPCRouter({
         imageUrl: z.string().url().nullable().optional(),
         sortOrder: z.number().int().min(0).optional(),
         isActive: z.boolean().optional(),
+        isActivePublic: z.boolean().optional(),
+        isActivePOS: z.boolean().optional(),
         hasSizes: z.boolean().optional(),
         schedule: z
           .object({

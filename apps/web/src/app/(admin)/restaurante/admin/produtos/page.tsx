@@ -6,8 +6,8 @@ import {
   Plus,
   Pencil,
   Trash2,
-  Eye,
-  EyeOff,
+  Globe,
+  Monitor,
   Loader2,
   Tag,
 } from "lucide-react";
@@ -36,8 +36,12 @@ export default function ProdutosPage() {
     }
   }
 
-  function handleToggleActive(id: string, isActive: boolean) {
-    updateMutation.mutate({ id, isActive: !isActive });
+  function handleTogglePublic(id: string, isActivePublic: boolean) {
+    updateMutation.mutate({ id, isActivePublic: !isActivePublic });
+  }
+
+  function handleTogglePOS(id: string, isActivePOS: boolean) {
+    updateMutation.mutate({ id, isActivePOS: !isActivePOS });
   }
 
   function formatPrice(price: string) {
@@ -120,7 +124,8 @@ export default function ProdutosPage() {
               categories.data?.find((c) => c.id === product.categoryId)?.name
             }
             formatPrice={formatPrice}
-            onToggleActive={handleToggleActive}
+            onTogglePublic={handleTogglePublic}
+            onTogglePOS={handleTogglePOS}
             onDelete={handleDelete}
           />
         ))}
@@ -133,7 +138,8 @@ function ProductCard({
   product,
   categoryName,
   formatPrice,
-  onToggleActive,
+  onTogglePublic,
+  onTogglePOS,
   onDelete,
 }: {
   product: {
@@ -143,19 +149,23 @@ function ProductCard({
     price: string;
     originalPrice: string | null;
     isActive: boolean;
+    isActivePublic: boolean;
+    isActivePOS: boolean;
     isNew: boolean;
     hasVariants: boolean;
     imageUrl: string | null;
   };
   categoryName?: string;
   formatPrice: (price: string) => string;
-  onToggleActive: (id: string, isActive: boolean) => void;
+  onTogglePublic: (id: string, isActivePublic: boolean) => void;
+  onTogglePOS: (id: string, isActivePOS: boolean) => void;
   onDelete: (id: string, name: string) => void;
 }) {
+  const isInactive = !product.isActivePublic && !product.isActivePOS;
   return (
     <div
       className={`flex items-center gap-4 rounded-lg border border-border bg-card p-4 ${
-        !product.isActive ? "opacity-60" : ""
+        isInactive ? "opacity-60" : ""
       }`}
     >
       {/* Imagem placeholder */}
@@ -182,9 +192,14 @@ function ProductCard({
               NOVO
             </span>
           )}
-          {!product.isActive && (
-            <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-              Inativo
+          {!product.isActivePublic && (
+            <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-600" title="Oculto no link de pedidos">
+              Link off
+            </span>
+          )}
+          {!product.isActivePOS && (
+            <span className="rounded bg-orange-100 px-2 py-0.5 text-xs text-orange-600" title="Oculto no POS">
+              POS off
             </span>
           )}
         </div>
@@ -219,15 +234,18 @@ function ProductCard({
       {/* Ações */}
       <div className="flex items-center gap-1 shrink-0">
         <button
-          onClick={() => onToggleActive(product.id, product.isActive)}
-          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-          title={product.isActive ? "Desativar" : "Ativar"}
+          onClick={() => onTogglePublic(product.id, product.isActivePublic)}
+          className={`rounded-md p-2 hover:bg-accent ${product.isActivePublic ? "text-green-600" : "text-muted-foreground opacity-50"}`}
+          title={product.isActivePublic ? "Visível no link — clique para ocultar" : "Oculto no link — clique para mostrar"}
         >
-          {product.isActive ? (
-            <Eye className="h-4 w-4" />
-          ) : (
-            <EyeOff className="h-4 w-4" />
-          )}
+          <Globe className="h-4 w-4" />
+        </button>
+        <button
+          onClick={() => onTogglePOS(product.id, product.isActivePOS)}
+          className={`rounded-md p-2 hover:bg-accent ${product.isActivePOS ? "text-blue-600" : "text-muted-foreground opacity-50"}`}
+          title={product.isActivePOS ? "Visível no POS — clique para ocultar" : "Oculto no POS — clique para mostrar"}
+        >
+          <Monitor className="h-4 w-4" />
         </button>
         <Link
           href={`/restaurante/admin/produtos/${product.id}`}

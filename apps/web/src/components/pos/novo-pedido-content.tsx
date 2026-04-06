@@ -120,7 +120,7 @@ export function NovoPedidoContent() {
   } | null>(null);
 
   const { data: tenant } = trpc.tenant.getById.useQuery();
-  const { data: categories } = trpc.category.listAll.useQuery();
+  const { data: categories } = trpc.category.listForPOS.useQuery();
   const { data: products } = trpc.product.listForPOS.useQuery();
   const { data: promos } = trpc.promotion.list.useQuery();
   const { settings: printerSettings, printAllTypes } = usePrinterSettings();

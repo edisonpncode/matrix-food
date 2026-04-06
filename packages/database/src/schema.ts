@@ -406,6 +406,10 @@ export const categories = pgTable(
     imageUrl: text("image_url"),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
+    /** Visível no link de pedidos (clientes) */
+    isActivePublic: boolean("is_active_public").notNull().default(true),
+    /** Visível no POS (atendentes) */
+    isActivePOS: boolean("is_active_pos").notNull().default(true),
     /** Se true, a categoria tem tamanhos (ex: Pizza P, M, G) e os produtos usam preço por tamanho */
     hasSizes: boolean("has_sizes").notNull().default(false),
     /** Horário em que a categoria fica visível (ex: "Almoço" só aparece 11h-15h) */
@@ -470,6 +474,10 @@ export const products = pgTable(
     hasVariants: boolean("has_variants").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
+    /** Visível no link de pedidos (clientes) */
+    isActivePublic: boolean("is_active_public").notNull().default(true),
+    /** Visível no POS (atendentes) */
+    isActivePOS: boolean("is_active_pos").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")
       .notNull()

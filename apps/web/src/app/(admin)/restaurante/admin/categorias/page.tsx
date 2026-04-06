@@ -7,8 +7,8 @@ import {
   Pencil,
   Trash2,
   GripVertical,
-  Eye,
-  EyeOff,
+  Globe,
+  Monitor,
   Loader2,
   Ruler,
 } from "lucide-react";
@@ -112,8 +112,12 @@ export default function CategoriasPage() {
     }
   }
 
-  function handleToggleActive(id: string, isActive: boolean) {
-    updateMutation.mutate({ id, isActive: !isActive });
+  function handleTogglePublic(id: string, isActivePublic: boolean) {
+    updateMutation.mutate({ id, isActivePublic: !isActivePublic });
+  }
+
+  function handleTogglePOS(id: string, isActivePOS: boolean) {
+    updateMutation.mutate({ id, isActivePOS: !isActivePOS });
   }
 
   function handleDelete(id: string, catName: string) {
@@ -365,7 +369,7 @@ export default function CategoriasPage() {
           <div
             key={cat.id}
             className={`flex items-center gap-3 rounded-lg border border-border bg-card p-4 ${
-              !cat.isActive ? "opacity-60" : ""
+              !cat.isActivePublic && !cat.isActivePOS ? "opacity-60" : ""
             }`}
           >
             <GripVertical className="h-5 w-5 shrink-0 cursor-grab text-muted-foreground" />
@@ -379,9 +383,14 @@ export default function CategoriasPage() {
                     {cat.sizes.length} tamanho{cat.sizes.length !== 1 ? "s" : ""}
                   </span>
                 )}
-                {!cat.isActive && (
-                  <span className="rounded bg-muted px-2 py-0.5 text-xs text-muted-foreground">
-                    Inativa
+                {!cat.isActivePublic && (
+                  <span className="rounded bg-red-100 px-2 py-0.5 text-xs text-red-600" title="Oculta no link de pedidos">
+                    Link off
+                  </span>
+                )}
+                {!cat.isActivePOS && (
+                  <span className="rounded bg-orange-100 px-2 py-0.5 text-xs text-orange-600" title="Oculta no POS">
+                    POS off
                   </span>
                 )}
               </div>
@@ -409,15 +418,18 @@ export default function CategoriasPage() {
 
             <div className="flex items-center gap-1">
               <button
-                onClick={() => handleToggleActive(cat.id, cat.isActive)}
-                className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-                title={cat.isActive ? "Desativar" : "Ativar"}
+                onClick={() => handleTogglePublic(cat.id, cat.isActivePublic)}
+                className={`rounded-md p-2 hover:bg-accent ${cat.isActivePublic ? "text-green-600" : "text-muted-foreground opacity-50"}`}
+                title={cat.isActivePublic ? "Visível no link — clique para ocultar" : "Oculta no link — clique para mostrar"}
               >
-                {cat.isActive ? (
-                  <Eye className="h-4 w-4" />
-                ) : (
-                  <EyeOff className="h-4 w-4" />
-                )}
+                <Globe className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => handleTogglePOS(cat.id, cat.isActivePOS)}
+                className={`rounded-md p-2 hover:bg-accent ${cat.isActivePOS ? "text-blue-600" : "text-muted-foreground opacity-50"}`}
+                title={cat.isActivePOS ? "Visível no POS — clique para ocultar" : "Oculta no POS — clique para mostrar"}
+              >
+                <Monitor className="h-4 w-4" />
               </button>
               <button
                 onClick={() => startEdit(cat)}
