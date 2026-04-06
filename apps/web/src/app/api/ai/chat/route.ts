@@ -49,6 +49,20 @@ function fixDataUrls(content: any): any {
   });
 }
 
+/** Remove HTML tags e entidades (&nbsp; etc.) de uma string */
+function stripHtml(raw: string): string {
+  return raw
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function createTools(tenantId: string | undefined) {
   return {
     /**
@@ -97,8 +111,8 @@ function createTools(tenantId: string | undefined) {
                 const prods = (cat.products || [])
                   .filter((p: Record<string, unknown>) => p.available !== false)
                   .map((p: Record<string, unknown>) => ({
-                    name: String(p.name || ""),
-                    description: p.description ? String(p.description) : undefined,
+                    name: stripHtml(String(p.name || "")),
+                    description: p.description ? stripHtml(String(p.description)) : undefined,
                     price: String(Number(p.price || 0).toFixed(2)),
                     originalPrice: p.oldPrice
                       ? String(Number(p.oldPrice).toFixed(2))
@@ -107,9 +121,9 @@ function createTools(tenantId: string | undefined) {
                   }));
                 if (prods.length > 0) {
                   extracted.push({
-                    name: String(cat.name || "Sem categoria"),
+                    name: stripHtml(String(cat.name || "Sem categoria")),
                     description: cat.description
-                      ? String(cat.description)
+                      ? stripHtml(String(cat.description))
                       : undefined,
                     products: prods,
                   });
