@@ -35,16 +35,18 @@ interface ImportResult {
 export function ChatMessage({ message, onAction }: ChatMessageProps) {
   const isUser = message.role === "user";
 
-  const textContent = message.parts
+  const parts = message.parts ?? [];
+
+  const textContent = parts
     .filter((p) => p.type === "text")
     .map((p) => p.text)
     .join("");
 
-  const fileParts = message.parts.filter(
+  const fileParts = parts.filter(
     (p) => p.type === "file" && p.mediaType?.startsWith("image/")
   );
 
-  const toolParts = message.parts.filter((p) => p.type.startsWith("tool-"));
+  const toolParts = parts.filter((p) => p.type.startsWith("tool-"));
 
   if (isUser) {
     return (
@@ -77,12 +79,33 @@ export function ChatMessage({ message, onAction }: ChatMessageProps) {
         {toolParts.map((part: any, idx: number) => {
           if (part.state !== "output-available" || !part.output) return null;
           const toolName = String(part.type).replace("tool-", "");
+          const output = part.output;
+
+          // fetchUrl de plataforma conhecida retorna action: "preview" direto
+          if (toolName === "fetchUrl" && output?.action === "preview") {
+            return (
+              <MenuPreviewCard
+                key={idx}
+                result={output as PreviewResult}
+                onAction={onAction}
+              />
+            );
+          }
+
+          // fetchUrl com erro
+          if (toolName === "fetchUrl" && output?.error) {
+            return (
+              <div key={idx} className="rounded-xl border border-orange-500/30 bg-orange-500/10 px-4 py-3 text-sm text-orange-700">
+                {output.error}
+              </div>
+            );
+          }
 
           if (toolName === "previewMenu") {
             return (
               <MenuPreviewCard
                 key={idx}
-                result={part.output as PreviewResult}
+                result={output as PreviewResult}
                 onAction={onAction}
               />
             );
@@ -92,7 +115,7 @@ export function ChatMessage({ message, onAction }: ChatMessageProps) {
             return (
               <ImportSuccessCard
                 key={idx}
-                result={part.output as ImportResult}
+                result={output as ImportResult}
               />
             );
           }
@@ -127,13 +150,13 @@ function MenuPreviewCard({
       </div>
 
       <div className="max-h-80 overflow-y-auto p-3 space-y-3">
-        {result.categories.map((cat, i) => (
+        {(result.categories ?? []).map((cat, i) => (
           <div key={i}>
             <p className="text-xs font-bold text-primary uppercase tracking-wide mb-1.5">
               {cat.name}
             </p>
             <div className="space-y-1">
-              {cat.products.map((prod, j) => (
+              {(cat.products ?? []).map((prod, j) => (
                 <div
                   key={j}
                   className="flex items-start justify-between gap-2 rounded-md bg-accent/50 px-3 py-2"

@@ -122,7 +122,10 @@ function createTools(tenantId: string | undefined) {
                 (s, c) => s + c.products.length,
                 0
               );
+              // Retorna direto no formato preview para evitar que o AI
+              // precise reprocessar centenas de produtos via previewMenu
               return {
+                action: "preview" as const,
                 source: "pedir.delivery",
                 restaurantName: info?.name || slug,
                 categories: extracted,
