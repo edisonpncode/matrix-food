@@ -41,6 +41,15 @@ interface SizePrice {
   maxFlavors: number;
 }
 
+interface ProductIngredient {
+  ingredientId: string;
+  ingredientName: string;
+  ingredientType: "QUANTITY" | "DESCRIPTION";
+  defaultQuantity: number;
+  defaultState: string;
+  additionalPrice: string;
+}
+
 interface Product {
   id: string;
   name: string;
@@ -50,6 +59,7 @@ interface Product {
   variants: ProductVariant[];
   customizationGroups: CustomizationGroup[];
   sizePrices: SizePrice[];
+  ingredients?: ProductIngredient[];
 }
 
 
@@ -72,6 +82,11 @@ export function NovoPedidoContent() {
     Record<string, string[]>
   >({});
   const [quantity, setQuantity] = useState(1);
+  const [ingredientSelections, setIngredientSelections] = useState<
+    Map<string, { quantity?: number; state?: string }>
+  >(new Map());
+  const [itemNotes, setItemNotes] = useState("");
+
   const [appliedPromos, setAppliedPromos] = useState<{
     id: string;
     code: string;
@@ -187,9 +202,12 @@ export function NovoPedidoContent() {
       return;
     }
 
+    const hasIngredients = (product.ingredients ?? []).length > 0;
+
     if (
       product.variants.length === 0 &&
-      product.customizationGroups.length === 0
+      product.customizationGroups.length === 0 &&
+      !hasIngredients
     ) {
       addToCart(product, null, null, []);
     } else {
@@ -199,8 +217,24 @@ export function NovoPedidoContent() {
       );
       setSelectedCustomizations({});
       setQuantity(1);
+      setItemNotes("");
       setSelectedSizeId(null);
       setPizzaFlavors([]);
+
+      // Inicializar seleções de ingredientes com defaults
+      if (hasIngredients) {
+        const defaults = new Map<string, { quantity?: number; state?: string }>();
+        product.ingredients!.forEach((ing) => {
+          if (ing.ingredientType === "QUANTITY") {
+            defaults.set(ing.ingredientId, { quantity: ing.defaultQuantity });
+          } else {
+            defaults.set(ing.ingredientId, { state: ing.defaultState });
+          }
+        });
+        setIngredientSelections(defaults);
+      } else {
+        setIngredientSelections(new Map());
+      }
     }
   }
 
@@ -214,6 +248,8 @@ export function NovoPedidoContent() {
       sizePrice?: number;
       flavorNames?: string[];
       displayName?: string;
+      ingredientModifications?: POSCartItem["ingredientModifications"];
+      notes?: string;
     }
   ) {
     let unitPrice: number;
@@ -240,6 +276,8 @@ export function NovoPedidoContent() {
       customizations,
       sizeName: options?.sizeName,
       flavorNames: options?.flavorNames,
+      ingredientModifications: options?.ingredientModifications,
+      notes: options?.notes,
     };
 
     setCartItems((prev) => [...prev, newItem]);
@@ -247,6 +285,8 @@ export function NovoPedidoContent() {
     setSelectedSizeId(null);
     setPizzaFlavors([]);
     setQuantity(1);
+    setIngredientSelections(new Map());
+    setItemNotes("");
   }
 
   // Aplicar combo: adiciona todos os itens do combo ao carrinho
@@ -532,6 +572,53 @@ export function NovoPedidoContent() {
       }
     }
 
+    // Montar modificações de ingredientes
+    const ingredientMods: POSCartItem["ingredientModifications"] = [];
+    const productIngs = selectedProduct.ingredients ?? [];
+    if (productIngs.length > 0) {
+      productIngs.forEach((ing) => {
+        const selection = ingredientSelections.get(ing.ingredientId);
+        const addPrice = parseFloat(ing.additionalPrice);
+
+        if (ing.ingredientType === "QUANTITY") {
+          const chosen = selection?.quantity ?? ing.defaultQuantity;
+          if (chosen === ing.defaultQuantity) return; // sem mudança
+          let modification: string;
+          let price = 0;
+          if (chosen === 0) {
+            modification = `SEM ${ing.ingredientName}`;
+          } else if (chosen > ing.defaultQuantity) {
+            const extra = chosen - ing.defaultQuantity;
+            modification = `+${extra} ${ing.ingredientName}`;
+            price = extra * addPrice;
+          } else {
+            const reduced = ing.defaultQuantity - chosen;
+            modification = `-${reduced} ${ing.ingredientName}`;
+          }
+          ingredientMods.push({
+            ingredientId: ing.ingredientId,
+            ingredientName: ing.ingredientName,
+            modification,
+            price,
+            quantity: chosen,
+          });
+        } else {
+          const chosen = selection?.state ?? ing.defaultState;
+          if (chosen === ing.defaultState) return; // sem mudança
+          let price = 0;
+          if (chosen === "MAIS") price = addPrice;
+          if (chosen === "COM" && ing.defaultState === "SEM") price = addPrice;
+          ingredientMods.push({
+            ingredientId: ing.ingredientId,
+            ingredientName: ing.ingredientName,
+            modification: `${chosen} ${ing.ingredientName}`,
+            price,
+            state: chosen,
+          });
+        }
+      });
+    }
+
     // Pizza with sizePrices flow
     if (selectedProduct.sizePrices && selectedProduct.sizePrices.length > 0 && selectedSizeId) {
       const selectedSize = selectedProduct.sizePrices.find(
@@ -540,7 +627,6 @@ export function NovoPedidoContent() {
       if (!selectedSize) return;
 
       const flavorNames = pizzaFlavors.map((f) => f.productName);
-      // Price = highest price among all selected flavors for the chosen size
       const highestPrice = Math.max(...pizzaFlavors.map((f) => f.sizePrice));
 
       const displayName =
@@ -553,6 +639,8 @@ export function NovoPedidoContent() {
         sizePrice: highestPrice,
         flavorNames: flavorNames.length > 1 ? flavorNames : undefined,
         displayName,
+        ingredientModifications: ingredientMods.length > 0 ? ingredientMods : undefined,
+        notes: itemNotes || undefined,
       });
       return;
     }
@@ -566,7 +654,11 @@ export function NovoPedidoContent() {
       selectedProduct,
       selectedVariant,
       variant?.name ?? null,
-      customizations
+      customizations,
+      {
+        ingredientModifications: ingredientMods.length > 0 ? ingredientMods : undefined,
+        notes: itemNotes || undefined,
+      }
     );
   }
 
@@ -833,7 +925,7 @@ export function NovoPedidoContent() {
             )
           : [];
         // Calculate current display price
-        const displayPrice = hasSizes && currentSize
+        const baseDisplayPrice = hasSizes && currentSize
           ? pizzaFlavors.length > 0
             ? Math.max(...pizzaFlavors.map((f) => f.sizePrice))
             : parseFloat(currentSize.price)
@@ -842,6 +934,27 @@ export function NovoPedidoContent() {
                 selectedProduct.variants.find((v) => v.id === selectedVariant)?.price ?? selectedProduct.price
               )
             : parseFloat(selectedProduct.price);
+
+        // Calculate ingredient extras price
+        let ingredientExtrasPrice = 0;
+        const productIngs = selectedProduct.ingredients ?? [];
+        ingredientSelections.forEach((sel, ingId) => {
+          const ing = productIngs.find((i) => i.ingredientId === ingId);
+          if (!ing) return;
+          const addP = parseFloat(ing.additionalPrice);
+          if (ing.ingredientType === "QUANTITY") {
+            const chosen = sel.quantity ?? ing.defaultQuantity;
+            if (chosen > ing.defaultQuantity) {
+              ingredientExtrasPrice += (chosen - ing.defaultQuantity) * addP;
+            }
+          } else {
+            const chosen = sel.state ?? ing.defaultState;
+            if (chosen === "MAIS") ingredientExtrasPrice += addP;
+            if (chosen === "COM" && ing.defaultState === "SEM") ingredientExtrasPrice += addP;
+          }
+        });
+
+        const displayPrice = baseDisplayPrice + ingredientExtrasPrice;
 
         return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -1072,6 +1185,153 @@ export function NovoPedidoContent() {
                   </div>
                 </div>
               ))}
+
+              {/* Ingredientes */}
+              {(() => {
+                const productIngs = selectedProduct.ingredients ?? [];
+                if (productIngs.length === 0) return null;
+
+                const normalIngs = productIngs.filter(
+                  (ing) =>
+                    (ing.ingredientType === "QUANTITY" && ing.defaultQuantity > 0) ||
+                    (ing.ingredientType === "DESCRIPTION" && ing.defaultState !== "SEM")
+                );
+                const extraIngs = productIngs.filter(
+                  (ing) =>
+                    (ing.ingredientType === "QUANTITY" && ing.defaultQuantity === 0) ||
+                    (ing.ingredientType === "DESCRIPTION" && ing.defaultState === "SEM")
+                );
+
+                const renderIng = (ing: ProductIngredient) => {
+                  const selection = ingredientSelections.get(ing.ingredientId);
+                  const addPrice = parseFloat(ing.additionalPrice);
+
+                  if (ing.ingredientType === "QUANTITY") {
+                    const currentQty = selection?.quantity ?? ing.defaultQuantity;
+                    const extraQty = Math.max(0, currentQty - ing.defaultQuantity);
+                    return (
+                      <div
+                        key={ing.ingredientId}
+                        className="flex items-center justify-between rounded-lg border border-border px-3 py-2"
+                      >
+                        <div>
+                          <span className="text-sm font-medium">{ing.ingredientName}</span>
+                          {addPrice > 0 && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              ({formatCurrency(addPrice)}/un)
+                            </span>
+                          )}
+                          {extraQty > 0 && addPrice > 0 && (
+                            <span className="ml-2 text-xs text-primary font-medium">
+                              +{formatCurrency(extraQty * addPrice)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newMap = new Map(ingredientSelections);
+                              newMap.set(ing.ingredientId, { quantity: Math.max(0, currentQty - 1) });
+                              setIngredientSelections(newMap);
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-accent"
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </button>
+                          <span className={`w-8 text-center text-sm font-bold ${currentQty === 0 ? "text-red-500" : ""}`}>
+                            {currentQty}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newMap = new Map(ingredientSelections);
+                              newMap.set(ing.ingredientId, { quantity: currentQty + 1 });
+                              setIngredientSelections(newMap);
+                            }}
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-accent"
+                          >
+                            <Plus className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  }
+
+                  // DESCRIPTION type
+                  const currentState = selection?.state ?? ing.defaultState;
+                  const states = ["SEM", "MENOS", "COM", "MAIS"] as const;
+                  return (
+                    <div key={ing.ingredientId} className="rounded-lg border border-border px-3 py-2">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm font-medium">{ing.ingredientName}</span>
+                        {addPrice > 0 &&
+                          ((currentState === "MAIS") ||
+                            (currentState === "COM" && ing.defaultState === "SEM")) && (
+                            <span className="text-xs text-primary font-medium">
+                              +{formatCurrency(addPrice)}
+                            </span>
+                          )}
+                      </div>
+                      <div className="flex gap-1">
+                        {states.map((st) => (
+                          <button
+                            key={st}
+                            type="button"
+                            onClick={() => {
+                              const newMap = new Map(ingredientSelections);
+                              newMap.set(ing.ingredientId, { state: st });
+                              setIngredientSelections(newMap);
+                            }}
+                            className={`flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors ${
+                              currentState === st
+                                ? st === "SEM"
+                                  ? "bg-red-500 text-white"
+                                  : st === "MENOS"
+                                    ? "bg-amber-500 text-white"
+                                    : st === "COM"
+                                      ? "bg-green-500 text-white"
+                                      : "bg-blue-500 text-white"
+                                : "bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-300"
+                            }`}
+                          >
+                            {st}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                  <>
+                    {normalIngs.length > 0 && (
+                      <div className="mb-4">
+                        <p className="mb-2 text-sm font-medium">Ingredientes</p>
+                        <div className="space-y-1.5">{normalIngs.map(renderIng)}</div>
+                      </div>
+                    )}
+                    {extraIngs.length > 0 && (
+                      <div className="mb-4">
+                        <p className="mb-2 text-sm font-medium">Extras</p>
+                        <div className="space-y-1.5">{extraIngs.map(renderIng)}</div>
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+
+              {/* Observações */}
+              <div className="mb-4">
+                <p className="mb-2 text-sm font-medium">Observações</p>
+                <textarea
+                  value={itemNotes}
+                  onChange={(e) => setItemNotes(e.target.value)}
+                  placeholder="Ex: Bem passado, sem cebola..."
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm resize-none"
+                  rows={2}
+                />
+              </div>
             </div>
 
             {/* Quantity + Add button */}

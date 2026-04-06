@@ -21,6 +21,14 @@ export interface POSCartItem {
   promoId?: string; // ID da promo a que pertence (undefined = item avulso)
   sizeName?: string; // Nome do tamanho da pizza (ex: "Grande")
   flavorNames?: string[]; // Nomes dos sabores da pizza
+  ingredientModifications?: {
+    ingredientId: string;
+    ingredientName: string;
+    modification: string;
+    price: number;
+    quantity?: number;
+    state?: string;
+  }[];
 }
 
 export interface AppliedPromo {
@@ -89,6 +97,16 @@ function CartItemRow({
           {item.customizations.length > 0 && (
             <p className="mt-0.5 text-xs text-muted-foreground truncate">
               {item.customizations.map((c) => c.optionName).join(", ")}
+            </p>
+          )}
+          {item.ingredientModifications && item.ingredientModifications.length > 0 && (
+            <p className="mt-0.5 text-xs text-muted-foreground truncate">
+              {item.ingredientModifications.map((m) => m.modification).join(", ")}
+            </p>
+          )}
+          {item.notes && (
+            <p className="mt-0.5 text-xs text-amber-600 dark:text-amber-400 truncate">
+              OBS: {item.notes}
             </p>
           )}
         </div>
