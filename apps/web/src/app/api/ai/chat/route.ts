@@ -49,7 +49,7 @@ function fixDataUrls(content: any): any {
   });
 }
 
-function createTools(tenantId: string) {
+function createTools(tenantId: string | undefined) {
   return {
     /**
      * Busca conteúdo de uma URL (cardápio online, etc.)
@@ -185,6 +185,7 @@ function createTools(tenantId: string) {
         categories: z.array(menuCategorySchema),
       }),
       execute: async ({ categories: cats }) => {
+        if (!tenantId) return { error: "Restaurante não identificado. Recarregue a página." };
         const totalProducts = cats.reduce((sum, c) => sum + c.products.length, 0);
         return {
           action: "preview",
@@ -204,6 +205,7 @@ function createTools(tenantId: string) {
         categories: z.array(menuCategorySchema),
       }),
       execute: async ({ categories: cats }) => {
+        if (!tenantId) return { error: "Restaurante não identificado. Recarregue a página." };
         const db = getDb();
         let categoriesCreated = 0;
         let productsCreated = 0;
@@ -273,7 +275,7 @@ export async function POST(req: Request) {
       model: google("gemini-2.5-flash"),
       system: SYSTEM_PROMPT,
       messages: fixed,
-      tools: tenantId ? createTools(tenantId) : undefined,
+      tools: createTools(tenantId),
       stopWhen: stepCountIs(5),
     });
 
