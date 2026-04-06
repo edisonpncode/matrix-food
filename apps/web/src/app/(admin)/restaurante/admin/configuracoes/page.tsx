@@ -1,10 +1,27 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
-import { Loader2, Save } from "lucide-react";
+import { Loader2, Save, Clock } from "lucide-react";
 import { ShareLinkSection } from "@/components/customer/share-link-section";
 import { ImageUploader } from "@/components/admin/image-uploader";
+
+const DAYS_CONFIG = [
+  { key: "monday", label: "Segunda-feira" },
+  { key: "tuesday", label: "Terça-feira" },
+  { key: "wednesday", label: "Quarta-feira" },
+  { key: "thursday", label: "Quinta-feira" },
+  { key: "friday", label: "Sexta-feira" },
+  { key: "saturday", label: "Sábado" },
+  { key: "sunday", label: "Domingo" },
+] as const;
+
+type DayHours = { open: string; close: string; isOpen: boolean };
+type OperatingHoursState = Record<string, DayHours>;
+
+const DEFAULT_HOURS: OperatingHoursState = Object.fromEntries(
+  DAYS_CONFIG.map(({ key }) => [key, { open: "08:00", close: "22:00", isOpen: false }])
+);
 
 export default function ConfiguracoesPage() {
   const tenant = trpc.tenant.getById.useQuery();
@@ -24,6 +41,14 @@ export default function ConfiguracoesPage() {
   const [email, setEmail] = useState("");
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
+  const [operatingHours, setOperatingHours] = useState<OperatingHoursState>(DEFAULT_HOURS);
+
+  const updateDay = useCallback((day: string, field: keyof DayHours, value: string | boolean) => {
+    setOperatingHours((prev) => ({
+      ...prev,
+      [day]: { ...prev[day]!, [field]: value },
+    }));
+  }, []);
 
   useEffect(() => {
     if (tenant.data) {
@@ -38,6 +63,9 @@ export default function ConfiguracoesPage() {
       setEmail(tenant.data.email ?? "");
       setLogoUrl(tenant.data.logoUrl ?? null);
       setBannerUrl(tenant.data.bannerUrl ?? null);
+      if (tenant.data.operatingHours) {
+        setOperatingHours({ ...DEFAULT_HOURS, ...tenant.data.operatingHours });
+      }
     }
   }, [tenant.data]);
 
@@ -48,6 +76,7 @@ export default function ConfiguracoesPage() {
       description: description || undefined,
       logoUrl,
       bannerUrl,
+      operatingHours,
       address: address || undefined,
       city: city || undefined,
       state: state || undefined,
@@ -256,6 +285,69 @@ export default function ConfiguracoesPage() {
                 />
               </div>
             </div>
+          </div>
+        </section>
+
+        {/* Horários de Funcionamento */}
+        <section className="rounded-lg border border-border bg-card p-5">
+          <div className="mb-4 flex items-center gap-2">
+            <Clock className="h-5 w-5 text-primary" />
+            <h2 className="text-lg font-semibold text-foreground">
+              Horários de Funcionamento
+            </h2>
+          </div>
+          <p className="mb-4 text-xs text-muted-foreground">
+            Configure os dias e horários em que seu restaurante aceita pedidos.
+          </p>
+          <div className="space-y-3">
+            {DAYS_CONFIG.map(({ key, label }) => {
+              const day = operatingHours[key]!;
+              return (
+                <div
+                  key={key}
+                  className={`flex flex-wrap items-center gap-3 rounded-lg border p-3 transition-colors ${
+                    day.isOpen
+                      ? "border-primary/30 bg-primary/5"
+                      : "border-border bg-muted/30"
+                  }`}
+                >
+                  <label className="flex w-36 cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={day.isOpen}
+                      onChange={(e) => updateDay(key, "isOpen", e.target.checked)}
+                      className="h-4 w-4 rounded border-input accent-primary"
+                    />
+                    <span
+                      className={`text-sm font-medium ${
+                        day.isOpen ? "text-foreground" : "text-muted-foreground"
+                      }`}
+                    >
+                      {label}
+                    </span>
+                  </label>
+                  {day.isOpen ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="time"
+                        value={day.open}
+                        onChange={(e) => updateDay(key, "open", e.target.value)}
+                        className="rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      <span className="text-sm text-muted-foreground">às</span>
+                      <input
+                        type="time"
+                        value={day.close}
+                        onChange={(e) => updateDay(key, "close", e.target.value)}
+                        className="rounded-md border border-input bg-background px-2 py-1.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Fechado</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </section>
 

@@ -277,6 +277,16 @@ export const tenantRouter = createTRPCRouter({
         phone: z.string().max(20).optional(),
         whatsapp: z.string().max(20).optional(),
         email: z.string().email().optional(),
+        operatingHours: z
+          .record(
+            z.string(),
+            z.object({
+              open: z.string().regex(/^\d{2}:\d{2}$/),
+              close: z.string().regex(/^\d{2}:\d{2}$/),
+              isOpen: z.boolean(),
+            })
+          )
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
