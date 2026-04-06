@@ -7,12 +7,22 @@ interface ImageUploaderProps {
   value: string | null;
   onChange: (url: string | null) => void;
   folder?: string;
+  aspectRatio?: number;
+  previewWidth?: number;
+  previewHeight?: number;
+  placeholderClass?: string;
+  label?: string;
 }
 
 export function ImageUploader({
   value,
   onChange,
   folder = "matrix-food",
+  aspectRatio = 1,
+  previewWidth = 200,
+  previewHeight = 200,
+  placeholderClass,
+  label = "Enviar imagem",
 }: ImageUploaderProps) {
   return (
     <div className="space-y-2">
@@ -21,8 +31,8 @@ export function ImageUploader({
           <CldImage
             src={value}
             alt="Imagem"
-            width={200}
-            height={200}
+            width={previewWidth}
+            height={previewHeight}
             className="rounded-lg border border-border object-cover"
           />
           <button
@@ -44,7 +54,7 @@ export function ImageUploader({
             clientAllowedFormats: ["jpg", "jpeg", "png", "webp"],
             maxImageFileSize: 5000000,
             cropping: true,
-            croppingAspectRatio: 1,
+            croppingAspectRatio: aspectRatio,
             croppingShowDimensions: true,
           }}
           onSuccess={(result) => {
@@ -61,10 +71,13 @@ export function ImageUploader({
             <button
               type="button"
               onClick={() => open()}
-              className="flex h-32 w-32 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input bg-background text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              className={
+                placeholderClass ??
+                "flex h-32 w-32 flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input bg-background text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+              }
             >
               <ImagePlus className="h-6 w-6" />
-              <span className="text-xs">Enviar imagem</span>
+              <span className="text-xs">{label}</span>
             </button>
           )}
         </CldUploadWidget>

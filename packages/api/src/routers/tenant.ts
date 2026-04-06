@@ -268,6 +268,8 @@ export const tenantRouter = createTRPCRouter({
       z.object({
         name: z.string().min(1).max(255).optional(),
         description: z.string().optional(),
+        logoUrl: z.string().nullable().optional(),
+        bannerUrl: z.string().nullable().optional(),
         address: z.string().optional(),
         city: z.string().max(100).optional(),
         state: z.string().max(2).optional(),

@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Loader2, Save } from "lucide-react";
 import { ShareLinkSection } from "@/components/customer/share-link-section";
+import { ImageUploader } from "@/components/admin/image-uploader";
 
 export default function ConfiguracoesPage() {
   const tenant = trpc.tenant.getById.useQuery();
@@ -21,6 +22,8 @@ export default function ConfiguracoesPage() {
   const [phone, setPhone] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [email, setEmail] = useState("");
+  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (tenant.data) {
@@ -33,6 +36,8 @@ export default function ConfiguracoesPage() {
       setPhone(tenant.data.phone ?? "");
       setWhatsapp(tenant.data.whatsapp ?? "");
       setEmail(tenant.data.email ?? "");
+      setLogoUrl(tenant.data.logoUrl ?? null);
+      setBannerUrl(tenant.data.bannerUrl ?? null);
     }
   }, [tenant.data]);
 
@@ -41,6 +46,8 @@ export default function ConfiguracoesPage() {
     updateMutation.mutate({
       name,
       description: description || undefined,
+      logoUrl,
+      bannerUrl,
       address: address || undefined,
       city: city || undefined,
       state: state || undefined,
@@ -74,6 +81,50 @@ export default function ConfiguracoesPage() {
       )}
 
       <form onSubmit={handleSubmit} className="mt-6 max-w-2xl space-y-6">
+        {/* Imagens */}
+        <section className="rounded-lg border border-border bg-card p-5">
+          <h2 className="mb-4 text-lg font-semibold text-foreground">
+            Imagens
+          </h2>
+          <div className="space-y-5">
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">
+                Logo do Restaurante
+              </label>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Imagem quadrada, recomendado 400x400px
+              </p>
+              <ImageUploader
+                value={logoUrl}
+                onChange={setLogoUrl}
+                folder="matrix-food/logos"
+                aspectRatio={1}
+                previewWidth={160}
+                previewHeight={160}
+                label="Enviar logo"
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-sm font-medium text-foreground">
+                Imagem de Capa
+              </label>
+              <p className="mb-2 text-xs text-muted-foreground">
+                Banner horizontal, recomendado 1200x400px
+              </p>
+              <ImageUploader
+                value={bannerUrl}
+                onChange={setBannerUrl}
+                folder="matrix-food/banners"
+                aspectRatio={3}
+                previewWidth={400}
+                previewHeight={133}
+                placeholderClass="flex h-28 w-full max-w-sm flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-input bg-background text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                label="Enviar capa"
+              />
+            </div>
+          </div>
+        </section>
+
         {/* Info básica */}
         <section className="rounded-lg border border-border bg-card p-5">
           <h2 className="mb-4 text-lg font-semibold text-foreground">
