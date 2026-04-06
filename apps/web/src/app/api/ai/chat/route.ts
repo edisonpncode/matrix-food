@@ -278,7 +278,10 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { messages, tenantId } = await req.json();
+    const body = await req.json();
+    const messages = body.messages;
+    // Prioridade: body do frontend > env var (fallback seguro para produção)
+    const tenantId = body.tenantId || process.env.DEV_TENANT_ID || null;
     const modelMessages = await convertToModelMessages(messages);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
