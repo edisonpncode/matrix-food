@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
-import { Loader2, Save, Clock } from "lucide-react";
+import { Loader2, Save, Clock, CheckCircle, XCircle } from "lucide-react";
 import { ShareLinkSection } from "@/components/customer/share-link-section";
 import { ImageUploader } from "@/components/admin/image-uploader";
 
@@ -26,8 +26,18 @@ const DEFAULT_HOURS: OperatingHoursState = Object.fromEntries(
 export default function ConfiguracoesPage() {
   const tenant = trpc.tenant.getById.useQuery();
   const utils = trpc.useUtils();
+  const [toast, setToast] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
   const updateMutation = trpc.tenant.update.useMutation({
-    onSuccess: () => utils.tenant.getById.invalidate(),
+    onSuccess: () => {
+      utils.tenant.getById.invalidate();
+      setToast({ type: "success", message: "Configurações salvas com sucesso!" });
+      setTimeout(() => setToast(null), 4000);
+    },
+    onError: (err) => {
+      setToast({ type: "error", message: err.message || "Erro ao salvar configurações." });
+      setTimeout(() => setToast(null), 5000);
+    },
   });
 
   const [name, setName] = useState("");
@@ -97,6 +107,27 @@ export default function ConfiguracoesPage() {
 
   return (
     <div>
+      {/* Toast de feedback */}
+      {toast && (
+        <div
+          className={`fixed right-4 top-4 z-50 flex items-center gap-3 rounded-lg px-5 py-3 shadow-lg transition-all ${
+            toast.type === "success"
+              ? "bg-green-600 text-white"
+              : "bg-red-600 text-white"
+          }`}
+        >
+          {toast.type === "success" ? (
+            <CheckCircle className="h-5 w-5 flex-shrink-0" />
+          ) : (
+            <XCircle className="h-5 w-5 flex-shrink-0" />
+          )}
+          <span className="text-sm font-medium">{toast.message}</span>
+          <button onClick={() => setToast(null)} className="ml-2 opacity-70 hover:opacity-100">
+            &times;
+          </button>
+        </div>
+      )}
+
       <h1 className="text-2xl font-bold text-foreground">Configurações</h1>
       <p className="mt-1 text-muted-foreground">
         Dados do seu restaurante
@@ -364,9 +395,6 @@ export default function ConfiguracoesPage() {
           Salvar Configurações
         </button>
 
-        {updateMutation.isSuccess && (
-          <p className="text-sm text-green-600">Configurações salvas!</p>
-        )}
       </form>
     </div>
   );
