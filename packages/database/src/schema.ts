@@ -1191,6 +1191,55 @@ export const billingRecords = pgTable(
 );
 
 // ============================================
+// AI CHAT HISTORY
+// ============================================
+
+export const aiMessageRoleEnum = pgEnum("ai_message_role", [
+  "user",
+  "assistant",
+]);
+
+export const aiConversations = pgTable(
+  "ai_conversations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    title: varchar("title", { length: 100 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("ai_conversations_tenant_idx").on(table.tenantId),
+    index("ai_conversations_updated_idx").on(table.tenantId, table.updatedAt),
+  ]
+);
+
+export const aiMessages = pgTable(
+  "ai_messages",
+  {
+    id: varchar("id", { length: 100 }).primaryKey(),
+    conversationId: uuid("conversation_id")
+      .notNull()
+      .references(() => aiConversations.id, { onDelete: "cascade" }),
+    role: aiMessageRoleEnum("role").notNull(),
+    parts: jsonb("parts").notNull().$type<unknown[]>(),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("ai_messages_conversation_idx").on(table.conversationId),
+    index("ai_messages_conversation_created_idx").on(
+      table.conversationId,
+      table.createdAt
+    ),
+  ]
+);
+
+// ============================================
 // RELATIONS
 // ============================================
 
@@ -1205,6 +1254,25 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   promotions: many(promotions),
   deliveryAreas: many(deliveryAreas),
   ingredients: many(ingredients),
+  aiConversations: many(aiConversations),
+}));
+
+export const aiConversationsRelations = relations(
+  aiConversations,
+  ({ one, many }) => ({
+    tenant: one(tenants, {
+      fields: [aiConversations.tenantId],
+      references: [tenants.id],
+    }),
+    messages: many(aiMessages),
+  })
+);
+
+export const aiMessagesRelations = relations(aiMessages, ({ one }) => ({
+  conversation: one(aiConversations, {
+    fields: [aiMessages.conversationId],
+    references: [aiConversations.id],
+  }),
 }));
 
 export const userTypesRelations = relations(userTypes, ({ one, many }) => ({

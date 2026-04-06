@@ -19,6 +19,7 @@ import { deliveryAreaRouter } from "./routers/deliveryArea";
 import { printRouter } from "./routers/print";
 import { minimaxRouter } from "./routers/minimax";
 import { ingredientRouter } from "./routers/ingredient";
+import { aiChatRouter } from "./routers/aiChat";
 
 /**
  * Router raiz que combina todos os sub-routers.
@@ -44,6 +45,7 @@ export const appRouter = createTRPCRouter({
   print: printRouter,
   minimax: minimaxRouter,
   ingredient: ingredientRouter,
+  aiChat: aiChatRouter,
 });
 
 export type AppRouter = typeof appRouter;
