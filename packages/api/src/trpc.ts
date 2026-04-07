@@ -7,9 +7,19 @@ import type { AuthUser } from "@matrix-food/auth";
  * Contexto que cada requisição tRPC recebe.
  * Contém dados do usuário autenticado e do tenant (restaurante).
  */
+/**
+ * Identidade de um cliente (consumidor final) autenticado via Firebase Phone Auth.
+ * Separado de `user` (staff/admin do restaurante) para evitar colisão de sessões.
+ */
+export interface CustomerAuth {
+  uid: string;
+  phone: string | null;
+}
+
 export interface TRPCContext {
   user: AuthUser | null;
   tenantId: string | null;
+  customer?: CustomerAuth | null;
 }
 
 /**
@@ -92,3 +102,26 @@ const enforceTenant = t.middleware(({ ctx, next }) => {
  * Usado para todas as operações dentro de um restaurante.
  */
 export const tenantProcedure = t.procedure.use(enforceTenant);
+
+/**
+ * Middleware que verifica se há um cliente (consumidor) autenticado via Firebase Phone Auth.
+ */
+const enforceCustomer = t.middleware(({ ctx, next }) => {
+  if (!ctx.customer?.uid) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Você precisa estar logado como cliente.",
+    });
+  }
+  return next({
+    ctx: {
+      customer: ctx.customer,
+    },
+  });
+});
+
+/**
+ * Procedure para o portal do cliente (consumidor final).
+ * Requer login via Firebase Phone Auth.
+ */
+export const customerProcedure = t.procedure.use(enforceCustomer);

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "@matrix-food/ui/globals.css";
 import { TRPCProvider } from "@/lib/trpc-provider";
+import { CustomerAuthProvider } from "@/lib/customer-auth-context";
 
 export const viewport: Viewport = {
   width: "device-width",
@@ -40,7 +41,9 @@ export default function RootLayout({
         <link rel="apple-touch-icon" href="/icon-192.png" />
       </head>
       <body className="min-h-screen bg-background font-sans antialiased">
-        <TRPCProvider>{children}</TRPCProvider>
+        <TRPCProvider>
+          <CustomerAuthProvider>{children}</CustomerAuthProvider>
+        </TRPCProvider>
       </body>
     </html>
   );
