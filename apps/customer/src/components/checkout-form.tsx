@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Tag, X, Check } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
 import { formatCurrency } from "@matrix-food/utils";
 import { LoyaltySection } from "./loyalty-section";
+import { useCustomerAuth } from "@/lib/customer-auth-context";
 
 interface Tenant {
   id: string;
@@ -69,6 +70,35 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
   } | null>(null);
 
   const createOrder = trpc.order.create.useMutation();
+
+  // Pre-preencher quando cliente esta logado
+  const { customer } = useCustomerAuth();
+  const meQuery = trpc.customerPortal.getMe.useQuery(undefined, {
+    enabled: !!customer,
+    retry: false,
+  });
+  useEffect(() => {
+    if (!customer) return;
+    if (!customerName && customer.name) setCustomerName(customer.name);
+    if (!customerPhone && customer.phone) setCustomerPhone(customer.phone);
+  }, [customer]);
+  useEffect(() => {
+    if (orderType !== "DELIVERY") return;
+    const me = meQuery.data;
+    if (!me?.addresses || me.addresses.length === 0) return;
+    if (address.street) return;
+    const a = me.addresses[0];
+    if (!a) return;
+    setAddress({
+      street: a.street ?? "",
+      number: a.number ?? "",
+      complement: a.complement ?? "",
+      neighborhood: a.neighborhood ?? "",
+      city: a.city ?? "",
+      state: a.state ?? "",
+      zipCode: a.zipCode ?? "",
+    });
+  }, [meQuery.data, orderType]);
 
   const deliveryFee =
     orderType === "DELIVERY"

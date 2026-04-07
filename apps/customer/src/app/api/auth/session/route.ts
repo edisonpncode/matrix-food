@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getFirebaseAuth } from "next-firebase-auth-edge/lib/auth";
+import { getFirebaseAuth } from "next-firebase-auth-edge";
 import {
   CUSTOMER_COOKIE_NAME,
   CUSTOMER_COOKIE_OPTIONS,

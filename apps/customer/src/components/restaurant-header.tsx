@@ -2,6 +2,7 @@
 
 import { MapPin, Clock } from "lucide-react";
 import { isRestaurantOpen } from "@matrix-food/utils";
+import { LoginButton } from "./auth/login-button";
 
 interface Tenant {
   name: string;
@@ -30,17 +31,22 @@ export function RestaurantHeader({ tenant }: { tenant: Tenant }) {
   return (
     <div className="bg-white shadow-sm">
       {/* Banner */}
-      {tenant.bannerUrl ? (
-        <div className="h-40 w-full overflow-hidden">
-          <img
-            src={tenant.bannerUrl}
-            alt=""
-            className="h-full w-full object-cover"
-          />
+      <div className="relative">
+        {tenant.bannerUrl ? (
+          <div className="h-40 w-full overflow-hidden">
+            <img
+              src={tenant.bannerUrl}
+              alt=""
+              className="h-full w-full object-cover"
+            />
+          </div>
+        ) : (
+          <div className="h-40 w-full bg-gradient-to-r from-primary/80 to-primary" />
+        )}
+        <div className="absolute right-4 top-4 z-20">
+          <LoginButton />
         </div>
-      ) : (
-        <div className="h-40 w-full bg-gradient-to-r from-primary/80 to-primary" />
-      )}
+      </div>
 
       {/* Info */}
       <div className="mx-auto max-w-2xl px-4 pb-4">

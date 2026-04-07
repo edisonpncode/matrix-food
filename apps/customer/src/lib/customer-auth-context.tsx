@@ -69,7 +69,6 @@ export function CustomerAuthProvider({ children }: { children: ReactNode }) {
       setLoading(false);
     });
     return () => unsub();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const value = useMemo<CustomerAuthContextValue>(
