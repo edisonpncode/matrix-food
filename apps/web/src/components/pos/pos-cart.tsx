@@ -49,13 +49,20 @@ interface POSCartProps {
   onRemovePromo: (promoId: string) => void;
 }
 
+function getIngredientExtras(item: POSCartItem) {
+  return (item.ingredientModifications ?? []).reduce((s, m) => s + m.price, 0);
+}
+
 function getItemExtras(item: POSCartItem) {
-  return item.customizations.reduce((s, c) => s + c.price, 0) * item.quantity;
+  const custTotal = item.customizations.reduce((s, c) => s + c.price, 0);
+  const ingTotal = getIngredientExtras(item);
+  return (custTotal + ingTotal) * item.quantity;
 }
 
 function getItemTotal(item: POSCartItem) {
   const custTotal = item.customizations.reduce((s, c) => s + c.price, 0);
-  return (item.unitPrice + custTotal) * item.quantity;
+  const ingTotal = getIngredientExtras(item);
+  return (item.unitPrice + custTotal + ingTotal) * item.quantity;
 }
 
 function CartItemRow({
