@@ -30,6 +30,7 @@ import {
   sql,
 } from "@matrix-food/database";
 import { generateOrderNumber, pointInPolygon } from "@matrix-food/utils";
+import { tryAutoEmitNfce } from "../services/fiscal/auto-emit";
 
 // --- Schemas de validação ---
 
@@ -1308,6 +1309,11 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
+      // Emissão automática de NFC-e (fire-and-forget)
+      if (paymentStatus === "PAID") {
+        tryAutoEmitNfce(ctx.tenantId, order.id).catch(() => {});
+      }
+
       return {
         id: order.id,
         displayNumber: order.displayNumber,
@@ -1457,6 +1463,11 @@ export const orderRouter = createTRPCRouter({
           description: `Mesa ${input.tableNumber} (${openOrders.length} pedido${openOrders.length > 1 ? "s" : ""})`,
           createdBy: ctx.user.name ?? ctx.user.email ?? "Funcionário",
         });
+      }
+
+      // Emissão automática de NFC-e para cada pedido da mesa
+      for (const o of openOrders) {
+        tryAutoEmitNfce(ctx.tenantId, o.id).catch(() => {});
       }
 
       return {

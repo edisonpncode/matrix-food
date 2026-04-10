@@ -51,6 +51,31 @@ export const activityActionEnum = pgEnum("activity_action", [
   "USER_TYPE_DELETED",
   "PIN_SWITCH",
   "STAFF_LOGIN",
+  "FISCAL_CONFIG_UPDATED",
+  "FISCAL_DOCUMENT_EMITTED",
+  "FISCAL_DOCUMENT_CANCELLED",
+  "FISCAL_DOCUMENT_RETRY",
+]);
+
+export const fiscalProviderEnum = pgEnum("fiscal_provider", [
+  "FOCUS_NFE",
+  "WEBMANIA",
+  "NUVEM_FISCAL",
+  "SAFEWEB",
+]);
+
+export const fiscalDocumentStatusEnum = pgEnum("fiscal_document_status", [
+  "PENDING",
+  "PROCESSING",
+  "AUTHORIZED",
+  "REJECTED",
+  "CANCELLED",
+  "ERROR",
+]);
+
+export const fiscalEmissionModeEnum = pgEnum("fiscal_emission_mode", [
+  "AUTOMATIC",
+  "MANUAL",
 ]);
 
 export const orderStatusEnum = pgEnum("order_status", [
@@ -1248,10 +1273,131 @@ export const aiMessages = pgTable(
 );
 
 // ============================================
+// FISCAL (Nota Fiscal / NFC-e)
+// ============================================
+
+export const fiscalConfigs = pgTable("fiscal_configs", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tenantId: uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "cascade" })
+    .unique(),
+  provider: fiscalProviderEnum("provider").notNull(),
+  isActive: boolean("is_active").notNull().default(false),
+  emissionMode: fiscalEmissionModeEnum("emission_mode")
+    .notNull()
+    .default("MANUAL"),
+
+  /** Credenciais da API criptografadas (JSON com AES-256-GCM) */
+  encryptedCredentials: text("encrypted_credentials").notNull(),
+
+  // Dados fiscais da empresa
+  cnpj: varchar("cnpj", { length: 18 }).notNull(),
+  inscricaoEstadual: varchar("inscricao_estadual", { length: 20 }),
+  razaoSocial: varchar("razao_social", { length: 255 }).notNull(),
+  nomeFantasia: varchar("nome_fantasia", { length: 255 }),
+  /** 1=Simples Nacional, 2=SN Excesso, 3=Regime Normal */
+  regimeTributario: integer("regime_tributario").notNull().default(1),
+
+  /** 1=Produção, 2=Homologação (teste) */
+  ambiente: integer("ambiente").notNull().default(2),
+
+  // CSC (Código de Segurança do Contribuinte) para NFC-e
+  cscId: varchar("csc_id", { length: 10 }),
+  encryptedCsc: text("encrypted_csc"),
+
+  // Série e numeração da NFC-e
+  serieNfce: integer("serie_nfce").notNull().default(1),
+  proximoNumeroNfce: integer("proximo_numero_nfce").notNull().default(1),
+
+  // Defaults tributários para produtos
+  defaultCfop: varchar("default_cfop", { length: 4 }).notNull().default("5102"),
+  defaultCsosn: varchar("default_csosn", { length: 4 })
+    .notNull()
+    .default("102"),
+  defaultNcm: varchar("default_ncm", { length: 8 })
+    .notNull()
+    .default("21069090"),
+
+  // Endereço fiscal
+  logradouro: varchar("logradouro", { length: 255 }),
+  numeroEndereco: varchar("numero_endereco", { length: 20 }),
+  bairro: varchar("bairro", { length: 100 }),
+  codigoMunicipio: varchar("codigo_municipio", { length: 7 }),
+  municipio: varchar("municipio", { length: 100 }),
+  uf: varchar("uf", { length: 2 }),
+  cep: varchar("cep", { length: 9 }),
+
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+export const fiscalDocuments = pgTable(
+  "fiscal_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+
+    status: fiscalDocumentStatusEnum("status").notNull().default("PENDING"),
+    provider: fiscalProviderEnum("provider").notNull(),
+
+    // Dados da NFC-e autorizada
+    chaveAcesso: varchar("chave_acesso", { length: 44 }),
+    numeroNfce: integer("numero_nfce"),
+    serieNfce: integer("serie_nfce"),
+    protocolo: varchar("protocolo", { length: 20 }),
+    danfeUrl: text("danfe_url"),
+    xmlUrl: text("xml_url"),
+
+    // Dados de erro
+    errorCode: varchar("error_code", { length: 10 }),
+    errorMessage: text("error_message"),
+
+    // Cancelamento
+    cancelledAt: timestamp("cancelled_at"),
+    cancelProtocolo: varchar("cancel_protocolo", { length: 20 }),
+    cancelReason: text("cancel_reason"),
+
+    // Controle de retry
+    retryCount: integer("retry_count").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at"),
+    nextRetryAt: timestamp("next_retry_at"),
+
+    // Resposta completa do provedor (auditoria)
+    providerResponse: jsonb("provider_response").$type<
+      Record<string, unknown>
+    >(),
+
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("fiscal_docs_tenant_created_idx").on(
+      table.tenantId,
+      table.createdAt
+    ),
+    index("fiscal_docs_tenant_status_idx").on(table.tenantId, table.status),
+    index("fiscal_docs_order_idx").on(table.orderId),
+    uniqueIndex("fiscal_docs_chave_idx").on(table.chaveAcesso),
+  ]
+);
+
+// ============================================
 // RELATIONS
 // ============================================
 
-export const tenantsRelations = relations(tenants, ({ many }) => ({
+export const tenantsRelations = relations(tenants, ({ many, one }) => ({
   users: many(tenantUsers),
   userTypes: many(userTypes),
   activityLogs: many(activityLogs),
@@ -1263,6 +1409,8 @@ export const tenantsRelations = relations(tenants, ({ many }) => ({
   deliveryAreas: many(deliveryAreas),
   ingredients: many(ingredients),
   aiConversations: many(aiConversations),
+  fiscalConfig: one(fiscalConfigs),
+  fiscalDocuments: many(fiscalDocuments),
 }));
 
 export const aiConversationsRelations = relations(
@@ -1475,6 +1623,7 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     references: [deliveryAreas.id],
   }),
   items: many(orderItems),
+  fiscalDocuments: many(fiscalDocuments),
 }));
 
 export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
@@ -1663,6 +1812,32 @@ export const billingRecordsRelations = relations(
     subscription: one(tenantSubscriptions, {
       fields: [billingRecords.subscriptionId],
       references: [tenantSubscriptions.id],
+    }),
+  })
+);
+
+// --- Fiscal Relations ---
+
+export const fiscalConfigsRelations = relations(
+  fiscalConfigs,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [fiscalConfigs.tenantId],
+      references: [tenants.id],
+    }),
+  })
+);
+
+export const fiscalDocumentsRelations = relations(
+  fiscalDocuments,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [fiscalDocuments.tenantId],
+      references: [tenants.id],
+    }),
+    order: one(orders, {
+      fields: [fiscalDocuments.orderId],
+      references: [orders.id],
     }),
   })
 );

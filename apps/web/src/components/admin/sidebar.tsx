@@ -26,6 +26,7 @@ import {
   PlusCircle,
   Banknote,
   Package,
+  FileText,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -96,6 +97,7 @@ const sidebarEntries: SidebarEntry[] = [
       { href: "/restaurante/admin/areas-entrega", label: "Áreas de Entrega", icon: MapPin },
       { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users },
       { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer },
+      { href: "/restaurante/admin/fiscal", label: "Nota Fiscal", icon: FileText },
     ],
   },
   { href: "/restaurante/admin/assinatura", label: "Assinatura", icon: CreditCard },

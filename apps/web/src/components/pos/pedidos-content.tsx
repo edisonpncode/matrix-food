@@ -14,6 +14,8 @@ import {
   Volume2,
   VolumeX,
   Printer,
+  FileText,
+  Loader2,
 } from "lucide-react";
 import { usePrinterSettings } from "@/hooks/use-printer-settings";
 
@@ -77,6 +79,13 @@ export function PedidosContent() {
   );
 
   const { settings: printerSettings, printOrder, printAllTypes, getEnabledReceiptTypes } = usePrinterSettings();
+
+  const fiscalConfig = trpc.fiscal.getConfig.useQuery();
+  const emitNfce = trpc.fiscal.emit.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  const isFiscalActive = fiscalConfig.data?.isActive && fiscalConfig.data?.emissionMode === "MANUAL";
 
   const updateStatus = trpc.order.updateStatus.useMutation({
     onSuccess: () => refetch(),
@@ -398,6 +407,21 @@ export function PedidosContent() {
                         </div>
                       </div>
                     </div>
+                  )}
+                  {/* Botão NFC-e (modo manual) */}
+                  {isFiscalActive && order.paymentStatus === "PAID" && (
+                    <button
+                      onClick={() => emitNfce.mutate({ orderId: order.id })}
+                      disabled={emitNfce.isPending}
+                      className="rounded-lg border-2 border-green-200 px-3 py-3 text-green-600 hover:bg-green-50 active:bg-green-100 disabled:opacity-50"
+                      title="Emitir NFC-e"
+                    >
+                      {emitNfce.isPending ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <FileText className="h-4 w-4" />
+                      )}
+                    </button>
                   )}
                   {order.status !== "DELIVERED" &&
                     order.status !== "PICKED_UP" &&
