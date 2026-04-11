@@ -161,13 +161,21 @@ export const aiChatRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ input }) => {
-      // Extrair as 2-3 primeiras palavras significativas
+      // Extrair palavras significativas (ignorar palavras comuns do português)
+      const stopWords = new Set([
+        "que", "para", "com", "como", "por", "uma", "uns", "das", "dos",
+        "nas", "nos", "não", "mas", "mais", "tem", "são", "foi", "ser",
+        "ter", "está", "esse", "essa", "isso", "isto", "este", "esta",
+        "quero", "quando", "você", "meu", "minha", "seu", "sua", "ele",
+        "ela", "eles", "elas", "nós", "todos", "todas", "pode", "fazer",
+        "consegue", "tirar", "colocar", "enviar", "envie", "tire",
+      ]);
       const words = input.firstMessage
         .replace(/https?:\/\/\S+/g, "Cardápio Link")
         .replace(/[^\w\sÀ-ú]/g, "")
         .trim()
         .split(/\s+/)
-        .filter((w) => w.length > 2)
+        .filter((w) => w.length > 2 && !stopWords.has(w.toLowerCase()))
         .slice(0, 2);
 
       const title =

@@ -20,7 +20,10 @@ import { ConversationSidebar } from "@/components/mini-max/conversation-sidebar"
 import { trpc } from "@/lib/trpc";
 
 export default function NeoAssistentePage() {
+  // chatKey controla a remontagem do ChatPanel (só muda ao clicar na sidebar)
+  // activeConversationId rastreia a conversa atual (muda também ao criar nova)
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const [chatKey, setChatKey] = useState<string>("new");
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   const { data: tenant } = trpc.tenant.getById.useQuery();
@@ -58,11 +61,20 @@ export default function NeoAssistentePage() {
           <ConversationSidebar
             conversations={conversations ?? []}
             activeId={activeConversationId}
-            onSelect={setActiveConversationId}
-            onNew={() => setActiveConversationId(null)}
+            onSelect={(id) => {
+              setActiveConversationId(id);
+              setChatKey(id); // remonta o ChatPanel
+            }}
+            onNew={() => {
+              setActiveConversationId(null);
+              setChatKey("new-" + Date.now()); // remonta com painel limpo
+            }}
             onDelete={(id) => {
               deleteConversation.mutate({ id });
-              if (activeConversationId === id) setActiveConversationId(null);
+              if (activeConversationId === id) {
+                setActiveConversationId(null);
+                setChatKey("new-" + Date.now());
+              }
             }}
             isLoading={conversationsLoading}
           />
@@ -72,13 +84,16 @@ export default function NeoAssistentePage() {
       {/* Painel do chat */}
       <div className="flex flex-1 flex-col">
         <ChatPanel
-          key={activeConversationId ?? "new"}
+          key={chatKey}
           conversationId={activeConversationId}
           initialMessages={conversationData?.messages}
           tenantId={tenant?.id}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
-          onConversationCreated={(id) => setActiveConversationId(id)}
+          onConversationCreated={(id) => {
+            // Apenas atualizar o ID ativo (sidebar highlight), SEM mudar chatKey
+            setActiveConversationId(id);
+          }}
           createConversation={createConversation}
           addMessage={addMessage}
           generateTitle={generateTitle}
