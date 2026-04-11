@@ -38,6 +38,32 @@ export function ProductDetailModal({
     Map<string, { quantity?: number; state?: string }>
   >(new Map());
 
+  const variants = product?.variants ?? [];
+  const groups = product?.customizationGroups ?? [];
+  const productIngredients = (product as { ingredients?: Array<{
+    ingredientId: string;
+    ingredientName: string;
+    ingredientType: "QUANTITY" | "DESCRIPTION";
+    defaultQuantity: number;
+    defaultState: string;
+    additionalPrice: string;
+  }> } | undefined)?.ingredients ?? [];
+
+  // Initialize ingredient selections from defaults (once)
+  useEffect(() => {
+    if (productIngredients.length > 0 && ingredientSelections.size === 0) {
+      const defaults = new Map<string, { quantity?: number; state?: string }>();
+      productIngredients.forEach((ing) => {
+        if (ing.ingredientType === "QUANTITY") {
+          defaults.set(ing.ingredientId, { quantity: ing.defaultQuantity });
+        } else {
+          defaults.set(ing.ingredientId, { state: ing.defaultState });
+        }
+      });
+      setIngredientSelections(defaults);
+    }
+  }, [productIngredients.length]);
+
   if (isLoading) {
     return (
       <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center">
@@ -54,32 +80,6 @@ export function ProductDetailModal({
     onClose();
     return null;
   }
-
-  const variants = product.variants ?? [];
-  const groups = product.customizationGroups ?? [];
-  const productIngredients = (product as { ingredients?: Array<{
-    ingredientId: string;
-    ingredientName: string;
-    ingredientType: "QUANTITY" | "DESCRIPTION";
-    defaultQuantity: number;
-    defaultState: string;
-    additionalPrice: string;
-  }> }).ingredients ?? [];
-
-  // Initialize ingredient selections from defaults (once)
-  useEffect(() => {
-    if (productIngredients.length > 0 && ingredientSelections.size === 0) {
-      const defaults = new Map<string, { quantity?: number; state?: string }>();
-      productIngredients.forEach((ing) => {
-        if (ing.ingredientType === "QUANTITY") {
-          defaults.set(ing.ingredientId, { quantity: ing.defaultQuantity });
-        } else {
-          defaults.set(ing.ingredientId, { state: ing.defaultState });
-        }
-      });
-      setIngredientSelections(defaults);
-    }
-  }, [productIngredients.length]);
 
   // Auto-select first variant
   const activeVariantId =
