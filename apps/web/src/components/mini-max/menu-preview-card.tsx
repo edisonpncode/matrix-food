@@ -1,7 +1,10 @@
 "use client";
 
 import { ClipboardList, AlertTriangle, Loader2 } from "lucide-react";
-import type { ExtractedMenu } from "@/lib/ai/tools";
+interface ExtractedMenu {
+  categories: { name: string; description?: string; products: { name: string; description?: string; price: string }[] }[];
+  notes?: string;
+}
 
 interface MenuPreviewCardProps {
   menu: ExtractedMenu;
