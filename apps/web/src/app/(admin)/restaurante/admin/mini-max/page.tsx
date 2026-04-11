@@ -145,6 +145,8 @@ function ChatPanel({
   const [inputText, setInputText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const convIdRef = useRef<string | null>(conversationId);
+  // ID fixo para o useChat — NÃO deve mudar durante a vida do componente
+  const chatIdRef = useRef(conversationId ?? crypto.randomUUID());
 
   const transport = useMemo(
     () =>
@@ -166,7 +168,7 @@ function ChatPanel({
   }, [initialMessages]);
 
   const { messages, sendMessage, setMessages, status, error } = useChat({
-    id: conversationId ?? undefined,
+    id: chatIdRef.current,
     transport,
     onFinish: async ({ message }) => {
       // Salvar mensagem do assistente no banco
