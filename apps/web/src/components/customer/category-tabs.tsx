@@ -11,12 +11,14 @@ interface CategoryBarProps {
   categories: Category[];
   activeCategoryId: string | null;
   onSelect: (id: string) => void;
+  onScrollspy?: (id: string) => void;
 }
 
 export function CategoryBar({
   categories,
   activeCategoryId,
   onSelect,
+  onScrollspy,
 }: CategoryBarProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const activeRef = useRef<HTMLButtonElement>(null);
@@ -42,13 +44,13 @@ export function CategoryBar({
         if (entry.isIntersecting) {
           const categoryId = entry.target.getAttribute("data-category-id");
           if (categoryId) {
-            onSelect(categoryId);
+            (onScrollspy ?? onSelect)(categoryId);
           }
           break;
         }
       }
     },
-    [onSelect]
+    [onSelect, onScrollspy]
   );
 
   useEffect(() => {

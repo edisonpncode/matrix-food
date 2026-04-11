@@ -154,6 +154,7 @@ export default function RestaurantPage({ params }: PageProps) {
             name: c.name,
           }))}
           activeCategoryId={currentActiveCategoryId}
+          onScrollspy={(id) => setActiveCategoryId(id)}
           onSelect={(id) => {
             setActiveCategoryId(id);
             const el = document.getElementById(`category-${id}`);
