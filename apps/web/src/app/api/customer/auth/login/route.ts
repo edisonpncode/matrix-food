@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { getDb, customers, eq } from "@matrix-food/database";
+import { getDb, customers, sql } from "@matrix-food/database";
 import {
   CUSTOMER_COOKIE_NAME,
   CUSTOMER_COOKIE_OPTIONS,
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
         passwordHash: customers.passwordHash,
       })
       .from(customers)
-      .where(eq(customers.phone, phone))
+      .where(sql`regexp_replace(${customers.phone}, '\\D', '', 'g') = ${phone}`)
       .limit(1);
 
     if (!existing || !existing.passwordHash) {

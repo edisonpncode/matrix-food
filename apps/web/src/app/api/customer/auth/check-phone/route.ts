@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { getDb, customers, eq } from "@matrix-food/database";
+import { getDb, customers, sql } from "@matrix-food/database";
 
 export const runtime = "nodejs";
 
@@ -49,7 +49,7 @@ export async function POST(req: NextRequest) {
         passwordHash: customers.passwordHash,
       })
       .from(customers)
-      .where(eq(customers.phone, phone))
+      .where(sql`regexp_replace(${customers.phone}, '\\D', '', 'g') = ${phone}`)
       .limit(1);
 
     if (!existing) {
