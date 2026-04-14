@@ -264,6 +264,8 @@ export const orderRouter = createTRPCRouter({
       z.object({
         tenantId: z.string().uuid(),
         type: z.enum(["DELIVERY", "PICKUP", "DINE_IN", "COUNTER", "TABLE"]),
+        /** Se o cliente estiver logado, passa o customerId — evita re-criar por telefone. */
+        customerId: z.string().uuid().optional(),
         customerName: z.string().min(1).max(255),
         customerPhone: z.string().min(1).max(20),
         deliveryAddress: deliveryAddressInput.nullable(),

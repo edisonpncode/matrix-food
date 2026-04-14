@@ -1,11 +1,20 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "@matrix-food/api";
 import type { TRPCContext } from "@matrix-food/api";
+import { parseCustomerSessionCookie } from "@/lib/customer-session";
 
 function createContext(req: Request): TRPCContext {
   const referer = req.headers.get("referer") || "";
   const url = new URL(referer, "http://localhost");
   const pathname = url.pathname;
+
+  // Sessão do cliente (consumidor — link de pedidos)
+  const customerPayload = parseCustomerSessionCookie(
+    req.headers.get("cookie")
+  );
+  const customer = customerPayload
+    ? { customerId: customerPayload.customerId, phone: customerPayload.phone }
+    : null;
 
   // Admin routes - role OWNER
   if (pathname.startsWith("/restaurante/admin")) {
@@ -18,6 +27,7 @@ function createContext(req: Request): TRPCContext {
         role: "OWNER",
       },
       tenantId: process.env.DEV_TENANT_ID ?? null,
+      customer,
     };
   }
 
@@ -32,13 +42,15 @@ function createContext(req: Request): TRPCContext {
         role: "CASHIER",
       },
       tenantId: process.env.DEV_TENANT_ID ?? null,
+      customer,
     };
   }
 
-  // Customer/public routes - anonymous
+  // Customer/public routes - anonymous user, but talvez cliente logado
   return {
     user: null,
     tenantId: null,
+    customer,
   };
 }
 

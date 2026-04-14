@@ -363,8 +363,10 @@ export const customers = pgTable(
     phone: varchar("phone", { length: 20 }),
     /** CPF do cliente (formato: 123.456.789-00) */
     cpf: varchar("cpf", { length: 14 }),
-    /** Origem do cadastro: POS, ONLINE, MANUAL, etc. */
+    /** Origem do cadastro: POS, ONLINE, MANUAL, PORTAL */
     source: varchar("source", { length: 50 }),
+    /** Hash bcrypt da senha (nullable — clientes criados por atendente ficam sem senha até cadastrarem) */
+    passwordHash: varchar("password_hash", { length: 255 }),
     addresses: jsonb("addresses").$type<
       Array<{
         label: string;

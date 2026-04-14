@@ -124,14 +124,14 @@ export const customerPortalRouter = createTRPCRouter({
 
   /**
    * Retorna os dados do cliente logado.
+   * Busca por customerId (HMAC cookie) ou firebaseUid (Firebase Phone Auth).
    */
   getMe: customerProcedure.query(async ({ ctx }) => {
     const db = getDb();
-    const [customer] = await db
-      .select()
-      .from(customers)
-      .where(eq(customers.firebaseUid, ctx.customer.uid))
-      .limit(1);
+    const where = ctx.customer.customerId
+      ? eq(customers.id, ctx.customer.customerId)
+      : eq(customers.firebaseUid, ctx.customer.uid!);
+    const [customer] = await db.select().from(customers).where(where).limit(1);
 
     if (!customer) {
       throw new TRPCError({
@@ -169,10 +169,14 @@ export const customerPortalRouter = createTRPCRouter({
         });
       }
 
+      const where = ctx.customer.customerId
+        ? eq(customers.id, ctx.customer.customerId)
+        : eq(customers.firebaseUid, ctx.customer.uid!);
+
       const [updated] = await db
         .update(customers)
         .set(updates)
-        .where(eq(customers.firebaseUid, ctx.customer.uid))
+        .where(where)
         .returning();
 
       if (!updated) {
@@ -198,10 +202,13 @@ export const customerPortalRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       const db = getDb();
+      const customerWhere = ctx.customer.customerId
+        ? eq(customers.id, ctx.customer.customerId)
+        : eq(customers.firebaseUid, ctx.customer.uid!);
       const [customer] = await db
         .select({ id: customers.id })
         .from(customers)
-        .where(eq(customers.firebaseUid, ctx.customer.uid))
+        .where(customerWhere)
         .limit(1);
       if (!customer) return [];
 
@@ -239,10 +246,13 @@ export const customerPortalRouter = createTRPCRouter({
    */
   getMyLoyalty: customerProcedure.query(async ({ ctx }) => {
     const db = getDb();
+    const customerWhere = ctx.customer.customerId
+      ? eq(customers.id, ctx.customer.customerId)
+      : eq(customers.firebaseUid, ctx.customer.uid!);
     const [customer] = await db
       .select({ id: customers.id })
       .from(customers)
-      .where(eq(customers.firebaseUid, ctx.customer.uid))
+      .where(customerWhere)
       .limit(1);
     if (!customer) return [];
 
@@ -263,4 +273,52 @@ export const customerPortalRouter = createTRPCRouter({
       .orderBy(desc(customerTenants.lastOrderAt));
     return rows;
   }),
+
+  /**
+   * Garante que o cliente logado tem um vínculo com o tenant informado.
+   * Usado quando o cliente abre uma página de restaurante onde ainda não pediu.
+   * Idempotente — não faz nada se o vínculo já existe.
+   */
+  ensureTenantLink: customerProcedure
+    .input(z.object({ tenantId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+      const customerWhere = ctx.customer.customerId
+        ? eq(customers.id, ctx.customer.customerId)
+        : eq(customers.firebaseUid, ctx.customer.uid!);
+      const [customer] = await db
+        .select({ id: customers.id })
+        .from(customers)
+        .where(customerWhere)
+        .limit(1);
+      if (!customer) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Cliente não encontrado.",
+        });
+      }
+
+      const [existing] = await db
+        .select({ customerId: customerTenants.customerId })
+        .from(customerTenants)
+        .where(
+          and(
+            eq(customerTenants.customerId, customer.id),
+            eq(customerTenants.tenantId, input.tenantId)
+          )
+        )
+        .limit(1);
+
+      if (existing) return { created: false };
+
+      await db
+        .insert(customerTenants)
+        .values({
+          customerId: customer.id,
+          tenantId: input.tenantId,
+        })
+        .onConflictDoNothing();
+
+      return { created: true };
+    }),
 });

@@ -8,11 +8,16 @@ import type { AuthUser } from "@matrix-food/auth";
  * Contém dados do usuário autenticado e do tenant (restaurante).
  */
 /**
- * Identidade de um cliente (consumidor final) autenticado via Firebase Phone Auth.
+ * Identidade de um cliente (consumidor final) autenticado.
+ * Duas variantes coexistem:
+ *  - `uid` (Firebase Phone Auth) — usado pelo app cliente legado (apps/customer)
+ *  - `customerId` (HMAC cookie apps/web) — login por senha no link de pedidos
+ * Pelo menos um deles deve estar presente.
  * Separado de `user` (staff/admin do restaurante) para evitar colisão de sessões.
  */
 export interface CustomerAuth {
-  uid: string;
+  uid?: string;
+  customerId?: string;
   phone: string | null;
 }
 
@@ -104,10 +109,11 @@ const enforceTenant = t.middleware(({ ctx, next }) => {
 export const tenantProcedure = t.procedure.use(enforceTenant);
 
 /**
- * Middleware que verifica se há um cliente (consumidor) autenticado via Firebase Phone Auth.
+ * Middleware que verifica se há um cliente (consumidor) autenticado.
+ * Aceita Firebase uid (apps/customer) ou customerId HMAC (apps/web).
  */
 const enforceCustomer = t.middleware(({ ctx, next }) => {
-  if (!ctx.customer?.uid) {
+  if (!ctx.customer?.uid && !ctx.customer?.customerId) {
     throw new TRPCError({
       code: "UNAUTHORIZED",
       message: "Você precisa estar logado como cliente.",
@@ -122,6 +128,6 @@ const enforceCustomer = t.middleware(({ ctx, next }) => {
 
 /**
  * Procedure para o portal do cliente (consumidor final).
- * Requer login via Firebase Phone Auth.
+ * Requer login via Firebase Phone Auth ou senha (HMAC cookie).
  */
 export const customerProcedure = t.procedure.use(enforceCustomer);
