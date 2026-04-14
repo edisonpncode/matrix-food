@@ -254,6 +254,8 @@ export function CustomerAuthModal({
                   <input
                     type="tel"
                     inputMode="tel"
+                    name="customer-phone"
+                    autoComplete="tel"
                     autoFocus
                     value={phone}
                     onChange={(e) =>
@@ -295,6 +297,9 @@ export function CustomerAuthModal({
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2.5 focus-within:border-primary">
                   <User className="h-4 w-4 text-gray-400" />
                   <input
+                    type="text"
+                    name="customer-name"
+                    autoComplete="name"
                     autoFocus
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -311,6 +316,8 @@ export function CustomerAuthModal({
                   <Lock className="h-4 w-4 text-gray-400" />
                   <input
                     type="password"
+                    name="new-password"
+                    autoComplete="new-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Mínimo 6 caracteres"
@@ -326,6 +333,8 @@ export function CustomerAuthModal({
                   <Lock className="h-4 w-4 text-gray-400" />
                   <input
                     type="password"
+                    name="new-password-confirm"
+                    autoComplete="new-password"
                     value={passwordConfirm}
                     onChange={(e) => setPasswordConfirm(e.target.value)}
                     onKeyDown={(e) => {
@@ -369,6 +378,8 @@ export function CustomerAuthModal({
                   <Lock className="h-4 w-4 text-gray-400" />
                   <input
                     type="password"
+                    name="new-password"
+                    autoComplete="new-password"
                     autoFocus
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
@@ -385,6 +396,8 @@ export function CustomerAuthModal({
                   <Lock className="h-4 w-4 text-gray-400" />
                   <input
                     type="password"
+                    name="new-password-confirm"
+                    autoComplete="new-password"
                     value={passwordConfirm}
                     onChange={(e) => setPasswordConfirm(e.target.value)}
                     onKeyDown={(e) => {
@@ -427,6 +440,8 @@ export function CustomerAuthModal({
                   <Lock className="h-4 w-4 text-gray-400" />
                   <input
                     type="password"
+                    name="current-password"
+                    autoComplete="current-password"
                     autoFocus
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
