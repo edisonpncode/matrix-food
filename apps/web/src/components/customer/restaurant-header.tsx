@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { MapPin, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { CustomerLoginButton } from "./auth/customer-login-button";
 
 interface Tenant {
   name: string;
@@ -73,7 +74,12 @@ export function RestaurantHeader({
   const open = isOpen ?? true;
 
   return (
-    <div className="bg-white shadow-sm">
+    <div className="relative bg-white shadow-sm">
+      {/* Botão Entrar sobre o banner */}
+      <div className="absolute right-4 top-4 z-10">
+        <CustomerLoginButton onBanner />
+      </div>
+
       {/* Banner */}
       {tenant.bannerUrl ? (
         <div className="h-40 w-full overflow-hidden">

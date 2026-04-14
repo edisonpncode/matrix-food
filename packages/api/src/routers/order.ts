@@ -569,15 +569,94 @@ export const orderRouter = createTRPCRouter({
       const nextOrderNumber = (lastOrder?.orderNumber ?? 0) + 1;
       const displayNumber = generateOrderNumber(nextOrderNumber);
 
-      // Auto-salvar cliente (se telefone fornecido)
-      const resolvedCustomerId = await ensureCustomerFromOrder({
-        db,
-        tenantId: input.tenantId,
-        customerName: input.customerName,
-        customerPhone: input.customerPhone,
-        deliveryAddress: input.deliveryAddress,
-        source: "ONLINE",
-      });
+      // Resolver cliente: se logado (customerId passado), apenas garante
+      // o vínculo cross-tenant; senão, faz o fluxo antigo por telefone.
+      let resolvedCustomerId: string | null = null;
+      if (input.customerId) {
+        const [existing] = await db
+          .select({
+            id: customers.id,
+            addresses: customers.addresses,
+          })
+          .from(customers)
+          .where(eq(customers.id, input.customerId))
+          .limit(1);
+
+        if (existing) {
+          resolvedCustomerId = existing.id;
+
+          // Garante vínculo com o tenant (cross-tenant automático).
+          const [existingLink] = await db
+            .select({ customerId: customerTenants.customerId })
+            .from(customerTenants)
+            .where(
+              and(
+                eq(customerTenants.customerId, existing.id),
+                eq(customerTenants.tenantId, input.tenantId)
+              )
+            )
+            .limit(1);
+          if (!existingLink) {
+            await db
+              .insert(customerTenants)
+              .values({ customerId: existing.id, tenantId: input.tenantId })
+              .onConflictDoNothing();
+          }
+
+          // Se for delivery e o endereço não existe no perfil, adiciona.
+          if (input.deliveryAddress && input.deliveryAddress.street) {
+            const currentAddresses =
+              (existing.addresses as Array<{
+                label: string;
+                street: string;
+                number: string;
+                complement?: string;
+                neighborhood: string;
+                city: string;
+                state: string;
+                zipCode: string;
+                referencePoint?: string;
+                lat?: number;
+                lng?: number;
+              }>) || [];
+            const isDuplicate = currentAddresses.some(
+              (a) =>
+                a.street.toLowerCase().trim() ===
+                  input.deliveryAddress!.street.toLowerCase().trim() &&
+                a.number.trim() === input.deliveryAddress!.number.trim()
+            );
+            if (!isDuplicate) {
+              const newAddr = {
+                label: `Endereço ${currentAddresses.length + 1}`,
+                street: input.deliveryAddress.street,
+                number: input.deliveryAddress.number,
+                complement: input.deliveryAddress.complement || "",
+                neighborhood: input.deliveryAddress.neighborhood || "",
+                city: input.deliveryAddress.city || "",
+                state: input.deliveryAddress.state || "",
+                zipCode: input.deliveryAddress.zipCode || "",
+                referencePoint: input.deliveryAddress.referencePoint || "",
+              };
+              await db
+                .update(customers)
+                .set({ addresses: [...currentAddresses, newAddr] })
+                .where(eq(customers.id, existing.id));
+            }
+          }
+        }
+      }
+
+      if (!resolvedCustomerId) {
+        // Fallback: cria/reutiliza cliente por telefone (fluxo antigo).
+        resolvedCustomerId = await ensureCustomerFromOrder({
+          db,
+          tenantId: input.tenantId,
+          customerName: input.customerName,
+          customerPhone: input.customerPhone,
+          deliveryAddress: input.deliveryAddress,
+          source: "ONLINE",
+        });
+      }
 
       // 9. Criar pedido + itens em transação
       const [order] = await db

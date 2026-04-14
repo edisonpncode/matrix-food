@@ -15,6 +15,8 @@ import { CheckoutForm } from "@/components/customer/checkout-form";
 import { PromoBanner } from "@/components/customer/promo-banner";
 import { LoyaltyBanner } from "@/components/customer/loyalty-banner";
 import { ClosedOverlay } from "@/components/customer/closed-overlay";
+import { CustomerAuthModal } from "@/components/customer/auth/customer-auth-modal";
+import { useCustomerAuth } from "@/lib/customer-auth-context";
 
 interface PageProps {
   params: Promise<{ slug: string }>;
@@ -27,11 +29,13 @@ export default function RestaurantPage({ params }: PageProps) {
   );
   const [showCart, setShowCart] = useState(false);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [closedDismissed, setClosedDismissed] = useState(false);
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
 
   const setTenant = useCartStore((s) => s.setTenant);
+  const { customer } = useCustomerAuth();
 
   // Buscar dados do restaurante
   const { data: tenant, isLoading: loadingTenant } =
@@ -209,7 +213,11 @@ export default function RestaurantPage({ params }: PageProps) {
         onClose={() => setShowCart(false)}
         onCheckout={() => {
           setShowCart(false);
-          setShowCheckout(true);
+          if (!customer) {
+            setShowAuthModal(true);
+          } else {
+            setShowCheckout(true);
+          }
         }}
         minOrder={
           tenant.deliverySettings
@@ -220,6 +228,16 @@ export default function RestaurantPage({ params }: PageProps) {
               ).minOrder ?? 0
             : 0
         }
+      />
+
+      {/* Modal de login (aparece ao clicar "Fazer pedido" sem estar logado) */}
+      <CustomerAuthModal
+        open={showAuthModal}
+        onClose={() => setShowAuthModal(false)}
+        onSuccess={() => {
+          setShowAuthModal(false);
+          setShowCheckout(true);
+        }}
       />
     </div>
   );

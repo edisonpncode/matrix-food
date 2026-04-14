@@ -20,6 +20,7 @@ import { formatCurrency } from "@matrix-food/utils";
 import { LoyaltySection } from "./loyalty-section";
 import { formatBrazilianPhone, stripPhone } from "@/lib/format-phone";
 import { fetchAddressByCep, formatCep } from "@/lib/viacep";
+import { useCustomerAuth } from "@/lib/customer-auth-context";
 
 interface Tenant {
   id: string;
@@ -51,20 +52,25 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   const items = useCartStore((s) => s.items);
   const subtotal = useCartStore((s) => s.getSubtotal());
   const clearCart = useCartStore((s) => s.clearCart);
+  const { customer } = useCustomerAuth();
 
+  // Pré-preencher com dados do cliente logado, se houver
+  const savedAddress = customer?.addresses?.[0];
   const [orderType, setOrderType] = useState<"DELIVERY" | "PICKUP">(
     "DELIVERY"
   );
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerName, setCustomerName] = useState(customer?.name ?? "");
+  const [customerPhone, setCustomerPhone] = useState(
+    customer?.phone ? formatBrazilianPhone(customer.phone) : ""
+  );
   const [address, setAddress] = useState({
-    zipCode: "",
-    street: "",
-    number: "",
-    complement: "",
-    neighborhood: "",
-    city: "",
-    state: "",
+    zipCode: savedAddress?.zipCode ? formatCep(savedAddress.zipCode) : "",
+    street: savedAddress?.street ?? "",
+    number: savedAddress?.number ?? "",
+    complement: savedAddress?.complement ?? "",
+    neighborhood: savedAddress?.neighborhood ?? "",
+    city: savedAddress?.city ?? "",
+    state: savedAddress?.state ?? "",
   });
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [changeFor, setChangeFor] = useState("");
@@ -266,6 +272,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
       const result = await createOrder.mutateAsync({
         tenantId: tenant.id,
         type: orderType,
+        customerId: customer?.id,
         customerName,
         customerPhone: stripPhone(customerPhone),
         deliveryAddress:

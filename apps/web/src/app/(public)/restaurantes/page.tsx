@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ArrowLeft, Search, MapPin, Store, Clock } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { isRestaurantOpen } from "@matrix-food/utils";
+import { CustomerLoginButton } from "@/components/customer/auth/customer-login-button";
 
 const FOOD_TYPE_LABELS: Record<string, string> = {
   hamburger: "Hamburgueria",
@@ -81,6 +82,7 @@ export default function RestaurantesPage() {
               />
             </div>
           </div>
+          <CustomerLoginButton />
         </div>
       </header>
 
