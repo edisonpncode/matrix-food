@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Phone, User, Lock, ArrowLeft, Loader2 } from "lucide-react";
 import { formatBrazilianPhone, stripPhone } from "@/lib/format-phone";
 import { useCustomerAuth } from "@/lib/customer-auth-context";
@@ -43,7 +44,17 @@ export function CustomerAuthModal({
     }
   }, [open]);
 
-  if (!open) return null;
+  // Bloqueia scroll do body quando aberto
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
+
+  if (!open || typeof window === "undefined") return null;
 
   const phoneDigits = stripPhone(phone);
   const phoneValid = phoneDigits.length >= 10 && phoneDigits.length <= 11;
@@ -189,8 +200,8 @@ export function CustomerAuthModal({
     setError(null);
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4">
       <div className="w-full max-w-md overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b px-5 py-4">
@@ -444,6 +455,7 @@ export function CustomerAuthModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
