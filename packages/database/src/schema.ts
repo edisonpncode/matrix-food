@@ -128,6 +128,40 @@ export const cashSessionStatusEnum = pgEnum("cash_session_status", [
   "CLOSED",
 ]);
 
+/**
+ * Tratamento quando o valor recebido do cliente em uma entrega é MENOR que o total.
+ * - DISCOUNT_DRIVER: desconta do saldo do motoboy; se o saldo ficar negativo, o resto vira prejuízo do caixa.
+ * - ACCEPT_LOSS: prejuízo direto do caixa, sem afetar o motoboy.
+ */
+export const shortageHandlingEnum = pgEnum("shortage_handling", [
+  "DISCOUNT_DRIVER",
+  "ACCEPT_LOSS",
+]);
+
+/**
+ * Tratamento quando o valor recebido do cliente em uma entrega é MAIOR que o total.
+ * - ADD_DRIVER: acréscimo no saldo do motoboy.
+ * - ADD_CASH: acréscimo no caixa.
+ */
+export const surplusHandlingEnum = pgEnum("surplus_handling", [
+  "ADD_DRIVER",
+  "ADD_CASH",
+]);
+
+/**
+ * Tipos de lançamentos no saldo do motoboy.
+ * - COMMISSION: comissão da entrega (taxa de entrega do pedido), creditada ao atribuir motoboy.
+ * - SHORTAGE_DEDUCTION: débito por troco a menor (valor negativo).
+ * - SURPLUS_BONUS: crédito por sobra de troco.
+ * - PAYOUT: quitação/acerto pelo operador (valor negativo, zera saldo).
+ */
+export const deliveryEarningTypeEnum = pgEnum("delivery_earning_type", [
+  "COMMISSION",
+  "SHORTAGE_DEDUCTION",
+  "SURPLUS_BONUS",
+  "PAYOUT",
+]);
+
 export const ingredientTypeEnum = pgEnum("ingredient_type", [
   "QUANTITY",
   "DESCRIPTION",
@@ -790,6 +824,12 @@ export const orders = pgTable(
       .default("PENDING"),
     /** Troco para (se pagamento em dinheiro) */
     changeFor: decimal("change_for", { precision: 10, scale: 2 }),
+    /** Valor que o atendente conferiu ao finalizar uma entrega (só delivery) */
+    amountReceived: decimal("amount_received", { precision: 10, scale: 2 }),
+    /** Preenche quando amountReceived < total */
+    shortageHandling: shortageHandlingEnum("shortage_handling"),
+    /** Preenche quando amountReceived > total */
+    surplusHandling: surplusHandlingEnum("surplus_handling"),
     notes: text("notes"),
     estimatedMinutes: integer("estimated_minutes"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1016,6 +1056,52 @@ export const cashRegisterTransactions = pgTable("cash_register_transactions", {
   createdBy: varchar("created_by", { length: 255 }).notNull(),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
+
+// ============================================
+// DELIVERY PERSON EARNINGS (Saldo do Motoboy)
+// ============================================
+
+/**
+ * Histórico de lançamentos do motoboy (comissões, descontos por troco a menor,
+ * bônus por sobras, pagamentos no fechamento).
+ * Saldo atual = SUM(amount) filtrando por deliveryPersonId e período.
+ */
+export const deliveryPersonEarnings = pgTable(
+  "delivery_person_earnings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    deliveryPersonId: uuid("delivery_person_id")
+      .notNull()
+      .references(() => tenantUsers.id, { onDelete: "cascade" }),
+    /** Pedido origem (null para PAYOUT) */
+    orderId: uuid("order_id").references(() => orders.id, {
+      onDelete: "set null",
+    }),
+    /** Sessão de caixa quando o lançamento aconteceu (útil p/ fechamento) */
+    sessionId: uuid("session_id").references(() => cashRegisterSessions.id, {
+      onDelete: "set null",
+    }),
+    type: deliveryEarningTypeEnum("type").notNull(),
+    /** Valor positivo (comissão/sobra) ou negativo (desconto/payout) */
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    description: text("description"),
+    /** Quem registrou o lançamento (usado em PAYOUT) */
+    createdBy: varchar("created_by", { length: 255 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("delivery_earnings_tenant_person_idx").on(
+      table.tenantId,
+      table.deliveryPersonId,
+      table.createdAt
+    ),
+    index("delivery_earnings_order_idx").on(table.orderId),
+    index("delivery_earnings_session_idx").on(table.sessionId),
+  ]
+);
 
 // ============================================
 // LOYALTY CONFIG (Configuração de fidelidade por restaurante)
@@ -1682,6 +1768,28 @@ export const cashRegisterTransactionsRelations = relations(
     order: one(orders, {
       fields: [cashRegisterTransactions.orderId],
       references: [orders.id],
+    }),
+  })
+);
+
+export const deliveryPersonEarningsRelations = relations(
+  deliveryPersonEarnings,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [deliveryPersonEarnings.tenantId],
+      references: [tenants.id],
+    }),
+    deliveryPerson: one(tenantUsers, {
+      fields: [deliveryPersonEarnings.deliveryPersonId],
+      references: [tenantUsers.id],
+    }),
+    order: one(orders, {
+      fields: [deliveryPersonEarnings.orderId],
+      references: [orders.id],
+    }),
+    session: one(cashRegisterSessions, {
+      fields: [deliveryPersonEarnings.sessionId],
+      references: [cashRegisterSessions.id],
     }),
   })
 );

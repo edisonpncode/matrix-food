@@ -13,6 +13,30 @@ import {
 
 export const staffRouter = createTRPCRouter({
   /**
+   * Lista motoboys ativos (role = DELIVERY). Usado pelo DeliveryPersonSelector.
+   */
+  listDeliveryPeople: tenantProcedure.query(async ({ ctx }) => {
+    const db = getDb();
+    const people = await db
+      .select({
+        id: tenantUsers.id,
+        name: tenantUsers.name,
+        phone: tenantUsers.phone,
+        photoUrl: tenantUsers.photoUrl,
+      })
+      .from(tenantUsers)
+      .where(
+        and(
+          eq(tenantUsers.tenantId, ctx.tenantId),
+          eq(tenantUsers.role, "DELIVERY"),
+          eq(tenantUsers.isActive, true)
+        )
+      )
+      .orderBy(asc(tenantUsers.name));
+    return people;
+  }),
+
+  /**
    * Lista todos os funcionários do restaurante.
    */
   list: tenantProcedure.query(async ({ ctx }) => {

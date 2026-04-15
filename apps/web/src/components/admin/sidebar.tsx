@@ -27,6 +27,7 @@ import {
   Banknote,
   Package,
   FileText,
+  Bike,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -65,6 +66,7 @@ const sidebarEntries: SidebarEntry[] = [
       { href: "/restaurante/admin/ponto-de-venda/pedidos", label: "Pedidos", icon: ClipboardList },
       { href: "/restaurante/admin/ponto-de-venda/novo-pedido", label: "Novo Pedido", icon: PlusCircle },
       { href: "/restaurante/admin/ponto-de-venda/caixa", label: "Caixa", icon: Banknote },
+      { href: "/restaurante/admin/ponto-de-venda/motoboys", label: "Motoboys", icon: Bike },
     ],
   },
   {

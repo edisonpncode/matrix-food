@@ -1,13 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
 import {
   Clock,
   Check,
   ChefHat,
-  Package,
   Truck,
   X,
   RefreshCw,
@@ -16,8 +15,15 @@ import {
   Printer,
   FileText,
   Loader2,
+  User as UserIcon,
+  Store,
+  ShoppingBag,
+  Utensils,
+  Bike,
 } from "lucide-react";
 import { usePrinterSettings } from "@/hooks/use-printer-settings";
+import { DeliveryPersonSelector } from "@/components/admin/delivery-person-selector";
+import { FinalizeDeliveryModal } from "@/components/admin/finalize-delivery-modal";
 
 type OrderStatus =
   | "PENDING"
@@ -29,86 +35,246 @@ type OrderStatus =
   | "PICKED_UP"
   | "CANCELLED";
 
-const STATUS_CONFIG: Record<
+type OrderType = "DELIVERY" | "PICKUP" | "DINE_IN" | "COUNTER" | "TABLE";
+
+type StageFilter =
+  | "ACTIVE"
+  | "PENDING"
+  | "PREPARING"
+  | "OUT_FOR_DELIVERY"
+  | "FINALIZED";
+
+const STATUS_BADGE: Record<
   OrderStatus,
   { label: string; color: string; bgColor: string; icon: React.ElementType }
 > = {
-  PENDING: { label: "Pendente", color: "text-yellow-700", bgColor: "bg-yellow-100", icon: Clock },
-  CONFIRMED: { label: "Confirmado", color: "text-blue-700", bgColor: "bg-blue-100", icon: Check },
-  PREPARING: { label: "Preparando", color: "text-orange-700", bgColor: "bg-orange-100", icon: ChefHat },
-  READY: { label: "Pronto", color: "text-green-700", bgColor: "bg-green-100", icon: Package },
-  OUT_FOR_DELIVERY: { label: "Saiu entrega", color: "text-purple-700", bgColor: "bg-purple-100", icon: Truck },
-  DELIVERED: { label: "Entregue", color: "text-gray-700", bgColor: "bg-gray-100", icon: Check },
-  PICKED_UP: { label: "Retirado", color: "text-gray-700", bgColor: "bg-gray-100", icon: Check },
-  CANCELLED: { label: "Cancelado", color: "text-red-700", bgColor: "bg-red-100", icon: X },
+  PENDING: {
+    label: "Pendente",
+    color: "text-yellow-700",
+    bgColor: "bg-yellow-100",
+    icon: Clock,
+  },
+  CONFIRMED: {
+    label: "Confirmado",
+    color: "text-blue-700",
+    bgColor: "bg-blue-100",
+    icon: Check,
+  },
+  PREPARING: {
+    label: "Preparando",
+    color: "text-orange-700",
+    bgColor: "bg-orange-100",
+    icon: ChefHat,
+  },
+  READY: {
+    label: "Pronto",
+    color: "text-green-700",
+    bgColor: "bg-green-100",
+    icon: Check,
+  },
+  OUT_FOR_DELIVERY: {
+    label: "Entregando",
+    color: "text-purple-700",
+    bgColor: "bg-purple-100",
+    icon: Truck,
+  },
+  DELIVERED: {
+    label: "Finalizado",
+    color: "text-gray-700",
+    bgColor: "bg-gray-100",
+    icon: Check,
+  },
+  PICKED_UP: {
+    label: "Retirado",
+    color: "text-gray-700",
+    bgColor: "bg-gray-100",
+    icon: Check,
+  },
+  CANCELLED: {
+    label: "Cancelado",
+    color: "text-red-700",
+    bgColor: "bg-red-100",
+    icon: X,
+  },
 };
 
-const STATUS_FLOW: Record<string, OrderStatus> = {
-  PENDING: "CONFIRMED",
-  CONFIRMED: "PREPARING",
-  PREPARING: "READY",
-  READY: "DELIVERED",
-};
-
-const NEXT_ACTION_LABEL: Record<string, string> = {
-  PENDING: "Confirmar",
-  CONFIRMED: "Preparando",
-  PREPARING: "Pronto",
-  READY: "Entregue",
-};
-
-const FILTER_TABS: { label: string; value: OrderStatus | "ALL" | "ACTIVE" }[] = [
-  { label: "Ativos", value: "ACTIVE" },
-  { label: "Todos", value: "ALL" },
-  { label: "Pendentes", value: "PENDING" },
-  { label: "Confirmados", value: "CONFIRMED" },
-  { label: "Preparando", value: "PREPARING" },
-  { label: "Prontos", value: "READY" },
+const STAGE_TABS: {
+  value: StageFilter;
+  label: string;
+  color: string;
+}[] = [
+  { value: "ACTIVE", label: "Ativos", color: "bg-primary" },
+  { value: "PENDING", label: "Pendentes", color: "bg-yellow-500" },
+  { value: "PREPARING", label: "Preparando", color: "bg-orange-500" },
+  { value: "OUT_FOR_DELIVERY", label: "Entregando", color: "bg-purple-500" },
+  { value: "FINALIZED", label: "Finalizados", color: "bg-gray-500" },
 ];
 
+const TYPE_TABS: {
+  value: OrderType;
+  label: string;
+  icon: React.ElementType;
+}[] = [
+  { value: "DELIVERY", label: "Tele Entrega", icon: Bike },
+  { value: "PICKUP", label: "Vem Buscar", icon: ShoppingBag },
+  { value: "COUNTER", label: "Balcão", icon: Store },
+  { value: "TABLE", label: "Mesa", icon: Utensils },
+];
+
+function matchesStage(order: { status: string; source: string; paymentStatus: string }, stage: StageFilter): boolean {
+  switch (stage) {
+    case "ACTIVE":
+      return (
+        order.status !== "DELIVERED" &&
+        order.status !== "PICKED_UP" &&
+        order.status !== "CANCELLED"
+      );
+    case "PENDING":
+      return order.status === "PENDING" && order.source === "ONLINE";
+    case "PREPARING":
+      return order.status === "PREPARING";
+    case "OUT_FOR_DELIVERY":
+      return order.status === "OUT_FOR_DELIVERY";
+    case "FINALIZED":
+      return (
+        (order.status === "DELIVERED" || order.status === "PICKED_UP") &&
+        order.paymentStatus === "PAID"
+      );
+    default:
+      return true;
+  }
+}
+
+function typeLabel(type: string): string {
+  switch (type) {
+    case "DELIVERY":
+      return "Entrega";
+    case "PICKUP":
+      return "Retirada";
+    case "COUNTER":
+      return "Balcão";
+    case "TABLE":
+      return "Mesa";
+    case "DINE_IN":
+      return "Consumo";
+    default:
+      return type;
+  }
+}
+
+function paymentLabel(method: string): string {
+  switch (method) {
+    case "CASH":
+      return "Dinheiro";
+    case "PIX":
+      return "PIX";
+    case "CREDIT_CARD":
+      return "Crédito";
+    case "DEBIT_CARD":
+      return "Débito";
+    default:
+      return method;
+  }
+}
+
 export function PedidosContent() {
-  const [filter, setFilter] = useState<OrderStatus | "ALL" | "ACTIVE">("ACTIVE");
+  const [stage, setStage] = useState<StageFilter>("ACTIVE");
+  const [typeFilter, setTypeFilter] = useState<OrderType | null>(null);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const previousCountRef = useRef<number>(0);
 
-  const queryStatus = filter === "ALL" || filter === "ACTIVE" ? undefined : filter;
+  // Delivery assignment state
+  const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
+  // Finalize delivery state
+  const [finalizingOrderId, setFinalizingOrderId] = useState<string | null>(
+    null
+  );
 
+  // Busca todos os pedidos do tenant (sem filtrar server-side — filtros são locais
+  // para permitir trocar de aba sem refetch).
   const { data: orders, refetch } = trpc.order.listByTenant.useQuery(
-    { status: queryStatus },
+    {},
     { refetchInterval: 15000 }
   );
 
-  const { settings: printerSettings, printOrder, printAllTypes, getEnabledReceiptTypes } = usePrinterSettings();
+  const deliveryPeopleQuery = trpc.staff.listDeliveryPeople.useQuery();
+
+  const {
+    settings: printerSettings,
+    printOrder,
+    printAllTypes,
+    getEnabledReceiptTypes,
+  } = usePrinterSettings();
 
   const fiscalConfig = trpc.fiscal.getConfig.useQuery();
   const emitNfce = trpc.fiscal.emit.useMutation({
     onSuccess: () => refetch(),
   });
 
-  const isFiscalActive = fiscalConfig.data?.isActive && fiscalConfig.data?.emissionMode === "MANUAL";
+  const isFiscalActive =
+    fiscalConfig.data?.isActive &&
+    fiscalConfig.data?.emissionMode === "MANUAL";
 
-  const updateStatus = trpc.order.updateStatus.useMutation({
+  const approveOrder = trpc.order.approveOnlineOrder.useMutation({
     onSuccess: () => refetch(),
   });
 
-  const filteredOrders =
-    filter === "ACTIVE"
-      ? orders?.filter(
-          (o) =>
-            o.status !== "DELIVERED" &&
-            o.status !== "PICKED_UP" &&
-            o.status !== "CANCELLED"
-        )
-      : orders;
+  const assignDeliveryPerson = trpc.order.assignDeliveryPerson.useMutation({
+    onSuccess: () => {
+      refetch();
+      setAssigningOrderId(null);
+    },
+  });
 
-  const pendingCount = orders?.filter((o) => o.status === "PENDING").length ?? 0;
-  const preparingCount = orders?.filter((o) => o.status === "PREPARING").length ?? 0;
-  const readyCount = orders?.filter((o) => o.status === "READY").length ?? 0;
+  const finalizeOrder = trpc.order.finalizeOrder.useMutation({
+    onSuccess: () => refetch(),
+  });
 
-  // Notification sound for new pending orders
+  const cancelOrder = trpc.order.updateStatus.useMutation({
+    onSuccess: () => refetch(),
+  });
+
+  // === Contadores ===
+  const counters = useMemo(() => {
+    if (!orders) {
+      return {
+        pending: 0,
+        preparing: 0,
+        outForDelivery: 0,
+        finalized: 0,
+      };
+    }
+    return {
+      pending: orders.filter(
+        (o) => o.status === "PENDING" && o.source === "ONLINE"
+      ).length,
+      preparing: orders.filter((o) => o.status === "PREPARING").length,
+      outForDelivery: orders.filter((o) => o.status === "OUT_FOR_DELIVERY")
+        .length,
+      finalized: orders.filter(
+        (o) =>
+          (o.status === "DELIVERED" || o.status === "PICKED_UP") &&
+          o.paymentStatus === "PAID"
+      ).length,
+    };
+  }, [orders]);
+
+  // === Pedidos filtrados ===
+  const filteredOrders = useMemo(() => {
+    if (!orders) return [];
+    return orders.filter((o) => {
+      if (!matchesStage(o, stage)) return false;
+      if (typeFilter && o.type !== typeFilter) return false;
+      return true;
+    });
+  }, [orders, stage, typeFilter]);
+
+  // === Som de notificação para novos pedidos pendentes ===
   useEffect(() => {
     if (!orders) return;
-    const currentPendingCount = orders.filter((o) => o.status === "PENDING").length;
+    const currentPendingCount = orders.filter(
+      (o) => o.status === "PENDING" && o.source === "ONLINE"
+    ).length;
     if (
       currentPendingCount > previousCountRef.current &&
       soundEnabled &&
@@ -135,57 +301,8 @@ export function PedidosContent() {
     previousCountRef.current = currentPendingCount;
   }, [orders, soundEnabled]);
 
-  function handleAdvanceStatus(orderId: string, currentStatus: string) {
-    const next = STATUS_FLOW[currentStatus];
-    if (!next) return;
-    updateStatus.mutate({ id: orderId, status: next });
-
-    // Auto-print ao confirmar
-    if (
-      next === "CONFIRMED" &&
-      printerSettings.autoPrint.enabled &&
-      printerSettings.autoPrint.onOrderConfirmed
-    ) {
-      const order = orders?.find((o) => o.id === orderId);
-      if (order) {
-        const orderForPrint = {
-          id: order.id,
-          displayNumber: order.displayNumber ?? String(order.orderNumber),
-          type: order.type,
-          status: order.status,
-          customerName: order.customerName,
-          customerPhone: order.customerPhone,
-          tableNumber: order.tableNumber,
-          deliveryAddress: order.deliveryAddress as any,
-          subtotal: String(order.subtotal),
-          deliveryFee: String(order.deliveryFee),
-          discount: String(order.discount),
-          total: String(order.total),
-          paymentMethod: order.paymentMethod,
-          notes: order.notes,
-          createdAt: order.createdAt,
-          items: order.items?.map((item: any) => ({
-            productName: item.productName,
-            variantName: item.variantName,
-            quantity: item.quantity,
-            unitPrice: String(item.unitPrice),
-            totalPrice: String(item.totalPrice),
-            notes: item.notes,
-            customizations: item.customizations?.map((c: any) => ({
-              customizationOptionName: c.customizationOptionName,
-              price: String(c.price),
-            })),
-          })) ?? [],
-        };
-        printAllTypes(orderForPrint).catch(() => {});
-      }
-    }
-  }
-
-  function handlePrintOrder(orderId: string, receiptType: "CUSTOMER" | "KITCHEN" | "DELIVERY") {
-    const order = orders?.find((o) => o.id === orderId);
-    if (!order) return;
-    const orderForPrint = {
+  function orderForPrint(order: (typeof orders)[number]) {
+    return {
       id: order.id,
       displayNumber: order.displayNumber ?? String(order.orderNumber),
       type: order.type,
@@ -193,6 +310,7 @@ export function PedidosContent() {
       customerName: order.customerName,
       customerPhone: order.customerPhone,
       tableNumber: order.tableNumber,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       deliveryAddress: order.deliveryAddress as any,
       subtotal: String(order.subtotal),
       deliveryFee: String(order.deliveryFee),
@@ -201,25 +319,80 @@ export function PedidosContent() {
       paymentMethod: order.paymentMethod,
       notes: order.notes,
       createdAt: order.createdAt,
-      items: order.items?.map((item: any) => ({
-        productName: item.productName,
-        variantName: item.variantName,
-        quantity: item.quantity,
-        unitPrice: String(item.unitPrice),
-        totalPrice: String(item.totalPrice),
-        notes: item.notes,
-        customizations: item.customizations?.map((c: any) => ({
-          customizationOptionName: c.customizationOptionName,
-          price: String(c.price),
-        })),
-      })) ?? [],
+      items:
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        order.items?.map((item: any) => ({
+          productName: item.productName,
+          variantName: item.variantName,
+          quantity: item.quantity,
+          unitPrice: String(item.unitPrice),
+          totalPrice: String(item.totalPrice),
+          notes: item.notes,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          customizations: item.customizations?.map((c: any) => ({
+            customizationOptionName: c.customizationOptionName,
+            price: String(c.price),
+          })),
+        })) ?? [],
     };
-    printOrder(orderForPrint, receiptType).catch(() => {});
+  }
+
+  function handleApprove(orderId: string) {
+    approveOrder.mutate(
+      { orderId },
+      {
+        onSuccess: () => {
+          // Auto-imprimir ao aprovar (substitui o auto-print de CONFIRMED)
+          const order = orders?.find((o) => o.id === orderId);
+          if (
+            order &&
+            printerSettings.autoPrint.enabled &&
+            printerSettings.autoPrint.onOrderConfirmed
+          ) {
+            printAllTypes(orderForPrint(order)).catch(() => {});
+          }
+        },
+      }
+    );
+  }
+
+  function handleAssignDeliveryPerson(personId: string) {
+    if (!assigningOrderId) return;
+    assignDeliveryPerson.mutate(
+      { orderId: assigningOrderId, deliveryPersonId: personId },
+      {
+        onSuccess: () => {
+          // Auto-imprimir via de entrega
+          const order = orders?.find((o) => o.id === assigningOrderId);
+          if (
+            order &&
+            printerSettings.autoPrint.enabled &&
+            getEnabledReceiptTypes().includes("DELIVERY")
+          ) {
+            printOrder(orderForPrint(order), "DELIVERY").catch(() => {});
+          }
+        },
+      }
+    );
+  }
+
+  function handleFinalizeNonDelivery(orderId: string) {
+    if (!confirm("Finalizar este pedido como pago?")) return;
+    finalizeOrder.mutate({ orderId });
+  }
+
+  function handlePrintOrder(
+    orderId: string,
+    receiptType: "CUSTOMER" | "KITCHEN" | "DELIVERY"
+  ) {
+    const order = orders?.find((o) => o.id === orderId);
+    if (!order) return;
+    printOrder(orderForPrint(order), receiptType).catch(() => {});
   }
 
   function handleCancel(orderId: string) {
     if (confirm("Tem certeza que deseja cancelar este pedido?")) {
-      updateStatus.mutate({ id: orderId, status: "CANCELLED" });
+      cancelOrder.mutate({ id: orderId, status: "CANCELLED" });
     }
   }
 
@@ -229,6 +402,11 @@ export function PedidosContent() {
       minute: "2-digit",
     });
   }
+
+  const orderBeingFinalized = useMemo(
+    () => orders?.find((o) => o.id === finalizingOrderId) ?? null,
+    [orders, finalizingOrderId]
+  );
 
   return (
     <div className="space-y-6">
@@ -257,30 +435,42 @@ export function PedidosContent() {
         </div>
       </div>
 
-      {/* Counters */}
-      <div className="grid grid-cols-3 gap-4">
+      {/* Counters — 4 cartões casando com os estágios principais */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <div className="rounded-xl border bg-yellow-50 p-4 text-center">
-          <p className="text-3xl font-bold text-yellow-700">{pendingCount}</p>
+          <p className="text-3xl font-bold text-yellow-700">
+            {counters.pending}
+          </p>
           <p className="text-sm text-yellow-600">Pendentes</p>
         </div>
         <div className="rounded-xl border bg-orange-50 p-4 text-center">
-          <p className="text-3xl font-bold text-orange-700">{preparingCount}</p>
+          <p className="text-3xl font-bold text-orange-700">
+            {counters.preparing}
+          </p>
           <p className="text-sm text-orange-600">Preparando</p>
         </div>
-        <div className="rounded-xl border bg-green-50 p-4 text-center">
-          <p className="text-3xl font-bold text-green-700">{readyCount}</p>
-          <p className="text-sm text-green-600">Prontos</p>
+        <div className="rounded-xl border bg-purple-50 p-4 text-center">
+          <p className="text-3xl font-bold text-purple-700">
+            {counters.outForDelivery}
+          </p>
+          <p className="text-sm text-purple-600">Entregando</p>
+        </div>
+        <div className="rounded-xl border bg-gray-50 p-4 text-center">
+          <p className="text-3xl font-bold text-gray-700">
+            {counters.finalized}
+          </p>
+          <p className="text-sm text-gray-600">Finalizados</p>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 overflow-x-auto">
-        {FILTER_TABS.map((tab) => (
+      {/* Filtros de estágio */}
+      <div className="flex flex-wrap gap-2">
+        {STAGE_TABS.map((tab) => (
           <button
             key={tab.value}
-            onClick={() => setFilter(tab.value)}
+            onClick={() => setStage(tab.value)}
             className={`flex-shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-colors ${
-              filter === tab.value
+              stage === tab.value
                 ? "bg-primary text-primary-foreground"
                 : "bg-accent text-accent-foreground hover:bg-accent/80"
             }`}
@@ -288,6 +478,38 @@ export function PedidosContent() {
             {tab.label}
           </button>
         ))}
+      </div>
+
+      {/* Filtros de tipo (segunda linha) */}
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => setTypeFilter(null)}
+          className={`flex-shrink-0 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+            typeFilter === null
+              ? "border-primary bg-primary/10 text-primary"
+              : "border-border bg-card text-muted-foreground hover:bg-accent"
+          }`}
+        >
+          Todos os tipos
+        </button>
+        {TYPE_TABS.map((tab) => {
+          const Icon = tab.icon;
+          const active = typeFilter === tab.value;
+          return (
+            <button
+              key={tab.value}
+              onClick={() => setTypeFilter(active ? null : tab.value)}
+              className={`flex flex-shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+                active
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border bg-card text-muted-foreground hover:bg-accent"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
       {/* Orders Grid */}
@@ -298,19 +520,25 @@ export function PedidosContent() {
       ) : (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredOrders.map((order) => {
-            const status = STATUS_CONFIG[order.status as OrderStatus];
-            const nextLabel = NEXT_ACTION_LABEL[order.status];
+            const status = STATUS_BADGE[order.status as OrderStatus];
             const StatusIcon = status?.icon ?? Clock;
+            const isDelivery = order.type === "DELIVERY";
+            const hasAssignedDriver = !!order.deliveryPersonId;
+            const assignedDriverName = hasAssignedDriver
+              ? deliveryPeopleQuery.data?.find(
+                  (p) => p.id === order.deliveryPersonId
+                )?.name ?? "Motoboy atribuído"
+              : null;
 
             return (
               <div
                 key={order.id}
                 className={`rounded-xl border-2 bg-card p-5 shadow-sm ${
-                  order.status === "PENDING"
+                  order.status === "PENDING" && order.source === "ONLINE"
                     ? "border-yellow-300"
-                    : order.status === "READY"
-                    ? "border-green-300"
-                    : "border-border"
+                    : order.status === "OUT_FOR_DELIVERY"
+                      ? "border-purple-300"
+                      : "border-border"
                 }`}
               >
                 {/* Header */}
@@ -329,11 +557,10 @@ export function PedidosContent() {
                 {/* Type + Source + Time */}
                 <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
                   <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
-                    {order.type === "DELIVERY"
-                      ? "Entrega"
-                      : order.type === "DINE_IN"
-                      ? "Mesa"
-                      : "Retirada"}
+                    {typeLabel(order.type)}
+                    {order.type === "TABLE" && order.tableNumber
+                      ? ` ${order.tableNumber}`
+                      : ""}
                   </span>
                   <span className="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
                     {order.source === "POS" ? "POS" : "Online"}
@@ -344,8 +571,18 @@ export function PedidosContent() {
                 {/* Customer */}
                 <div className="mt-2 text-sm text-muted-foreground">
                   {order.customerName}
-                  {order.customerPhone && ` - ${order.customerPhone}`}
+                  {order.customerPhone && ` — ${order.customerPhone}`}
                 </div>
+
+                {/* Motoboy (quando atribuído) */}
+                {hasAssignedDriver && (
+                  <div className="mt-2 flex items-center gap-1.5 rounded-md bg-purple-50 px-2 py-1 text-xs text-purple-700">
+                    <UserIcon className="h-3.5 w-3.5" />
+                    <span className="font-medium">
+                      Motoboy: {assignedDriverName}
+                    </span>
+                  </div>
+                )}
 
                 {/* Items */}
                 <div className="mt-3 space-y-1 border-t pt-3 text-sm">
@@ -365,32 +602,38 @@ export function PedidosContent() {
                 {/* Payment + Total */}
                 <div className="mt-3 flex items-center justify-between border-t pt-3">
                   <span className="text-xs text-muted-foreground">
-                    {order.paymentMethod === "CASH"
-                      ? "Dinheiro"
-                      : order.paymentMethod === "PIX"
-                      ? "PIX"
-                      : order.paymentMethod === "CREDIT_CARD"
-                      ? "Crédito"
-                      : "Débito"}
+                    {paymentLabel(order.paymentMethod)}
+                    {order.paymentStatus === "PAID" && " • Pago"}
+                    {order.paymentStatus === "PENDING" && " • A receber"}
                   </span>
                   <span className="text-xl font-bold text-primary">
                     {formatCurrency(parseFloat(order.total))}
                   </span>
                 </div>
 
+                {/* Valor recebido (somente finalizados) */}
+                {order.amountReceived && (
+                  <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>Valor recebido:</span>
+                    <span className="font-semibold">
+                      {formatCurrency(parseFloat(order.amountReceived))}
+                    </span>
+                  </div>
+                )}
+
                 {/* Actions */}
                 <div className="mt-4 flex gap-2">
-                  {/* Botao de impressao */}
+                  {/* Botão de impressão */}
                   {getEnabledReceiptTypes().length > 0 && (
-                    <div className="relative group">
+                    <div className="group relative">
                       <button
                         className="rounded-lg border-2 border-border px-3 py-3 text-muted-foreground hover:bg-accent hover:text-foreground"
                         title="Imprimir"
                       >
                         <Printer className="h-4 w-4" />
                       </button>
-                      <div className="absolute bottom-full left-0 mb-1 hidden group-hover:block z-10">
-                        <div className="rounded-lg border border-border bg-card p-1 shadow-lg min-w-[140px]">
+                      <div className="absolute bottom-full left-0 z-10 mb-1 hidden group-hover:block">
+                        <div className="min-w-[140px] rounded-lg border border-border bg-card p-1 shadow-lg">
                           {getEnabledReceiptTypes().map((type) => (
                             <button
                               key={type}
@@ -408,7 +651,8 @@ export function PedidosContent() {
                       </div>
                     </div>
                   )}
-                  {/* Botão NFC-e (modo manual) */}
+
+                  {/* NFC-e manual */}
                   {isFiscalActive && order.paymentStatus === "PAID" && (
                     <button
                       onClick={() => emitNfce.mutate({ orderId: order.id })}
@@ -423,6 +667,8 @@ export function PedidosContent() {
                       )}
                     </button>
                   )}
+
+                  {/* Cancelar (disponível enquanto não finalizado) */}
                   {order.status !== "DELIVERED" &&
                     order.status !== "PICKED_UP" &&
                     order.status !== "CANCELLED" && (
@@ -433,15 +679,45 @@ export function PedidosContent() {
                         Cancelar
                       </button>
                     )}
-                  {nextLabel && (
+
+                  {/* Ação principal por status */}
+                  {order.status === "PENDING" && order.source === "ONLINE" && (
                     <button
-                      onClick={() =>
-                        handleAdvanceStatus(order.id, order.status)
-                      }
-                      disabled={updateStatus.isPending}
+                      onClick={() => handleApprove(order.id)}
+                      disabled={approveOrder.isPending}
                       className="flex-[2] rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary/90 active:bg-primary/80 disabled:opacity-50"
                     >
-                      {nextLabel}
+                      Aprovar
+                    </button>
+                  )}
+
+                  {order.status === "PREPARING" && isDelivery && (
+                    <button
+                      onClick={() => setAssigningOrderId(order.id)}
+                      disabled={assignDeliveryPerson.isPending}
+                      className="flex flex-[2] items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-4 py-3 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+                    >
+                      <Bike className="h-4 w-4" />
+                      Atribuir Motoboy
+                    </button>
+                  )}
+
+                  {order.status === "PREPARING" && !isDelivery && (
+                    <button
+                      onClick={() => handleFinalizeNonDelivery(order.id)}
+                      disabled={finalizeOrder.isPending}
+                      className="flex-[2] rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
+                    >
+                      Finalizar
+                    </button>
+                  )}
+
+                  {order.status === "OUT_FOR_DELIVERY" && (
+                    <button
+                      onClick={() => setFinalizingOrderId(order.id)}
+                      className="flex-[2] rounded-lg bg-green-600 px-4 py-3 text-sm font-semibold text-white hover:bg-green-700"
+                    >
+                      Conferir e Finalizar
                     </button>
                   )}
                 </div>
@@ -449,6 +725,32 @@ export function PedidosContent() {
             );
           })}
         </div>
+      )}
+
+      {/* Modais */}
+      {assigningOrderId && (
+        <DeliveryPersonSelector
+          deliveryPeople={deliveryPeopleQuery.data ?? []}
+          onSelect={handleAssignDeliveryPerson}
+          onClose={() => setAssigningOrderId(null)}
+          isLoading={assignDeliveryPerson.isPending}
+        />
+      )}
+
+      {finalizingOrderId && orderBeingFinalized && (
+        <FinalizeDeliveryModal
+          order={{
+            id: orderBeingFinalized.id,
+            displayNumber: orderBeingFinalized.displayNumber,
+            total: parseFloat(orderBeingFinalized.total),
+            customerName: orderBeingFinalized.customerName,
+          }}
+          onClose={() => setFinalizingOrderId(null)}
+          onSuccess={() => {
+            setFinalizingOrderId(null);
+            refetch();
+          }}
+        />
       )}
     </div>
   );

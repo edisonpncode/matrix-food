@@ -14,6 +14,7 @@ import {
   customizationOptions,
   cashRegisterSessions,
   cashRegisterTransactions,
+  deliveryPersonEarnings,
   promotions,
   promotionUsage,
   loyaltyConfig,
@@ -28,6 +29,8 @@ import {
   inArray,
   desc,
   sql,
+  gte,
+  lte,
 } from "@matrix-food/database";
 import { generateOrderNumber, pointInPolygon } from "@matrix-food/utils";
 import { tryAutoEmitNfce } from "../services/fiscal/auto-emit";
@@ -834,18 +837,61 @@ export const orderRouter = createTRPCRouter({
   listByTenant: tenantProcedure
     .input(
       z.object({
+        /** Um único status (legado) OU array de status (novos filtros). */
         status: z
-          .enum([
-            "PENDING",
-            "CONFIRMED",
-            "PREPARING",
-            "READY",
-            "OUT_FOR_DELIVERY",
-            "DELIVERED",
-            "PICKED_UP",
-            "CANCELLED",
+          .union([
+            z.enum([
+              "PENDING",
+              "CONFIRMED",
+              "PREPARING",
+              "READY",
+              "OUT_FOR_DELIVERY",
+              "DELIVERED",
+              "PICKED_UP",
+              "CANCELLED",
+            ]),
+            z.array(
+              z.enum([
+                "PENDING",
+                "CONFIRMED",
+                "PREPARING",
+                "READY",
+                "OUT_FOR_DELIVERY",
+                "DELIVERED",
+                "PICKED_UP",
+                "CANCELLED",
+              ])
+            ),
           ])
           .optional(),
+        /** Excluir status específicos (ex: "Ativos" = tudo exceto DELIVERED/CANCELLED/PICKED_UP). */
+        statusNotIn: z
+          .array(
+            z.enum([
+              "PENDING",
+              "CONFIRMED",
+              "PREPARING",
+              "READY",
+              "OUT_FOR_DELIVERY",
+              "DELIVERED",
+              "PICKED_UP",
+              "CANCELLED",
+            ])
+          )
+          .optional(),
+        /** Filtra por origem do pedido (ONLINE x POS). */
+        source: z.enum(["ONLINE", "POS", "PHONE"]).optional(),
+        /** Filtra por tipo (DELIVERY, PICKUP, COUNTER, TABLE, DINE_IN). */
+        type: z
+          .union([
+            z.enum(["DELIVERY", "PICKUP", "DINE_IN", "COUNTER", "TABLE"]),
+            z.array(
+              z.enum(["DELIVERY", "PICKUP", "DINE_IN", "COUNTER", "TABLE"])
+            ),
+          ])
+          .optional(),
+        /** Filtra por status de pagamento (útil p/ "Finalizados"). */
+        paymentStatus: z.enum(["PENDING", "PAID", "REFUNDED"]).optional(),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -853,7 +899,35 @@ export const orderRouter = createTRPCRouter({
       const conditions = [eq(orders.tenantId, ctx.tenantId)];
 
       if (input.status) {
-        conditions.push(eq(orders.status, input.status));
+        if (Array.isArray(input.status)) {
+          if (input.status.length > 0) {
+            conditions.push(inArray(orders.status, input.status));
+          }
+        } else {
+          conditions.push(eq(orders.status, input.status));
+        }
+      }
+
+      if (input.statusNotIn && input.statusNotIn.length > 0) {
+        conditions.push(not(inArray(orders.status, input.statusNotIn)));
+      }
+
+      if (input.source) {
+        conditions.push(eq(orders.source, input.source));
+      }
+
+      if (input.type) {
+        if (Array.isArray(input.type)) {
+          if (input.type.length > 0) {
+            conditions.push(inArray(orders.type, input.type));
+          }
+        } else {
+          conditions.push(eq(orders.type, input.type));
+        }
+      }
+
+      if (input.paymentStatus) {
+        conditions.push(eq(orders.paymentStatus, input.paymentStatus));
       }
 
       const orderList = await db
@@ -1167,14 +1241,16 @@ export const orderRouter = createTRPCRouter({
 
       const total = subtotal + deliveryFee - discount;
 
-      // Determinar status e paymentStatus por tipo de pedido
-      let orderStatus: "PENDING" | "CONFIRMED" = "PENDING";
-      let paymentStatus: "PENDING" | "PAID" = "PAID";
+      // Determinar status e paymentStatus por tipo de pedido.
+      // Pedidos criados pelo POS nunca passam por "Pendentes" — só ONLINE passa.
+      // Todos os tipos começam em PREPARING para o operador ver direto na cozinha.
+      const orderStatus = "PREPARING" as const;
+      let paymentStatus: "PENDING" | "PAID" = "PENDING";
 
       switch (input.type) {
         case "COUNTER":
         case "DINE_IN":
-          orderStatus = "CONFIRMED";
+          // Consumo imediato: normalmente já pago na hora.
           paymentStatus = "PAID";
           break;
         case "TABLE":
@@ -1184,13 +1260,13 @@ export const orderRouter = createTRPCRouter({
               message: "Número da mesa é obrigatório para pedidos tipo TABLE",
             });
           }
-          orderStatus = "CONFIRMED";
+          // Mesa: paga no fechamento da comanda.
           paymentStatus = "PENDING";
           break;
         case "PICKUP":
         case "DELIVERY":
-          orderStatus = "PENDING";
-          paymentStatus = "PAID";
+          // Retirada/entrega: paga na conferência final (finalizeDelivery / finalizeOrder).
+          paymentStatus = "PENDING";
           break;
       }
 
@@ -1558,7 +1634,48 @@ export const orderRouter = createTRPCRouter({
     }),
 
   /**
+   * Aprova um pedido ONLINE pendente, movendo para PREPARING.
+   * (Elimina o passo fantasma "CONFIRMED" do fluxo antigo.)
+   */
+  approveOnlineOrder: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [existingOrder] = await db
+        .select()
+        .from(orders)
+        .where(
+          and(eq(orders.id, input.orderId), eq(orders.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!existingOrder) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não encontrado",
+        });
+      }
+
+      if (existingOrder.status !== "PENDING") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Só é possível aprovar pedidos que estão em 'Pendentes'.",
+        });
+      }
+
+      const [updated] = await db
+        .update(orders)
+        .set({ status: "PREPARING" })
+        .where(eq(orders.id, input.orderId))
+        .returning();
+
+      return updated;
+    }),
+
+  /**
    * Atribui um entregador a um pedido.
+   * Também registra uma COMMISSION no saldo do motoboy (valor = deliveryFee do pedido).
    */
   assignDeliveryPerson: tenantProcedure
     .input(
@@ -1586,6 +1703,13 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
+      if (existingOrder.type !== "DELIVERY") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Só é possível atribuir motoboy para pedidos de entrega.",
+        });
+      }
+
       // Verificar se o entregador existe e tem role DELIVERY
       const [deliveryPerson] = await db
         .select()
@@ -1607,6 +1731,18 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
+      // Sessão de caixa aberta (opcional) para carimbar o earning
+      const [activeSession] = await db
+        .select()
+        .from(cashRegisterSessions)
+        .where(
+          and(
+            eq(cashRegisterSessions.tenantId, ctx.tenantId),
+            eq(cashRegisterSessions.status, "OPEN")
+          )
+        )
+        .limit(1);
+
       // Atualizar pedido
       const [updated] = await db
         .update(orders)
@@ -1617,6 +1753,489 @@ export const orderRouter = createTRPCRouter({
         .where(eq(orders.id, input.orderId))
         .returning();
 
+      // Registrar comissão do motoboy (= deliveryFee do pedido).
+      // Se deliveryFee for 0, registra mesmo assim com valor 0 — mantém o rastro da entrega.
+      const commissionAmount = existingOrder.deliveryFee ?? "0";
+      await db.insert(deliveryPersonEarnings).values({
+        tenantId: ctx.tenantId,
+        deliveryPersonId: input.deliveryPersonId,
+        orderId: existingOrder.id,
+        sessionId: activeSession?.id ?? null,
+        type: "COMMISSION",
+        amount: commissionAmount,
+        description: `Comissão pedido #${existingOrder.displayNumber}`,
+        createdBy: ctx.user.name ?? ctx.user.email ?? "Sistema",
+      });
+
       return updated;
+    }),
+
+  /**
+   * Finaliza uma entrega (DELIVERY em OUT_FOR_DELIVERY).
+   * Faz a conferência do valor recebido pelo motoboy e trata prejuízo/sobra.
+   */
+  finalizeDelivery: tenantProcedure
+    .input(
+      z.object({
+        orderId: z.string().uuid(),
+        amountReceived: z.number().nonnegative(),
+        shortageHandling: z
+          .enum(["DISCOUNT_DRIVER", "ACCEPT_LOSS"])
+          .optional(),
+        surplusHandling: z.enum(["ADD_DRIVER", "ADD_CASH"]).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [existingOrder] = await db
+        .select()
+        .from(orders)
+        .where(
+          and(eq(orders.id, input.orderId), eq(orders.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!existingOrder) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não encontrado",
+        });
+      }
+
+      if (existingOrder.type !== "DELIVERY") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "finalizeDelivery só pode ser usado em pedidos de entrega.",
+        });
+      }
+
+      if (existingOrder.status !== "OUT_FOR_DELIVERY") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "O pedido precisa estar no estágio 'Entregando' para ser finalizado.",
+        });
+      }
+
+      if (!existingOrder.deliveryPersonId) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Este pedido não tem motoboy atribuído.",
+        });
+      }
+
+      const total = parseFloat(existingOrder.total);
+      const received = input.amountReceived;
+      // arredonda diff para 2 casas p/ evitar falsos prejuízos/sobras por ponto flutuante
+      const diffRaw = received - total;
+      const diff = Math.round(diffRaw * 100) / 100;
+
+      // Validação dos handlings
+      if (diff < 0 && !input.shortageHandling) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Valor recebido é menor que o total. Informe como tratar (shortageHandling).",
+        });
+      }
+      if (diff > 0 && !input.surplusHandling) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Valor recebido excede o total. Informe como tratar (surplusHandling).",
+        });
+      }
+
+      // Sessão de caixa aberta (se houver)
+      const [activeSession] = await db
+        .select()
+        .from(cashRegisterSessions)
+        .where(
+          and(
+            eq(cashRegisterSessions.tenantId, ctx.tenantId),
+            eq(cashRegisterSessions.status, "OPEN")
+          )
+        )
+        .limit(1);
+
+      const operator = ctx.user.name ?? ctx.user.email ?? "Funcionário";
+      const displayNumber = existingOrder.displayNumber;
+      const deliveryPersonId = existingOrder.deliveryPersonId;
+
+      // === Aplicar lógica de diferença ===
+      if (diff < 0) {
+        // Faltou dinheiro
+        if (input.shortageHandling === "DISCOUNT_DRIVER") {
+          // Lê saldo ATUAL do motoboy (antes de aplicar). Motoboy absorve até o saldo;
+          // o excesso vira prejuízo do caixa (transparente na UI).
+          const [balanceRow] = await db
+            .select({
+              balance: sql<string>`COALESCE(SUM(${deliveryPersonEarnings.amount}), '0')`,
+            })
+            .from(deliveryPersonEarnings)
+            .where(
+              and(
+                eq(deliveryPersonEarnings.tenantId, ctx.tenantId),
+                eq(
+                  deliveryPersonEarnings.deliveryPersonId,
+                  deliveryPersonId
+                )
+              )
+            );
+          const balance = parseFloat(balanceRow?.balance ?? "0");
+          const shortfall = Math.abs(diff); // positivo
+          // Motoboy absorve o mínimo entre seu saldo positivo e o total faltante.
+          const driverShare =
+            balance > 0 ? Math.min(balance, shortfall) : 0;
+          const cashShare =
+            Math.round((shortfall - driverShare) * 100) / 100;
+
+          if (driverShare > 0) {
+            await db.insert(deliveryPersonEarnings).values({
+              tenantId: ctx.tenantId,
+              deliveryPersonId,
+              orderId: existingOrder.id,
+              sessionId: activeSession?.id ?? null,
+              type: "SHORTAGE_DEDUCTION",
+              amount: (-driverShare).toFixed(2),
+              description: `Desconto troco a menor pedido #${displayNumber}`,
+              createdBy: operator,
+            });
+          }
+
+          if (cashShare > 0 && activeSession) {
+            await db.insert(cashRegisterTransactions).values({
+              sessionId: activeSession.id,
+              tenantId: ctx.tenantId,
+              type: "ADJUSTMENT",
+              amount: (-cashShare).toFixed(2),
+              description:
+                driverShare > 0
+                  ? `Prejuízo entrega #${displayNumber} (saldo motoboy insuficiente)`
+                  : `Prejuízo entrega #${displayNumber} (motoboy sem saldo)`,
+              orderId: existingOrder.id,
+              createdBy: operator,
+            });
+          }
+        } else {
+          // ACCEPT_LOSS: prejuízo direto do caixa, sem mexer no motoboy
+          if (activeSession) {
+            await db.insert(cashRegisterTransactions).values({
+              sessionId: activeSession.id,
+              tenantId: ctx.tenantId,
+              type: "ADJUSTMENT",
+              amount: diff.toFixed(2), // negativo
+              description: `Prejuízo entrega #${displayNumber}`,
+              orderId: existingOrder.id,
+              createdBy: operator,
+            });
+          }
+        }
+      } else if (diff > 0) {
+        // Sobrou dinheiro
+        if (input.surplusHandling === "ADD_DRIVER") {
+          await db.insert(deliveryPersonEarnings).values({
+            tenantId: ctx.tenantId,
+            deliveryPersonId,
+            orderId: existingOrder.id,
+            sessionId: activeSession?.id ?? null,
+            type: "SURPLUS_BONUS",
+            amount: diff.toFixed(2),
+            description: `Sobra troco pedido #${displayNumber}`,
+            createdBy: operator,
+          });
+        } else {
+          // ADD_CASH
+          if (activeSession) {
+            await db.insert(cashRegisterTransactions).values({
+              sessionId: activeSession.id,
+              tenantId: ctx.tenantId,
+              type: "ADJUSTMENT",
+              amount: diff.toFixed(2), // positivo
+              description: `Sobra entrega #${displayNumber}`,
+              orderId: existingOrder.id,
+              createdBy: operator,
+            });
+          }
+        }
+      }
+
+      // Atualiza o pedido
+      const [updated] = await db
+        .update(orders)
+        .set({
+          status: "DELIVERED",
+          paymentStatus: "PAID",
+          amountReceived: received.toFixed(2),
+          shortageHandling: diff < 0 ? input.shortageHandling ?? null : null,
+          surplusHandling: diff > 0 ? input.surplusHandling ?? null : null,
+        })
+        .where(eq(orders.id, input.orderId))
+        .returning();
+
+      // Auto-emissão NFC-e em background
+      tryAutoEmitNfce(ctx.tenantId, existingOrder.id).catch(() => {});
+
+      return updated;
+    }),
+
+  /**
+   * Finaliza um pedido que NÃO é DELIVERY (PICKUP, COUNTER, TABLE, DINE_IN).
+   * Sem motoboy, sem modal de diferença — só registra recebimento e fecha.
+   */
+  finalizeOrder: tenantProcedure
+    .input(
+      z.object({
+        orderId: z.string().uuid(),
+        amountReceived: z.number().nonnegative().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [existingOrder] = await db
+        .select()
+        .from(orders)
+        .where(
+          and(eq(orders.id, input.orderId), eq(orders.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!existingOrder) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não encontrado",
+        });
+      }
+
+      if (existingOrder.type === "DELIVERY") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Para pedidos de entrega, use finalizeDelivery (precisa da conferência de valor).",
+        });
+      }
+
+      if (
+        existingOrder.status === "DELIVERED" ||
+        existingOrder.status === "PICKED_UP" ||
+        existingOrder.status === "CANCELLED"
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Pedido já finalizado ou cancelado.",
+        });
+      }
+
+      const finalStatus =
+        existingOrder.type === "PICKUP" ? "PICKED_UP" : "DELIVERED";
+
+      const [updated] = await db
+        .update(orders)
+        .set({
+          status: finalStatus,
+          paymentStatus: "PAID",
+          amountReceived: input.amountReceived?.toFixed(2) ?? null,
+        })
+        .where(eq(orders.id, input.orderId))
+        .returning();
+
+      // Se já existe sessão aberta e paymentStatus mudou p/ PAID,
+      // registrar venda no caixa se ainda não tiver sido registrada.
+      if (existingOrder.paymentStatus !== "PAID") {
+        const [activeSession] = await db
+          .select()
+          .from(cashRegisterSessions)
+          .where(
+            and(
+              eq(cashRegisterSessions.tenantId, ctx.tenantId),
+              eq(cashRegisterSessions.status, "OPEN")
+            )
+          )
+          .limit(1);
+
+        if (activeSession) {
+          // Evita duplicar venda já lançada por createFromPOS
+          const [existingSale] = await db
+            .select()
+            .from(cashRegisterTransactions)
+            .where(
+              and(
+                eq(cashRegisterTransactions.orderId, existingOrder.id),
+                eq(cashRegisterTransactions.type, "SALE")
+              )
+            )
+            .limit(1);
+
+          if (!existingSale) {
+            await db.insert(cashRegisterTransactions).values({
+              sessionId: activeSession.id,
+              tenantId: ctx.tenantId,
+              type: "SALE",
+              amount: existingOrder.total,
+              description: `Pedido #${existingOrder.displayNumber}`,
+              orderId: existingOrder.id,
+              createdBy: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+            });
+          }
+        }
+      }
+
+      tryAutoEmitNfce(ctx.tenantId, existingOrder.id).catch(() => {});
+
+      return updated;
+    }),
+
+  /**
+   * Saldo/agregados de cada motoboy no período.
+   * Default: últimos 30 dias (operador filtra por sessão/dia na UI).
+   */
+  getDeliveryPersonBalances: tenantProcedure
+    .input(
+      z
+        .object({
+          from: z.date().optional(),
+          to: z.date().optional(),
+          deliveryPersonId: z.string().uuid().optional(),
+        })
+        .optional()
+    )
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const from =
+        input?.from ?? new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+      const to = input?.to ?? new Date();
+
+      const conditions = [
+        eq(deliveryPersonEarnings.tenantId, ctx.tenantId),
+        gte(deliveryPersonEarnings.createdAt, from),
+        lte(deliveryPersonEarnings.createdAt, to),
+      ];
+      if (input?.deliveryPersonId) {
+        conditions.push(
+          eq(deliveryPersonEarnings.deliveryPersonId, input.deliveryPersonId)
+        );
+      }
+
+      // Agrega por motoboy
+      const rows = await db
+        .select({
+          deliveryPersonId: deliveryPersonEarnings.deliveryPersonId,
+          totalCommission: sql<string>`COALESCE(SUM(CASE WHEN ${deliveryPersonEarnings.type} = 'COMMISSION' THEN ${deliveryPersonEarnings.amount} ELSE 0 END), '0')`,
+          totalShortage: sql<string>`COALESCE(SUM(CASE WHEN ${deliveryPersonEarnings.type} = 'SHORTAGE_DEDUCTION' THEN ${deliveryPersonEarnings.amount} ELSE 0 END), '0')`,
+          totalSurplus: sql<string>`COALESCE(SUM(CASE WHEN ${deliveryPersonEarnings.type} = 'SURPLUS_BONUS' THEN ${deliveryPersonEarnings.amount} ELSE 0 END), '0')`,
+          totalPayout: sql<string>`COALESCE(SUM(CASE WHEN ${deliveryPersonEarnings.type} = 'PAYOUT' THEN ${deliveryPersonEarnings.amount} ELSE 0 END), '0')`,
+          balance: sql<string>`COALESCE(SUM(${deliveryPersonEarnings.amount}), '0')`,
+          orderCount: sql<number>`COUNT(DISTINCT CASE WHEN ${deliveryPersonEarnings.type} = 'COMMISSION' THEN ${deliveryPersonEarnings.orderId} END)::int`,
+        })
+        .from(deliveryPersonEarnings)
+        .where(and(...conditions))
+        .groupBy(deliveryPersonEarnings.deliveryPersonId);
+
+      // Junta com nomes dos motoboys
+      const people = await db
+        .select({
+          id: tenantUsers.id,
+          name: tenantUsers.name,
+          isActive: tenantUsers.isActive,
+        })
+        .from(tenantUsers)
+        .where(
+          and(
+            eq(tenantUsers.tenantId, ctx.tenantId),
+            eq(tenantUsers.role, "DELIVERY")
+          )
+        );
+
+      const rowMap = new Map(rows.map((r) => [r.deliveryPersonId, r]));
+
+      return people.map((p) => {
+        const r = rowMap.get(p.id);
+        return {
+          deliveryPersonId: p.id,
+          name: p.name,
+          isActive: p.isActive,
+          totalCommission: r?.totalCommission ?? "0",
+          totalShortage: r?.totalShortage ?? "0",
+          totalSurplus: r?.totalSurplus ?? "0",
+          totalPayout: r?.totalPayout ?? "0",
+          balance: r?.balance ?? "0",
+          orderCount: r?.orderCount ?? 0,
+        };
+      });
+    }),
+
+  /**
+   * Registra acerto (pagamento) ao motoboy, zerando ou reduzindo o saldo.
+   * Cria um PAYOUT (amount negativo) e uma WITHDRAWAL no caixa (se houver sessão aberta).
+   */
+  registerDriverPayout: tenantProcedure
+    .input(
+      z.object({
+        deliveryPersonId: z.string().uuid(),
+        amount: z.number().positive(),
+        notes: z.string().optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [deliveryPerson] = await db
+        .select()
+        .from(tenantUsers)
+        .where(
+          and(
+            eq(tenantUsers.id, input.deliveryPersonId),
+            eq(tenantUsers.tenantId, ctx.tenantId),
+            eq(tenantUsers.role, "DELIVERY")
+          )
+        )
+        .limit(1);
+
+      if (!deliveryPerson) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Motoboy não encontrado.",
+        });
+      }
+
+      const [activeSession] = await db
+        .select()
+        .from(cashRegisterSessions)
+        .where(
+          and(
+            eq(cashRegisterSessions.tenantId, ctx.tenantId),
+            eq(cashRegisterSessions.status, "OPEN")
+          )
+        )
+        .limit(1);
+
+      const operator = ctx.user.name ?? ctx.user.email ?? "Funcionário";
+      const amountNeg = (-input.amount).toFixed(2);
+
+      await db.insert(deliveryPersonEarnings).values({
+        tenantId: ctx.tenantId,
+        deliveryPersonId: input.deliveryPersonId,
+        sessionId: activeSession?.id ?? null,
+        type: "PAYOUT",
+        amount: amountNeg,
+        description:
+          input.notes ?? `Acerto motoboy ${deliveryPerson.name}`,
+        createdBy: operator,
+      });
+
+      if (activeSession) {
+        await db.insert(cashRegisterTransactions).values({
+          sessionId: activeSession.id,
+          tenantId: ctx.tenantId,
+          type: "WITHDRAWAL",
+          amount: input.amount.toFixed(2),
+          description: `Acerto motoboy ${deliveryPerson.name}`,
+          createdBy: operator,
+        });
+      }
+
+      return { ok: true };
     }),
 });
