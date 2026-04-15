@@ -301,7 +301,7 @@ export function PedidosContent() {
     previousCountRef.current = currentPendingCount;
   }, [orders, soundEnabled]);
 
-  function orderForPrint(order: (typeof orders)[number]) {
+  function orderForPrint(order: NonNullable<typeof orders>[number]) {
     return {
       id: order.id,
       displayNumber: order.displayNumber ?? String(order.orderNumber),
