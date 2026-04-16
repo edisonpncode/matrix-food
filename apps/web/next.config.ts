@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
     "@matrix-food/database",
     "@matrix-food/auth",
     "@matrix-food/utils",
+    "@matrix-food/api",
   ],
   images: {
     remotePatterns: [

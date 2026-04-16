@@ -20,38 +20,70 @@ import { useLoggedUsersStore } from "@/lib/logged-users-store";
  *      o `tenantUser` correspondente ao firebaseUid do contexto (ou o
  *      OWNER do tenant como fallback em dev).
  *   3) Adiciona o usuário na store, tornando-o ativo.
- *
- * Roda em silêncio — qualquer erro é absorvido, pois não queremos
- * bloquear o render do admin caso o tRPC ainda não esteja pronto.
  */
 export function SessionBootstrap() {
   const activeUserId = useLoggedUsersStore((s) => s.activeUserId);
   const addUser = useLoggedUsersStore((s) => s.addUser);
-  const ran = useRef(false);
+  const didPopulate = useRef(false);
 
-  // Só pede ao backend se realmente não temos ninguém ativo.
-  const { data } = trpc.staff.getCurrent.useQuery(undefined, {
-    enabled: !activeUserId && !ran.current,
-    retry: false,
+  const query = trpc.staff.getCurrent.useQuery(undefined, {
+    // Só roda se não temos ninguém ativo e ainda não populamos nesta montagem.
+    enabled: !activeUserId && !didPopulate.current,
+    retry: 1,
     staleTime: Infinity,
     refetchOnWindowFocus: false,
   });
 
   useEffect(() => {
-    if (!data || ran.current || activeUserId) return;
-    ran.current = true;
+    if (typeof window === "undefined") return;
+    if (activeUserId) {
+      // Já tem alguém ativo — nada a fazer.
+      return;
+    }
+    if (query.isError) {
+      console.warn(
+        "[SessionBootstrap] Falha ao buscar usuário atual:",
+        query.error?.message
+      );
+      return;
+    }
+    if (!query.data) {
+      // Ainda carregando, ou backend devolveu null (sem OWNER no tenant).
+      if (query.isFetched && query.data === null) {
+        console.warn(
+          "[SessionBootstrap] staff.getCurrent retornou null — não há OWNER no tenant."
+        );
+      }
+      return;
+    }
+    if (didPopulate.current) return;
+    didPopulate.current = true;
+
+    const u = query.data;
+    console.info(
+      "[SessionBootstrap] Populando usuário ativo:",
+      u.name,
+      `(${u.role})`
+    );
     addUser({
-      id: data.id,
-      name: data.name,
-      email: data.email ?? null,
-      photoUrl: data.photoUrl ?? null,
-      role: data.role,
-      userTypeId: data.userTypeId ?? null,
-      userTypeName: data.userTypeName ?? null,
-      permissions: data.permissions ?? {},
-      kind: data.kind,
+      id: u.id,
+      name: u.name,
+      email: u.email ?? null,
+      photoUrl: u.photoUrl ?? null,
+      role: u.role,
+      userTypeId: u.userTypeId ?? null,
+      userTypeName: u.userTypeName ?? null,
+      permissions: u.permissions ?? {},
+      kind: u.kind,
     });
-  }, [data, addUser, activeUserId]);
+  }, [
+    activeUserId,
+    query.data,
+    query.isError,
+    query.isFetched,
+    query.error,
+    addUser,
+  ]);
 
   return null;
 }
