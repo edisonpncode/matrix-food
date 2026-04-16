@@ -10,15 +10,17 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
-    "@matrix-food/database": "workspace:*",
     "@matrix-food/auth": "workspace:*",
+    "@matrix-food/database": "workspace:*",
     "@matrix-food/utils": "workspace:*",
     "@trpc/server": "^11.1.2",
+    "bcryptjs": "^3.0.3",
     "superjson": "^2.2.6",
     "zod": "^3.25.67"
   },
   "devDependencies": {
     "@matrix-food/tsconfig": "workspace:*",
+    "@types/bcryptjs": "^3.0.0",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

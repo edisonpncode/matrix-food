@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AdminSidebar } from "@/components/admin/sidebar";
+import { InactivityGuard } from "@/components/shared/user-session/inactivity-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -14,9 +15,11 @@ export default function AdminLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex h-screen">
-      <AdminSidebar />
-      <main className="flex-1 overflow-auto p-6">{children}</main>
-    </div>
+    <InactivityGuard timeoutMinutes={15}>
+      <div className="flex h-screen">
+        <AdminSidebar />
+        <main className="flex-1 overflow-auto p-6">{children}</main>
+      </div>
+    </InactivityGuard>
   );
 }

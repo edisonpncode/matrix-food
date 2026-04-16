@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { trpc } from "@/lib/trpc";
+import { UserIndicator } from "@/components/shared/user-session/user-indicator";
 
 const menuItems = [
   { href: "/restaurante/pos", label: "Pedidos", icon: ClipboardList },
@@ -33,11 +34,14 @@ export function POSSidebar() {
         collapsed ? "w-16" : "w-64"
       }`}
     >
-      <div className="flex h-16 items-center gap-3 border-b border-border px-4">
-        <Store className="h-7 w-7 shrink-0 text-primary" />
-        {!collapsed && (
-          <span className="text-lg font-bold text-foreground truncate">{restaurantName}</span>
-        )}
+      <div className="border-b border-border">
+        <div className="flex h-14 items-center gap-3 px-4">
+          <Store className="h-7 w-7 shrink-0 text-primary" />
+          {!collapsed && (
+            <span className="text-base font-bold text-foreground truncate">{restaurantName}</span>
+          )}
+        </div>
+        <UserIndicator collapsed={collapsed} />
       </div>
 
       <nav className="flex-1 space-y-1 p-2">

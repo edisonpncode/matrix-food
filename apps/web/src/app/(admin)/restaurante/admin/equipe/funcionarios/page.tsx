@@ -17,6 +17,9 @@ import {
   Camera,
   Truck,
   Briefcase,
+  Lock,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import { ImageUploader } from "@/components/admin/image-uploader";
 
@@ -55,6 +58,8 @@ export default function FuncionariosPage() {
   const [userTypeId, setUserTypeId] = useState<string | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [pin, setPin] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
 
   const ROLE_OPTIONS = [
     { value: "MANAGER" as const, label: "Gerente" },
@@ -77,7 +82,23 @@ export default function FuncionariosPage() {
     setUserTypeId(null);
     setPhotoUrl(null);
     setPin("");
+    setPassword("");
+    setShowPassword(false);
   }
+
+  // Indicador de força da senha (0 fraca, 1 média, 2 forte)
+  function getPasswordStrength(pwd: string): 0 | 1 | 2 | 3 {
+    if (!pwd) return 0;
+    let score = 0;
+    if (pwd.length >= 8) score++;
+    if (/[A-Z]/.test(pwd) && /[a-z]/.test(pwd)) score++;
+    if (/\d/.test(pwd)) score++;
+    if (/[^A-Za-z0-9]/.test(pwd)) score++;
+    return Math.min(score, 3) as 0 | 1 | 2 | 3;
+  }
+
+  const passwordStrength = getPasswordStrength(password);
+  const passwordValid = password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password);
 
   function startEdit(staff: {
     id: string;
@@ -112,6 +133,7 @@ export default function FuncionariosPage() {
         userTypeId,
         photoUrl,
         pin: pin || null,
+        ...(password ? { password } : {}),
       });
     } else {
       createMutation.mutate({
@@ -122,6 +144,7 @@ export default function FuncionariosPage() {
         userTypeId,
         photoUrl,
         pin,
+        password,
       });
     }
   }
@@ -295,10 +318,10 @@ export default function FuncionariosPage() {
               )}
             </div>
 
-            {/* PIN (Senha) */}
+            {/* PIN (troca rápida) */}
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
-                PIN (Senha) *
+                PIN (troca rápida) *
               </label>
               <div className="relative">
                 <Hash className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -316,8 +339,66 @@ export default function FuncionariosPage() {
                 />
               </div>
               <p className="mt-1 text-xs text-muted-foreground">
-                O funcionário usará o email + PIN para fazer login no sistema.
+                Usado para trocar de operador rapidamente no POS/Admin.
               </p>
+            </div>
+
+            {/* Senha forte (login inicial) */}
+            <div>
+              <label className="mb-1 block text-sm font-medium text-foreground">
+                Senha {editingId ? "(opcional — só para alterar)" : "*"}
+              </label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={editingId ? "Deixe em branco para manter" : "Mínimo 8 caracteres"}
+                  autoComplete="new-password"
+                  required={!editingId}
+                  minLength={editingId && !password ? 0 : 8}
+                  className="w-full rounded-md border border-input bg-background pl-10 pr-10 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+              {password && (
+                <>
+                  <div className="mt-1.5 flex gap-1">
+                    {[1, 2, 3].map((bar) => (
+                      <div
+                        key={bar}
+                        className={`h-1 flex-1 rounded-full transition-colors ${
+                          passwordStrength >= bar
+                            ? passwordStrength === 1
+                              ? "bg-red-500"
+                              : passwordStrength === 2
+                                ? "bg-amber-500"
+                                : "bg-green-500"
+                            : "bg-muted"
+                        }`}
+                      />
+                    ))}
+                  </div>
+                  <p className={`mt-1 text-xs ${passwordValid ? "text-green-600" : "text-muted-foreground"}`}>
+                    {passwordValid
+                      ? "Senha válida"
+                      : "A senha deve ter letras e números (mín. 8 caracteres)"}
+                  </p>
+                </>
+              )}
+              {!password && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Usada para login inicial (email + senha).
+                </p>
+              )}
             </div>
 
             {/* Foto */}
@@ -344,7 +425,14 @@ export default function FuncionariosPage() {
           <div className="mt-4 flex gap-2">
             <button
               type="submit"
-              disabled={isLoading || !name.trim() || !email.trim() || (!editingId && pin.length < 4)}
+              disabled={
+                isLoading ||
+                !name.trim() ||
+                !email.trim() ||
+                (!editingId && pin.length < 4) ||
+                (!editingId && !passwordValid) ||
+                !!(editingId && password && !passwordValid)
+              }
               className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
             >
               {isLoading && <Loader2 className="h-4 w-4 animate-spin" />}

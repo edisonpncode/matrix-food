@@ -1,4 +1,5 @@
 import { z } from "zod";
+import bcrypt from "bcryptjs";
 import { createTRPCRouter, tenantProcedure } from "../trpc";
 import {
   getDb,
@@ -10,6 +11,22 @@ import {
   asc,
   desc,
 } from "@matrix-food/database";
+
+/**
+ * Regex de senha forte:
+ * - Mínimo 8 caracteres
+ * - Pelo menos 1 letra
+ * - Pelo menos 1 número
+ */
+const STRONG_PASSWORD_REGEX = /^(?=.*[A-Za-z])(?=.*\d).{8,}$/;
+
+const strongPasswordSchema = z
+  .string()
+  .min(8, "A senha deve ter no mínimo 8 caracteres")
+  .regex(
+    STRONG_PASSWORD_REGEX,
+    "A senha deve conter letras e números"
+  );
 
 export const staffRouter = createTRPCRouter({
   /**
@@ -103,7 +120,7 @@ export const staffRouter = createTRPCRouter({
 
   /**
    * Cria um novo funcionário.
-   * Login será por email + PIN (não precisa de Firebase UID).
+   * Login será por email + senha forte (primeira vez) + PIN (troca rápida).
    */
   create: tenantProcedure
     .input(
@@ -111,9 +128,13 @@ export const staffRouter = createTRPCRouter({
         name: z.string().min(1).max(255),
         email: z.string().email("Email inválido"),
         phone: z.string().max(20).optional(),
-        role: z.enum(["OWNER", "MANAGER", "CASHIER", "DELIVERY"]).optional().default("CASHIER"),
+        role: z
+          .enum(["OWNER", "MANAGER", "CASHIER", "DELIVERY"])
+          .optional()
+          .default("CASHIER"),
         userTypeId: z.string().uuid().nullable().optional(),
         photoUrl: z.string().url().nullable().optional(),
+        password: strongPasswordSchema,
         pin: z
           .string()
           .regex(/^\d{4,6}$/, "PIN deve ter entre 4 e 6 dígitos"),
@@ -154,6 +175,8 @@ export const staffRouter = createTRPCRouter({
         throw new Error("Este PIN já está em uso por outro funcionário.");
       }
 
+      const passwordHash = await bcrypt.hash(input.password, 10);
+
       const [created] = await db
         .insert(tenantUsers)
         .values({
@@ -165,6 +188,7 @@ export const staffRouter = createTRPCRouter({
           userTypeId: input.userTypeId ?? null,
           photoUrl: input.photoUrl ?? null,
           pin: input.pin,
+          passwordHash,
         })
         .returning();
 
@@ -182,6 +206,7 @@ export const staffRouter = createTRPCRouter({
 
   /**
    * Atualiza um funcionário.
+   * Se `password` for informado, gera novo hash.
    */
   update: tenantProcedure
     .input(
@@ -198,22 +223,23 @@ export const staffRouter = createTRPCRouter({
           .regex(/^\d{4,6}$/, "PIN deve ter entre 4 e 6 dígitos")
           .nullable()
           .optional(),
+        password: strongPasswordSchema.optional(),
         isActive: z.boolean().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
-      const { id, ...data } = input;
+      const { id, password, ...rest } = input;
 
       // Verificar PIN duplicado
-      if (data.pin) {
+      if (rest.pin) {
         const [existing] = await db
           .select({ id: tenantUsers.id })
           .from(tenantUsers)
           .where(
             and(
               eq(tenantUsers.tenantId, ctx.tenantId),
-              eq(tenantUsers.pin, data.pin)
+              eq(tenantUsers.pin, rest.pin)
             )
           )
           .limit(1);
@@ -223,19 +249,21 @@ export const staffRouter = createTRPCRouter({
         }
       }
 
+      const data: Record<string, unknown> = { ...rest };
+      if (password) {
+        data.passwordHash = await bcrypt.hash(password, 10);
+      }
+
       const [updated] = await db
         .update(tenantUsers)
         .set(data)
         .where(
-          and(
-            eq(tenantUsers.id, id),
-            eq(tenantUsers.tenantId, ctx.tenantId)
-          )
+          and(eq(tenantUsers.id, id), eq(tenantUsers.tenantId, ctx.tenantId))
         )
         .returning();
 
       // Log de atividade
-      if (data.isActive === false) {
+      if (rest.isActive === false) {
         await db.insert(activityLogs).values({
           tenantId: ctx.tenantId,
           userName: "Admin",
@@ -268,6 +296,7 @@ export const staffRouter = createTRPCRouter({
         .select({
           id: tenantUsers.id,
           name: tenantUsers.name,
+          email: tenantUsers.email,
           role: tenantUsers.role,
           photoUrl: tenantUsers.photoUrl,
           userTypeId: tenantUsers.userTypeId,
@@ -286,17 +315,22 @@ export const staffRouter = createTRPCRouter({
         throw new Error("PIN inválido.");
       }
 
-      // Buscar permissões do tipo de usuário
+      // Buscar permissões e nome do tipo de usuário
       let permissions: Record<string, boolean> = {};
+      let userTypeName: string | null = null;
       if (user.userTypeId) {
         const [userType] = await db
-          .select({ permissions: userTypes.permissions })
+          .select({
+            permissions: userTypes.permissions,
+            name: userTypes.name,
+          })
           .from(userTypes)
           .where(eq(userTypes.id, user.userTypeId))
           .limit(1);
 
         if (userType) {
           permissions = userType.permissions as Record<string, boolean>;
+          userTypeName = userType.name;
         }
       }
 
@@ -309,12 +343,132 @@ export const staffRouter = createTRPCRouter({
         description: `Operador trocado para "${user.name}" via PIN.`,
       });
 
-      return { ...user, permissions };
+      return { ...user, permissions, userTypeName };
     }),
 
   /**
-   * Login do funcionário por email + PIN.
-   * Retorna dados do funcionário + permissões do tipo de usuário.
+   * Verifica se um email já existe como funcionário no tenant.
+   * Usado no modal "Novo Login" para detectar se deve pedir PIN/Senha forte
+   * (funcionário) ou senha Firebase (admin/dono).
+   */
+  checkEmail: tenantProcedure
+    .input(z.object({ email: z.string().email() }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const [user] = await db
+        .select({
+          id: tenantUsers.id,
+          role: tenantUsers.role,
+          firebaseUid: tenantUsers.firebaseUid,
+          hasPassword: tenantUsers.passwordHash,
+        })
+        .from(tenantUsers)
+        .where(
+          and(
+            eq(tenantUsers.tenantId, ctx.tenantId),
+            eq(tenantUsers.email, input.email),
+            eq(tenantUsers.isActive, true)
+          )
+        )
+        .limit(1);
+
+      if (!user) {
+        return { exists: false, kind: null as null | "admin" | "staff" };
+      }
+
+      // OWNER com firebaseUid = admin (usa Firebase)
+      // Qualquer outro = staff (usa senha forte local)
+      const kind: "admin" | "staff" =
+        user.role === "OWNER" && user.firebaseUid ? "admin" : "staff";
+
+      return {
+        exists: true,
+        kind,
+        hasPassword: !!user.hasPassword,
+      };
+    }),
+
+  /**
+   * Login do funcionário por email + senha forte (primeiro acesso).
+   * Após esse login, o funcionário fica disponível para troca rápida via PIN.
+   */
+  loginByEmailPassword: tenantProcedure
+    .input(
+      z.object({
+        email: z.string().email(),
+        password: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [user] = await db
+        .select({
+          id: tenantUsers.id,
+          name: tenantUsers.name,
+          email: tenantUsers.email,
+          phone: tenantUsers.phone,
+          role: tenantUsers.role,
+          photoUrl: tenantUsers.photoUrl,
+          userTypeId: tenantUsers.userTypeId,
+          passwordHash: tenantUsers.passwordHash,
+        })
+        .from(tenantUsers)
+        .where(
+          and(
+            eq(tenantUsers.tenantId, ctx.tenantId),
+            eq(tenantUsers.email, input.email),
+            eq(tenantUsers.isActive, true)
+          )
+        )
+        .limit(1);
+
+      if (!user || !user.passwordHash) {
+        throw new Error("Email ou senha inválidos.");
+      }
+
+      const ok = await bcrypt.compare(input.password, user.passwordHash);
+      if (!ok) {
+        throw new Error("Email ou senha inválidos.");
+      }
+
+      // Buscar permissões do tipo de usuário
+      let permissions: Record<string, boolean> = {};
+      let userTypeName: string | null = null;
+      if (user.userTypeId) {
+        const [userType] = await db
+          .select({
+            permissions: userTypes.permissions,
+            name: userTypes.name,
+          })
+          .from(userTypes)
+          .where(eq(userTypes.id, user.userTypeId))
+          .limit(1);
+
+        if (userType) {
+          permissions = userType.permissions as Record<string, boolean>;
+          userTypeName = userType.name;
+        }
+      }
+
+      // Registrar login no log
+      await db.insert(activityLogs).values({
+        tenantId: ctx.tenantId,
+        userId: user.id,
+        userName: user.name,
+        action: "STAFF_LOGIN",
+        description: `"${user.name}" fez login por email+senha.`,
+      });
+
+      // Remover hash antes de retornar
+      const { passwordHash: _hash, ...safeUser } = user;
+      void _hash;
+      return { ...safeUser, permissions, userTypeName };
+    }),
+
+  /**
+   * Login do funcionário por email + PIN (legado/compatibilidade).
+   * Preferir loginByEmailPassword para primeiro acesso.
    */
   loginByEmailPin: tenantProcedure
     .input(
@@ -380,5 +534,79 @@ export const staffRouter = createTRPCRouter({
       });
 
       return { ...user, permissions, userTypeName };
+    }),
+
+  /**
+   * Verifica PIN de um usuário específico para autorizar ação sensível.
+   * Usado pelo RequirePinModal (cancelar pedido, desconto, caixa, etc.).
+   * Registra no activity log quem autorizou.
+   */
+  authorizeAction: tenantProcedure
+    .input(
+      z.object({
+        userId: z.string().uuid().optional(),
+        pin: z.string().min(4).max(6),
+        action: z.string().max(100),
+        reason: z.string().max(500).optional(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [user] = await db
+        .select({
+          id: tenantUsers.id,
+          name: tenantUsers.name,
+          role: tenantUsers.role,
+          userTypeId: tenantUsers.userTypeId,
+        })
+        .from(tenantUsers)
+        .where(
+          and(
+            eq(tenantUsers.tenantId, ctx.tenantId),
+            eq(tenantUsers.pin, input.pin),
+            eq(tenantUsers.isActive, true),
+            ...(input.userId ? [eq(tenantUsers.id, input.userId)] : [])
+          )
+        )
+        .limit(1);
+
+      if (!user) {
+        throw new Error("PIN inválido.");
+      }
+
+      // Buscar permissões (para o frontend verificar se o user pode essa ação)
+      let permissions: Record<string, boolean> = {};
+      if (user.userTypeId) {
+        const [userType] = await db
+          .select({ permissions: userTypes.permissions })
+          .from(userTypes)
+          .where(eq(userTypes.id, user.userTypeId))
+          .limit(1);
+        if (userType) {
+          permissions = userType.permissions as Record<string, boolean>;
+        }
+      }
+
+      await db.insert(activityLogs).values({
+        tenantId: ctx.tenantId,
+        userId: user.id,
+        userName: user.name,
+        action: "PIN_SWITCH",
+        description: `"${user.name}" autorizou ação: ${input.action}${
+          input.reason ? ` (${input.reason})` : ""
+        }.`,
+        metadata: { action: input.action, reason: input.reason },
+      });
+
+      return {
+        authorized: true,
+        user: {
+          id: user.id,
+          name: user.name,
+          role: user.role,
+          permissions,
+        },
+      };
     }),
 });

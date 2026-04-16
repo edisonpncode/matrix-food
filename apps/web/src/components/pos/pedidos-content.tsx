@@ -24,6 +24,7 @@ import {
 import { usePrinterSettings } from "@/hooks/use-printer-settings";
 import { DeliveryPersonSelector } from "@/components/admin/delivery-person-selector";
 import { FinalizeDeliveryModal } from "@/components/admin/finalize-delivery-modal";
+import { RequirePinModal } from "@/components/shared/user-session/require-pin-modal";
 
 type OrderStatus =
   | "PENDING"
@@ -189,6 +190,8 @@ export function PedidosContent() {
   const [finalizingOrderId, setFinalizingOrderId] = useState<string | null>(
     null
   );
+  // PIN authorization state for cancellation
+  const [pendingCancelOrderId, setPendingCancelOrderId] = useState<string | null>(null);
 
   // Busca todos os pedidos do tenant (sem filtrar server-side — filtros são locais
   // para permitir trocar de aba sem refetch).
@@ -392,7 +395,8 @@ export function PedidosContent() {
 
   function handleCancel(orderId: string) {
     if (confirm("Tem certeza que deseja cancelar este pedido?")) {
-      cancelOrder.mutate({ id: orderId, status: "CANCELLED" });
+      // Requer autorização por PIN antes de cancelar
+      setPendingCancelOrderId(orderId);
     }
   }
 
@@ -749,6 +753,23 @@ export function PedidosContent() {
           onSuccess={() => {
             setFinalizingOrderId(null);
             refetch();
+          }}
+        />
+      )}
+
+      {pendingCancelOrderId && (
+        <RequirePinModal
+          title="Autorização: Cancelar pedido"
+          description="Para cancelar este pedido, um usuário autorizado precisa confirmar o PIN."
+          action="Cancelar pedido"
+          reason={`Pedido ${pendingCancelOrderId.slice(0, 8)}`}
+          onClose={() => setPendingCancelOrderId(null)}
+          onSuccess={() => {
+            const id = pendingCancelOrderId;
+            setPendingCancelOrderId(null);
+            if (id) {
+              cancelOrder.mutate({ id, status: "CANCELLED" });
+            }
           }}
         />
       )}

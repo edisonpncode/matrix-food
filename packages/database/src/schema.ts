@@ -334,6 +334,8 @@ export const tenantUsers = pgTable(
     photoUrl: text("photo_url"),
     /** PIN de 4-6 dígitos para troca rápida de operador */
     pin: varchar("pin", { length: 6 }),
+    /** Hash bcrypt da senha forte (login inicial do funcionário). Null para dono/admin (Firebase). */
+    passwordHash: varchar("password_hash", { length: 255 }),
     isActive: boolean("is_active").notNull().default(true),
     permissions: jsonb("permissions").$type<Record<string, boolean>>(),
     createdAt: timestamp("created_at").notNull().defaultNow(),
