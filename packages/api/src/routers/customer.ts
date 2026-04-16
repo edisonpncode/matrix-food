@@ -33,17 +33,22 @@ const addressSchema = z.object({
 
 export const customerRouter = createTRPCRouter({
   /**
-   * Busca cliente por telefone (match exato).
+   * Busca cliente por telefone (normaliza para apenas dígitos antes de comparar).
    */
   searchByPhone: tenantProcedure
     .input(z.object({ phone: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const db = getDb();
 
+      const phoneDigits = input.phone.replace(/\D/g, "");
+      if (!phoneDigits) return null;
+
       const [customer] = await db
         .select()
         .from(customers)
-        .where(eq(customers.phone, input.phone))
+        .where(
+          sql`regexp_replace(${customers.phone}, '\\D', '', 'g') = ${phoneDigits}`
+        )
         .limit(1);
 
       if (!customer) {
@@ -65,17 +70,22 @@ export const customerRouter = createTRPCRouter({
     }),
 
   /**
-   * Busca cliente por CPF (match exato).
+   * Busca cliente por CPF (normaliza para apenas dígitos antes de comparar).
    */
   searchByCpf: tenantProcedure
     .input(z.object({ cpf: z.string().min(1) }))
     .query(async ({ ctx, input }) => {
       const db = getDb();
 
+      const cpfDigits = input.cpf.replace(/\D/g, "");
+      if (!cpfDigits) return null;
+
       const [customer] = await db
         .select()
         .from(customers)
-        .where(eq(customers.cpf, input.cpf))
+        .where(
+          sql`regexp_replace(${customers.cpf}, '\\D', '', 'g') = ${cpfDigits}`
+        )
         .limit(1);
 
       if (!customer) {
