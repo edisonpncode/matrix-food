@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { AdminSidebar } from "@/components/admin/sidebar";
 import { InactivityGuard } from "@/components/shared/user-session/inactivity-guard";
 import { RoutePermissionGuard } from "@/components/shared/user-session/route-permission-guard";
+import { SessionBootstrap } from "@/components/shared/user-session/session-bootstrap";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export default function AdminLayout({
 }) {
   return (
     <InactivityGuard timeoutMinutes={15}>
+      <SessionBootstrap />
       <div className="flex h-screen">
         <AdminSidebar />
         <main className="flex-1 overflow-auto p-6">

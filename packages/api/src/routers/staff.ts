@@ -30,6 +30,101 @@ const strongPasswordSchema = z
 
 export const staffRouter = createTRPCRouter({
   /**
+   * Retorna o usuário autenticado no contexto atual (dono do restaurante
+   * ou funcionário logado via Firebase). Usado pelo SessionBootstrap do
+   * frontend para popular o `logged-users-store` após um login direto.
+   *
+   * Lógica:
+   *   1) Procura um `tenantUser` com `firebaseUid = ctx.user.uid`.
+   *   2) Caso não encontre (ex.: dev mode com uid sintético), usa como
+   *      fallback o primeiro OWNER ativo do tenant.
+   *
+   * Retorna `null` se nada for encontrado.
+   */
+  getCurrent: tenantProcedure.query(async ({ ctx }) => {
+    const db = getDb();
+
+    type Row = {
+      id: string;
+      name: string;
+      email: string | null;
+      phone: string | null;
+      role: "OWNER" | "MANAGER" | "CASHIER" | "DELIVERY";
+      photoUrl: string | null;
+      userTypeId: string | null;
+      userTypeName: string | null;
+      userTypePermissions: Record<string, boolean> | null;
+    };
+
+    const baseSelect = () =>
+      db
+        .select({
+          id: tenantUsers.id,
+          name: tenantUsers.name,
+          email: tenantUsers.email,
+          phone: tenantUsers.phone,
+          role: tenantUsers.role,
+          photoUrl: tenantUsers.photoUrl,
+          userTypeId: tenantUsers.userTypeId,
+          userTypeName: userTypes.name,
+          userTypePermissions: userTypes.permissions,
+        })
+        .from(tenantUsers)
+        .leftJoin(userTypes, eq(tenantUsers.userTypeId, userTypes.id));
+
+    let user: Row | undefined;
+
+    if (ctx.user?.uid) {
+      const rows = (await baseSelect()
+        .where(
+          and(
+            eq(tenantUsers.tenantId, ctx.tenantId),
+            eq(tenantUsers.firebaseUid, ctx.user.uid),
+            eq(tenantUsers.isActive, true)
+          )
+        )
+        .limit(1)) as Row[];
+      user = rows[0];
+    }
+
+    // Fallback: primeiro OWNER ativo do tenant (útil em dev e em contas
+    // recém-criadas onde o firebaseUid ainda não foi vinculado).
+    if (!user) {
+      const rows = (await baseSelect()
+        .where(
+          and(
+            eq(tenantUsers.tenantId, ctx.tenantId),
+            eq(tenantUsers.role, "OWNER"),
+            eq(tenantUsers.isActive, true)
+          )
+        )
+        .orderBy(asc(tenantUsers.createdAt))
+        .limit(1)) as Row[];
+      user = rows[0];
+    }
+
+    if (!user) return null;
+
+    const permissions = (user.userTypePermissions ?? {}) as Record<
+      string,
+      boolean
+    >;
+
+    return {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      phone: user.phone,
+      role: user.role,
+      photoUrl: user.photoUrl,
+      userTypeId: user.userTypeId,
+      userTypeName: user.userTypeName,
+      permissions,
+      kind: user.role === "OWNER" ? ("admin" as const) : ("staff" as const),
+    };
+  }),
+
+  /**
    * Lista motoboys ativos (role = DELIVERY). Usado pelo DeliveryPersonSelector.
    */
   listDeliveryPeople: tenantProcedure.query(async ({ ctx }) => {
