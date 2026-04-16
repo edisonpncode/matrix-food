@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { createTRPCRouter, tenantProcedure } from "../trpc";
 import {
   getDb,
+  tenants,
   tenantUsers,
   userTypes,
   activityLogs,
@@ -11,6 +12,7 @@ import {
   asc,
   desc,
 } from "@matrix-food/database";
+import { getAllPermissions } from "./userType";
 
 /**
  * Regex de senha forte:
@@ -36,10 +38,13 @@ export const staffRouter = createTRPCRouter({
    *
    * Lógica:
    *   1) Procura um `tenantUser` com `firebaseUid = ctx.user.uid`.
-   *   2) Caso não encontre (ex.: dev mode com uid sintético), usa como
-   *      fallback o primeiro OWNER ativo do tenant.
-   *
-   * Retorna `null` se nada for encontrado.
+   *   2) Caso não encontre, usa como fallback o primeiro OWNER ativo
+   *      do tenant.
+   *   3) Se o tenant NÃO tem OWNER (tenant legacy criado antes desse
+   *      sistema), cria automaticamente:
+   *        - um `userType` "Proprietário" (isSystem) com todas as permissões
+   *        - um `tenantUser` com role=OWNER vinculado a esse tipo
+   *      Assim o admin sempre funciona e sempre há registro real no banco.
    */
   getCurrent: tenantProcedure.query(async ({ ctx }) => {
     const db = getDb();
@@ -87,8 +92,7 @@ export const staffRouter = createTRPCRouter({
       user = rows[0];
     }
 
-    // Fallback: primeiro OWNER ativo do tenant (útil em dev e em contas
-    // recém-criadas onde o firebaseUid ainda não foi vinculado).
+    // Fallback: primeiro OWNER ativo do tenant.
     if (!user) {
       const rows = (await baseSelect()
         .where(
@@ -103,7 +107,104 @@ export const staffRouter = createTRPCRouter({
       user = rows[0];
     }
 
-    if (!user) return null;
+    // Auto-healing: tenant legacy sem OWNER — cria um agora para
+    // desbloquear o admin. Isso acontece só uma vez por tenant.
+    if (!user) {
+      const [tenant] = await db
+        .select({
+          name: tenants.name,
+          email: tenants.email,
+          phone: tenants.phone,
+        })
+        .from(tenants)
+        .where(eq(tenants.id, ctx.tenantId))
+        .limit(1);
+
+      // Reutiliza "Proprietário" (isSystem) se já existir, senão cria.
+      let ownerTypeId: string | null = null;
+      const [existingType] = await db
+        .select({ id: userTypes.id })
+        .from(userTypes)
+        .where(
+          and(
+            eq(userTypes.tenantId, ctx.tenantId),
+            eq(userTypes.isSystem, true),
+            eq(userTypes.name, "Proprietário")
+          )
+        )
+        .limit(1);
+
+      if (existingType) {
+        ownerTypeId = existingType.id;
+      } else {
+        const [createdType] = await db
+          .insert(userTypes)
+          .values({
+            tenantId: ctx.tenantId,
+            name: "Proprietário",
+            description: "Acesso total ao sistema",
+            permissions: getAllPermissions(),
+            isSystem: true,
+          })
+          .returning({ id: userTypes.id });
+        ownerTypeId = createdType?.id ?? null;
+      }
+
+      const [created] = await db
+        .insert(tenantUsers)
+        .values({
+          tenantId: ctx.tenantId,
+          firebaseUid: ctx.user?.uid ?? null,
+          name:
+            ctx.user?.name ??
+            (tenant?.name ? `Dono - ${tenant.name}` : "Administrador"),
+          email: ctx.user?.email ?? tenant?.email ?? null,
+          phone: tenant?.phone ?? null,
+          role: "OWNER",
+          userTypeId: ownerTypeId,
+          isActive: true,
+        })
+        .returning();
+
+      if (!created) return null;
+
+      await db.insert(activityLogs).values({
+        tenantId: ctx.tenantId,
+        userId: created.id,
+        userName: created.name,
+        action: "STAFF_CREATED",
+        description: `OWNER "${created.name}" criado automaticamente (tenant sem proprietário).`,
+      });
+
+      // Hidrata a row para devolver no mesmo shape do caminho normal.
+      let userTypeName: string | null = null;
+      let userTypePermissions: Record<string, boolean> | null = null;
+      if (ownerTypeId) {
+        const [t] = await db
+          .select({
+            name: userTypes.name,
+            permissions: userTypes.permissions,
+          })
+          .from(userTypes)
+          .where(eq(userTypes.id, ownerTypeId))
+          .limit(1);
+        userTypeName = t?.name ?? null;
+        userTypePermissions =
+          (t?.permissions as Record<string, boolean>) ?? null;
+      }
+
+      user = {
+        id: created.id,
+        name: created.name,
+        email: created.email,
+        phone: created.phone,
+        role: created.role,
+        photoUrl: created.photoUrl,
+        userTypeId: created.userTypeId,
+        userTypeName,
+        userTypePermissions,
+      };
+    }
 
     const permissions = (user.userTypePermissions ?? {}) as Record<
       string,
