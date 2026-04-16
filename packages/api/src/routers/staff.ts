@@ -445,6 +445,41 @@ export const staffRouter = createTRPCRouter({
         }
       }
 
+      // Guarda de segurança: um OWNER nunca pode ter seu `role` ou
+      // `userTypeId` alterado — ele sempre tem acesso total. Também
+      // bloqueia desativação (o dono do negócio não pode se desativar
+      // acidentalmente pela tela de funcionários).
+      const [target] = await db
+        .select({
+          role: tenantUsers.role,
+          userTypeId: tenantUsers.userTypeId,
+        })
+        .from(tenantUsers)
+        .where(
+          and(eq(tenantUsers.id, id), eq(tenantUsers.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!target) {
+        throw new Error("Funcionário não encontrado.");
+      }
+
+      if (target.role === "OWNER") {
+        // Ignora qualquer tentativa de mudar role/userTypeId/isActive do dono.
+        if (rest.role !== undefined && rest.role !== "OWNER") {
+          delete rest.role;
+        }
+        if (
+          rest.userTypeId !== undefined &&
+          rest.userTypeId !== target.userTypeId
+        ) {
+          delete rest.userTypeId;
+        }
+        if (rest.isActive === false) {
+          throw new Error("O proprietário do negócio não pode ser desativado.");
+        }
+      }
+
       const data: Record<string, unknown> = { ...rest };
       if (password) {
         data.passwordHash = await bcrypt.hash(password, 10);

@@ -100,6 +100,12 @@ export default function FuncionariosPage() {
   const passwordStrength = getPasswordStrength(password);
   const passwordValid = password.length >= 8 && /[A-Za-z]/.test(password) && /\d/.test(password);
 
+  // Dono do negócio sempre tem acesso total — não pode ter Função nem
+  // Tipo de Usuário alterados. Detecta se o staff em edição é OWNER.
+  const editingOwner = editingId !== null && role === "OWNER";
+  const ownerUserTypeName =
+    userTypes.data?.find((ut) => ut.id === userTypeId)?.name ?? null;
+
   function startEdit(staff: {
     id: string;
     name: string;
@@ -124,13 +130,15 @@ export default function FuncionariosPage() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (editingId) {
+      // Se editando o dono, não envia `role`/`userTypeId` (sempre OWNER +
+      // perfil original). O backend também bloqueia via guarda defensiva.
+      const isOwnerEdit = role === "OWNER";
       updateMutation.mutate({
         id: editingId,
         name,
         email: email || null,
         phone: phone || null,
-        role,
-        userTypeId,
+        ...(isOwnerEdit ? {} : { role, userTypeId }),
         photoUrl,
         pin: pin || null,
         ...(password ? { password } : {}),
@@ -268,23 +276,38 @@ export default function FuncionariosPage() {
               <label className="mb-1 block text-sm font-medium text-foreground">
                 Função *
               </label>
-              <div className="relative">
-                <Briefcase className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <select
-                  value={role}
-                  onChange={(e) => setRole(e.target.value as "MANAGER" | "CASHIER" | "DELIVERY")}
-                  className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  {ROLE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Entregadores aparecerão como opção ao despachar pedidos de tele entrega.
-              </p>
+              {editingOwner ? (
+                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+                  <Lock className="h-4 w-4 text-muted-foreground" />
+                  <span className="flex items-center gap-1 rounded bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700">
+                    <Briefcase className="h-3 w-3" />
+                    Dono
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Proprietário do negócio — não pode ser alterado.
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Briefcase className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <select
+                      value={role}
+                      onChange={(e) => setRole(e.target.value as "MANAGER" | "CASHIER" | "DELIVERY")}
+                      className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      {ROLE_OPTIONS.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Entregadores aparecerão como opção ao despachar pedidos de tele entrega.
+                  </p>
+                </>
+              )}
             </div>
 
             {/* Tipo de Usuário */}
@@ -292,29 +315,44 @@ export default function FuncionariosPage() {
               <label className="mb-1 block text-sm font-medium text-foreground">
                 Tipo de Usuário (Perfil de Acesso)
               </label>
-              <div className="relative">
-                <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <select
-                  value={userTypeId ?? ""}
-                  onChange={(e) =>
-                    setUserTypeId(e.target.value || null)
-                  }
-                  className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                >
-                  <option value="">Selecionar tipo...</option>
-                  {userTypes.data
-                    ?.filter((ut) => ut.isActive)
-                    .map((ut) => (
-                      <option key={ut.id} value={ut.id}>
-                        {ut.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
-              {userTypes.data?.length === 0 && (
-                <p className="mt-1 text-xs text-amber-600">
-                  Crie um tipo de usuário primeiro em "Tipos de Usuário".
-                </p>
+              {editingOwner ? (
+                <div className="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2">
+                  <Lock className="h-4 w-4 text-muted-foreground" />
+                  <span className="flex items-center gap-1 rounded bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
+                    <Shield className="h-3 w-3" />
+                    {ownerUserTypeName ?? "Proprietário"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Acesso total — bloqueado por segurança.
+                  </span>
+                </div>
+              ) : (
+                <>
+                  <div className="relative">
+                    <Shield className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <select
+                      value={userTypeId ?? ""}
+                      onChange={(e) =>
+                        setUserTypeId(e.target.value || null)
+                      }
+                      className="w-full rounded-md border border-input bg-background pl-10 pr-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    >
+                      <option value="">Selecionar tipo...</option>
+                      {userTypes.data
+                        ?.filter((ut) => ut.isActive)
+                        .map((ut) => (
+                          <option key={ut.id} value={ut.id}>
+                            {ut.name}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+                  {userTypes.data?.length === 0 && (
+                    <p className="mt-1 text-xs text-amber-600">
+                      Crie um tipo de usuário primeiro em "Tipos de Usuário".
+                    </p>
+                  )}
+                </>
               )}
             </div>
 
@@ -540,17 +578,26 @@ export default function FuncionariosPage() {
 
             {/* Ações */}
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => handleToggleActive(staff.id, staff.isActive, staff.name)}
-                className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
-                title={staff.isActive ? "Desativar" : "Reativar"}
-              >
-                {staff.isActive ? (
-                  <UserCheck className="h-4 w-4 text-green-600" />
-                ) : (
-                  <UserX className="h-4 w-4 text-red-500" />
-                )}
-              </button>
+              {staff.role === "OWNER" ? (
+                <span
+                  className="flex items-center justify-center rounded-md p-2 text-muted-foreground/60"
+                  title="Dono — não pode ser desativado"
+                >
+                  <Lock className="h-4 w-4" />
+                </span>
+              ) : (
+                <button
+                  onClick={() => handleToggleActive(staff.id, staff.isActive, staff.name)}
+                  className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  title={staff.isActive ? "Desativar" : "Reativar"}
+                >
+                  {staff.isActive ? (
+                    <UserCheck className="h-4 w-4 text-green-600" />
+                  ) : (
+                    <UserX className="h-4 w-4 text-red-500" />
+                  )}
+                </button>
+              )}
               <button
                 onClick={() =>
                   startEdit({
