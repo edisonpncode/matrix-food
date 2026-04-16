@@ -1,5 +1,6 @@
 "use client";
 
+import { useCallback } from "react";
 import { useActiveUser, type LoggedUser } from "@/lib/logged-users-store";
 
 /**
@@ -71,11 +72,25 @@ export function usePermissions(): {
 } {
   const user = useActiveUser();
   const isAdmin = !!user && (user.role === "OWNER" || user.kind === "admin");
+
+  // Callbacks estabilizados por `user` — evita que consumidores com
+  // `useMemo([can])` recalculem a cada render, o que em conjunto com
+  // `setState` em `useEffect` pode gerar loops de renderização.
+  const canFn = useCallback((p: string) => can(user, p), [user]);
+  const canAnyFn = useCallback(
+    (ps: readonly string[]) => canAny(user, ps),
+    [user]
+  );
+  const canAllFn = useCallback(
+    (ps: readonly string[]) => canAll(user, ps),
+    [user]
+  );
+
   return {
     user,
     isAdmin,
-    can: (p: string) => can(user, p),
-    canAny: (ps: readonly string[]) => canAny(user, ps),
-    canAll: (ps: readonly string[]) => canAll(user, ps),
+    can: canFn,
+    canAny: canAnyFn,
+    canAll: canAllFn,
   };
 }

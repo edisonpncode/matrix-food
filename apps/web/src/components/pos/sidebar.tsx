@@ -26,14 +26,21 @@ export function POSSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const { data: tenant } = trpc.tenant.getById.useQuery();
-  const { can } = usePermissions();
+  const { user } = usePermissions();
+  const isAdmin = !!user && (user.role === "OWNER" || user.kind === "admin");
+  const userPermissions = user?.permissions;
 
   const restaurantName = tenant?.name || "Meu Restaurante";
 
-  const visibleItems = useMemo(
-    () => menuItems.filter((item) => can(item.permission)),
-    [can]
-  );
+  // Filtra itens com referências estáveis (evita loop com `can` sendo
+  // função nova a cada render).
+  const visibleItems = useMemo(() => {
+    return menuItems.filter((item) => {
+      if (!user) return false;
+      if (isAdmin) return true;
+      return (userPermissions ?? {})[item.permission] === true;
+    });
+  }, [user, isAdmin, userPermissions]);
 
   return (
     <aside

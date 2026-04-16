@@ -123,17 +123,28 @@ export function AdminSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const { data: tenant } = trpc.tenant.getById.useQuery();
-  const { can, canAny } = usePermissions();
+  const { user } = usePermissions();
+  // Estável entre renders (OWNER sempre tem tudo)
+  const isAdmin = !!user && (user.role === "OWNER" || user.kind === "admin");
+  const userPermissions = user?.permissions;
 
   const restaurantName = tenant?.name || "Meu Restaurante";
 
-  // Filtra menus conforme as permissões do usuário ativo
+  // Filtra menus conforme as permissões do usuário ativo.
+  // Depende apenas de identidades estáveis (isAdmin + permissions obj do
+  // Zustand), evitando loop de re-render quando `can`/`canAny` são
+  // funções novas a cada render de usePermissions().
   const visibleEntries = useMemo<SidebarEntry[]>(() => {
     function itemAllowed(item: MenuItem): boolean {
-      if (!item.permission) return true;
-      return Array.isArray(item.permission)
-        ? canAny(item.permission)
-        : can(item.permission as string);
+      const perm = item.permission;
+      if (!perm) return true;
+      if (!user) return false;
+      if (isAdmin) return true;
+      const perms = userPermissions ?? {};
+      if (typeof perm === "string") {
+        return perms[perm] === true;
+      }
+      return perm.some((p) => perms[p] === true);
     }
 
     return sidebarEntries
@@ -146,19 +157,30 @@ export function AdminSidebar() {
         return itemAllowed(entry) ? entry : null;
       })
       .filter((e): e is SidebarEntry => e !== null);
-  }, [can, canAny]);
+  }, [user, isAdmin, userPermissions]);
 
-  // Auto-expand groups with active children
+  // Auto-expand groups with active children.
+  // IMPORTANTE: só chama setOpenGroups se REALMENTE algum grupo precisa
+  // ser adicionado — senão, cria Sets novos indefinidamente e causa loop.
   useEffect(() => {
-    const autoOpen = new Set<string>();
+    const needed = new Set<string>();
     for (const entry of visibleEntries) {
       if (isGroup(entry) && isChildActive(entry, pathname)) {
-        autoOpen.add(entry.id);
+        needed.add(entry.id);
       }
     }
-    if (autoOpen.size > 0) {
-      setOpenGroups((prev) => new Set([...prev, ...autoOpen]));
-    }
+    if (needed.size === 0) return;
+    setOpenGroups((prev) => {
+      let changed = false;
+      for (const id of needed) {
+        if (!prev.has(id)) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) return prev; // mesma referência → React não re-renderiza
+      return new Set([...prev, ...needed]);
+    });
   }, [pathname, visibleEntries]);
 
   function toggleGroup(id: string) {
