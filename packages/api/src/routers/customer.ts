@@ -107,6 +107,46 @@ export const customerRouter = createTRPCRouter({
     }),
 
   /**
+   * Busca progressiva de clientes — retorna até 10 resultados enquanto o
+   * atendente digita. Compara por telefone, CPF (apenas dígitos, parcial) e
+   * nome (ilike). Mínimo 2 caracteres.
+   */
+  quickSearch: tenantProcedure
+    .input(z.object({ query: z.string().min(2) }))
+    .query(async ({ input }) => {
+      const db = getDb();
+      const raw = input.query.trim();
+      const digits = raw.replace(/\D/g, "");
+      const textPattern = `%${raw}%`;
+
+      const conditions = [ilike(customers.name, textPattern)];
+
+      if (digits.length >= 2) {
+        conditions.push(
+          sql`regexp_replace(${customers.phone}, '\\D', '', 'g') LIKE ${"%" + digits + "%"}`
+        );
+        conditions.push(
+          sql`regexp_replace(coalesce(${customers.cpf},''), '\\D', '', 'g') LIKE ${"%" + digits + "%"}`
+        );
+      }
+
+      const results = await db
+        .select({
+          id: customers.id,
+          name: customers.name,
+          phone: customers.phone,
+          cpf: customers.cpf,
+          addresses: customers.addresses,
+        })
+        .from(customers)
+        .where(or(...conditions))
+        .orderBy(customers.name)
+        .limit(10);
+
+      return results;
+    }),
+
+  /**
    * Busca clientes por nome, telefone ou CPF (paginado).
    * Retorna apenas clientes que possuem vínculo com este tenant.
    */

@@ -124,16 +124,13 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
   const [manualFee, setManualFee] = useState("");
   const [checkingArea, setCheckingArea] = useState(false);
 
-  // Customer search query (PICKUP / DELIVERY)
-  const searchEnabled = searchQuery.length >= 3 && showSearchResults;
-  const { data: searchResults, isLoading: searchLoading } =
-    trpc.customer.searchByPhone.useQuery(
-      { phone: searchQuery },
+  // Customer search query (PICKUP / DELIVERY) — busca progressiva
+  const searchEnabled = searchQuery.length >= 2 && showSearchResults;
+  const { data: searchResultsList = [], isLoading: searchLoading } =
+    trpc.customer.quickSearch.useQuery(
+      { query: searchQuery },
       { enabled: searchEnabled }
     );
-
-  // Wrap search results in array since searchByPhone returns single result or null
-  const searchResultsList = searchResults ? [searchResults] : [];
 
   // Auto-lookup por telefone (BALCÃO / MESA)
   const isPhoneComplete = phone.replace(/\D/g, "").length >= 10;
@@ -531,7 +528,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                           setSearchQuery(e.target.value);
                           setShowSearchResults(true);
                         }}
-                        onFocus={() => searchQuery.length >= 3 && setShowSearchResults(true)}
+                        onFocus={() => searchQuery.length >= 2 && setShowSearchResults(true)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !searchLoading && searchResultsList.length === 0 && searchQuery.replace(/\D/g, "").length >= 8) {
                             handleTransferSearchToFields();
@@ -566,7 +563,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                   </div>
 
                   {/* Search Results Dropdown */}
-                  {showSearchResults && searchQuery.length >= 3 && (
+                  {showSearchResults && searchQuery.length >= 2 && (
                     <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-card shadow-lg">
                       {searchLoading && (
                         <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
@@ -591,7 +588,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                           )}
                         </div>
                       )}
-                      {searchResultsList.map((c: { id: string; name: string; phone: string | null; cpf: string | null; addresses: unknown }) => (
+                      {searchResultsList.map((c) => (
                         <button
                           key={c.id}
                           type="button"
@@ -660,7 +657,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                           setSearchQuery(e.target.value);
                           setShowSearchResults(true);
                         }}
-                        onFocus={() => searchQuery.length >= 3 && setShowSearchResults(true)}
+                        onFocus={() => searchQuery.length >= 2 && setShowSearchResults(true)}
                         onKeyDown={(e) => {
                           if (e.key === "Enter" && !searchLoading && searchResultsList.length === 0 && searchQuery.replace(/\D/g, "").length >= 8) {
                             handleTransferSearchToFields();
@@ -694,7 +691,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                   </div>
 
                   {/* Search dropdown */}
-                  {showSearchResults && searchQuery.length >= 3 && (
+                  {showSearchResults && searchQuery.length >= 2 && (
                     <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-48 overflow-y-auto rounded-md border border-border bg-card shadow-lg">
                       {searchLoading && (
                         <div className="flex items-center gap-2 p-3 text-sm text-muted-foreground">
@@ -719,7 +716,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                           )}
                         </div>
                       )}
-                      {searchResultsList.map((c: { id: string; name: string; phone: string | null; cpf: string | null; addresses: unknown }) => (
+                      {searchResultsList.map((c) => (
                         <button
                           key={c.id}
                           type="button"
