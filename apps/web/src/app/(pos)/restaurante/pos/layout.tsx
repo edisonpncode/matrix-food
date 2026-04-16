@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { POSSidebar } from "@/components/pos/sidebar";
+import { RoutePermissionGuard } from "@/components/shared/user-session/route-permission-guard";
 
 export const dynamic = "force-dynamic";
 
@@ -16,7 +17,9 @@ export default function POSLayout({
   return (
     <div className="flex h-screen">
       <POSSidebar />
-      <main className="flex-1 overflow-auto p-6">{children}</main>
+      <main className="flex-1 overflow-auto p-6">
+        <RoutePermissionGuard>{children}</RoutePermissionGuard>
+      </main>
     </div>
   );
 }

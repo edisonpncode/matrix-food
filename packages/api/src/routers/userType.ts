@@ -12,12 +12,46 @@ import {
 
 /**
  * Todas as permissões disponíveis no sistema, agrupadas por módulo.
+ * Importante: ao adicionar um novo módulo aqui, atualizar também:
+ *   - ALL_PERMISSION_KEYS (logo abaixo)
+ *   - A sidebar (admin e pos) para filtrar por permissão
+ *   - getAllPermissions() usado quando cria o tipo "Proprietário"
  */
 export const AVAILABLE_PERMISSIONS = {
   dashboard: {
     label: "Dashboard",
     permissions: {
       "dashboard.view": "Ver Dashboard e relatórios",
+    },
+  },
+  pos: {
+    label: "Ponto de Venda",
+    permissions: {
+      "pos.view": "Acessar o Ponto de Venda (POS)",
+      "pos.createOrder": "Criar novos pedidos pelo POS",
+    },
+  },
+  orders: {
+    label: "Pedidos",
+    permissions: {
+      "orders.view": "Ver pedidos",
+      "orders.manage": "Confirmar, preparar e alterar status de pedidos",
+      "orders.cancel": "Cancelar pedidos",
+      "orders.discount": "Aplicar descontos em pedidos",
+    },
+  },
+  cashRegister: {
+    label: "Caixa",
+    permissions: {
+      "cashRegister.view": "Ver caixa",
+      "cashRegister.manage": "Abrir, fechar caixa e fazer sangrias",
+    },
+  },
+  motoboys: {
+    label: "Motoboys / Entregas",
+    permissions: {
+      "motoboys.view": "Ver motoboys e entregas",
+      "motoboys.manage": "Atribuir motoboys e finalizar entregas",
     },
   },
   categories: {
@@ -34,19 +68,11 @@ export const AVAILABLE_PERMISSIONS = {
       "products.manage": "Criar, editar e excluir produtos",
     },
   },
-  orders: {
-    label: "Pedidos",
+  ingredients: {
+    label: "Ingredientes",
     permissions: {
-      "orders.view": "Ver pedidos",
-      "orders.manage": "Confirmar, preparar e alterar status de pedidos",
-      "orders.cancel": "Cancelar pedidos",
-    },
-  },
-  cashRegister: {
-    label: "Caixa",
-    permissions: {
-      "cashRegister.view": "Ver caixa",
-      "cashRegister.manage": "Abrir, fechar caixa e fazer sangrias",
+      "ingredients.view": "Ver ingredientes",
+      "ingredients.manage": "Criar, editar e excluir ingredientes",
     },
   },
   promotions: {
@@ -54,6 +80,13 @@ export const AVAILABLE_PERMISSIONS = {
     permissions: {
       "promotions.view": "Ver promoções",
       "promotions.manage": "Criar, editar e excluir promoções",
+    },
+  },
+  customers: {
+    label: "Clientes",
+    permissions: {
+      "customers.view": "Ver clientes",
+      "customers.manage": "Editar dados de clientes",
     },
   },
   loyalty: {
@@ -70,10 +103,11 @@ export const AVAILABLE_PERMISSIONS = {
       "reviews.manage": "Responder avaliações",
     },
   },
-  billing: {
-    label: "Assinatura",
+  deliveryAreas: {
+    label: "Áreas de Entrega",
     permissions: {
-      "billing.view": "Ver plano e cobranças",
+      "deliveryAreas.view": "Ver áreas de entrega",
+      "deliveryAreas.manage": "Criar, editar e excluir áreas de entrega",
     },
   },
   settings: {
@@ -81,6 +115,20 @@ export const AVAILABLE_PERMISSIONS = {
     permissions: {
       "settings.view": "Ver configurações do restaurante",
       "settings.manage": "Alterar configurações do restaurante",
+    },
+  },
+  printer: {
+    label: "Impressora",
+    permissions: {
+      "printer.manage": "Configurar impressora e impressão",
+    },
+  },
+  fiscal: {
+    label: "Nota Fiscal",
+    permissions: {
+      "fiscal.view": "Ver notas fiscais e histórico",
+      "fiscal.manage": "Emitir e cancelar notas fiscais",
+      "fiscal.configure": "Configurar provedor fiscal",
     },
   },
   staff: {
@@ -96,7 +144,33 @@ export const AVAILABLE_PERMISSIONS = {
       "activityLog.view": "Ver log de atividades",
     },
   },
+  billing: {
+    label: "Assinatura",
+    permissions: {
+      "billing.view": "Ver plano e cobranças",
+      "billing.manage": "Alterar plano e dados de pagamento",
+    },
+  },
 } as const;
+
+/**
+ * Lista plana de todas as keys de permissão. Usado para criar o
+ * tipo "Proprietário" com todas as permissões habilitadas.
+ */
+export const ALL_PERMISSION_KEYS: string[] = Object.values(
+  AVAILABLE_PERMISSIONS
+).flatMap((module) => Object.keys(module.permissions));
+
+/**
+ * Retorna um objeto `{ [key]: true }` com TODAS as permissões do sistema.
+ * Útil para seed do tipo "Proprietário" na criação do restaurante.
+ */
+export function getAllPermissions(): Record<string, boolean> {
+  return ALL_PERMISSION_KEYS.reduce<Record<string, boolean>>((acc, key) => {
+    acc[key] = true;
+    return acc;
+  }, {});
+}
 
 export const userTypeRouter = createTRPCRouter({
   /**
@@ -132,9 +206,70 @@ export const userTypeRouter = createTRPCRouter({
 
   /**
    * Retorna as permissões disponíveis no sistema (para o frontend montar o formulário).
+   * Também sincroniza o tipo "Proprietário" (isSystem=true) caso esteja desatualizado
+   * — garante que o dono do restaurante sempre tenha TODAS as permissões mais recentes.
    */
-  getAvailablePermissions: tenantProcedure.query(() => {
+  getAvailablePermissions: tenantProcedure.query(async ({ ctx }) => {
+    const db = getDb();
+    try {
+      const [ownerType] = await db
+        .select()
+        .from(userTypes)
+        .where(
+          and(
+            eq(userTypes.tenantId, ctx.tenantId),
+            eq(userTypes.isSystem, true)
+          )
+        )
+        .limit(1);
+
+      if (ownerType) {
+        const current = (ownerType.permissions ?? {}) as Record<string, boolean>;
+        const missing = ALL_PERMISSION_KEYS.filter((k) => current[k] !== true);
+        if (missing.length > 0) {
+          const updatedPerms = { ...current };
+          for (const k of ALL_PERMISSION_KEYS) updatedPerms[k] = true;
+          await db
+            .update(userTypes)
+            .set({ permissions: updatedPerms })
+            .where(eq(userTypes.id, ownerType.id));
+        }
+      }
+    } catch {
+      // não bloqueia a rota se o sync falhar
+    }
     return AVAILABLE_PERMISSIONS;
+  }),
+
+  /**
+   * Força a sincronização do tipo "Proprietário" com todas as permissões
+   * atuais do sistema. Retorna o tipo atualizado.
+   */
+  syncOwnerPermissions: tenantProcedure.mutation(async ({ ctx }) => {
+    const db = getDb();
+    const [ownerType] = await db
+      .select()
+      .from(userTypes)
+      .where(
+        and(
+          eq(userTypes.tenantId, ctx.tenantId),
+          eq(userTypes.isSystem, true)
+        )
+      )
+      .limit(1);
+
+    if (!ownerType) {
+      throw new Error("Tipo 'Proprietário' não encontrado.");
+    }
+
+    const updatedPerms = getAllPermissions();
+    const [updated] = await db
+      .update(userTypes)
+      .set({ permissions: updatedPerms })
+      .where(eq(userTypes.id, ownerType.id))
+      .returning();
+
+    return updated;
   }),
 
   /**

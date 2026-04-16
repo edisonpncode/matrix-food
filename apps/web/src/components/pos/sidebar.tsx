@@ -11,22 +11,29 @@ import {
   Store,
   ArrowLeft,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { UserIndicator } from "@/components/shared/user-session/user-indicator";
+import { usePermissions } from "@/lib/permissions";
 
 const menuItems = [
-  { href: "/restaurante/pos", label: "Pedidos", icon: ClipboardList },
-  { href: "/restaurante/pos/novo-pedido", label: "Novo Pedido", icon: PlusCircle },
-  { href: "/restaurante/pos/caixa", label: "Caixa", icon: Banknote },
-];
+  { href: "/restaurante/pos", label: "Pedidos", icon: ClipboardList, permission: "orders.view" },
+  { href: "/restaurante/pos/novo-pedido", label: "Novo Pedido", icon: PlusCircle, permission: "pos.createOrder" },
+  { href: "/restaurante/pos/caixa", label: "Caixa", icon: Banknote, permission: "cashRegister.view" },
+] as const;
 
 export function POSSidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const { data: tenant } = trpc.tenant.getById.useQuery();
+  const { can } = usePermissions();
 
   const restaurantName = tenant?.name || "Meu Restaurante";
+
+  const visibleItems = useMemo(
+    () => menuItems.filter((item) => can(item.permission)),
+    [can]
+  );
 
   return (
     <aside
@@ -45,7 +52,7 @@ export function POSSidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 p-2">
-        {menuItems.map((item) => {
+        {visibleItems.map((item) => {
           const isActive =
             item.href === "/restaurante/pos"
               ? pathname === "/restaurante/pos"

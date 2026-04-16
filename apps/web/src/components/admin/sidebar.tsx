@@ -29,16 +29,19 @@ import {
   FileText,
   Bike,
 } from "lucide-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { UserIndicator } from "@/components/shared/user-session/user-indicator";
+import { usePermissions } from "@/lib/permissions";
 
 type MenuItem = {
   href: string;
   label: string;
   icon: LucideIcon;
   highlight?: true | "ai";
+  /** Permissão necessária. Se ausente, todos veem. */
+  permission?: string | readonly string[];
 };
 
 type MenuGroup = {
@@ -56,7 +59,7 @@ function isGroup(entry: SidebarEntry): entry is MenuGroup {
 }
 
 const sidebarEntries: SidebarEntry[] = [
-  { href: "/restaurante/admin", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/restaurante/admin", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
   { href: "/restaurante/admin/mini-max", label: "Neo Assistente (Beta)", icon: Sparkles },
   {
     id: "pos",
@@ -64,10 +67,10 @@ const sidebarEntries: SidebarEntry[] = [
     icon: Monitor,
     highlight: true,
     children: [
-      { href: "/restaurante/admin/ponto-de-venda/pedidos", label: "Pedidos", icon: ClipboardList },
-      { href: "/restaurante/admin/ponto-de-venda/novo-pedido", label: "Novo Pedido", icon: PlusCircle },
-      { href: "/restaurante/admin/ponto-de-venda/caixa", label: "Caixa", icon: Banknote },
-      { href: "/restaurante/admin/ponto-de-venda/motoboys", label: "Motoboys", icon: Bike },
+      { href: "/restaurante/admin/ponto-de-venda/pedidos", label: "Pedidos", icon: ClipboardList, permission: "orders.view" },
+      { href: "/restaurante/admin/ponto-de-venda/novo-pedido", label: "Novo Pedido", icon: PlusCircle, permission: "pos.createOrder" },
+      { href: "/restaurante/admin/ponto-de-venda/caixa", label: "Caixa", icon: Banknote, permission: "cashRegister.view" },
+      { href: "/restaurante/admin/ponto-de-venda/motoboys", label: "Motoboys", icon: Bike, permission: "motoboys.view" },
     ],
   },
   {
@@ -75,10 +78,10 @@ const sidebarEntries: SidebarEntry[] = [
     label: "Produto",
     icon: Package,
     children: [
-      { href: "/restaurante/admin/categorias", label: "Categorias", icon: FolderOpen },
-      { href: "/restaurante/admin/produtos", label: "Produtos", icon: ShoppingBag },
-      { href: "/restaurante/admin/ingredientes", label: "Ingredientes", icon: Egg },
-      { href: "/restaurante/admin/promocoes", label: "Promoções", icon: Tag },
+      { href: "/restaurante/admin/categorias", label: "Categorias", icon: FolderOpen, permission: "categories.view" },
+      { href: "/restaurante/admin/produtos", label: "Produtos", icon: ShoppingBag, permission: "products.view" },
+      { href: "/restaurante/admin/ingredientes", label: "Ingredientes", icon: Egg, permission: "ingredients.view" },
+      { href: "/restaurante/admin/promocoes", label: "Promoções", icon: Tag, permission: "promotions.view" },
     ],
   },
   {
@@ -86,9 +89,9 @@ const sidebarEntries: SidebarEntry[] = [
     label: "Cliente",
     icon: UserCircle,
     children: [
-      { href: "/restaurante/admin/clientes", label: "Clientes", icon: UserCircle },
-      { href: "/restaurante/admin/fidelidade", label: "Fidelidade", icon: Star },
-      { href: "/restaurante/admin/avaliacoes", label: "Avaliações", icon: MessageSquare },
+      { href: "/restaurante/admin/clientes", label: "Clientes", icon: UserCircle, permission: "customers.view" },
+      { href: "/restaurante/admin/fidelidade", label: "Fidelidade", icon: Star, permission: "loyalty.view" },
+      { href: "/restaurante/admin/avaliacoes", label: "Avaliações", icon: MessageSquare, permission: "reviews.view" },
     ],
   },
   {
@@ -96,14 +99,14 @@ const sidebarEntries: SidebarEntry[] = [
     label: "Configurações",
     icon: Settings,
     children: [
-      { href: "/restaurante/admin/configuracoes", label: "Dados Empresa", icon: Settings },
-      { href: "/restaurante/admin/areas-entrega", label: "Áreas de Entrega", icon: MapPin },
-      { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users },
-      { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer },
-      { href: "/restaurante/admin/fiscal", label: "Nota Fiscal", icon: FileText },
+      { href: "/restaurante/admin/configuracoes", label: "Dados Empresa", icon: Settings, permission: "settings.view" },
+      { href: "/restaurante/admin/areas-entrega", label: "Áreas de Entrega", icon: MapPin, permission: "deliveryAreas.view" },
+      { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users, permission: "staff.view" },
+      { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer, permission: "printer.manage" },
+      { href: "/restaurante/admin/fiscal", label: "Nota Fiscal", icon: FileText, permission: "fiscal.view" },
     ],
   },
-  { href: "/restaurante/admin/assinatura", label: "Assinatura", icon: CreditCard },
+  { href: "/restaurante/admin/assinatura", label: "Assinatura", icon: CreditCard, permission: "billing.view" },
 ];
 
 function isChildActive(group: MenuGroup, pathname: string): boolean {
@@ -120,13 +123,35 @@ export function AdminSidebar() {
   const [collapsed, setCollapsed] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const { data: tenant } = trpc.tenant.getById.useQuery();
+  const { can, canAny } = usePermissions();
 
   const restaurantName = tenant?.name || "Meu Restaurante";
+
+  // Filtra menus conforme as permissões do usuário ativo
+  const visibleEntries = useMemo<SidebarEntry[]>(() => {
+    function itemAllowed(item: MenuItem): boolean {
+      if (!item.permission) return true;
+      return Array.isArray(item.permission)
+        ? canAny(item.permission)
+        : can(item.permission as string);
+    }
+
+    return sidebarEntries
+      .map((entry) => {
+        if (isGroup(entry)) {
+          const visibleChildren = entry.children.filter(itemAllowed);
+          if (visibleChildren.length === 0) return null;
+          return { ...entry, children: visibleChildren };
+        }
+        return itemAllowed(entry) ? entry : null;
+      })
+      .filter((e): e is SidebarEntry => e !== null);
+  }, [can, canAny]);
 
   // Auto-expand groups with active children
   useEffect(() => {
     const autoOpen = new Set<string>();
-    for (const entry of sidebarEntries) {
+    for (const entry of visibleEntries) {
       if (isGroup(entry) && isChildActive(entry, pathname)) {
         autoOpen.add(entry.id);
       }
@@ -134,7 +159,7 @@ export function AdminSidebar() {
     if (autoOpen.size > 0) {
       setOpenGroups((prev) => new Set([...prev, ...autoOpen]));
     }
-  }, [pathname]);
+  }, [pathname, visibleEntries]);
 
   function toggleGroup(id: string) {
     setOpenGroups((prev) => {
@@ -294,7 +319,7 @@ export function AdminSidebar() {
       </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto p-2">
-        {sidebarEntries.map((entry) =>
+        {visibleEntries.map((entry) =>
           isGroup(entry) ? renderGroup(entry) : renderSimpleItem(entry)
         )}
       </nav>
