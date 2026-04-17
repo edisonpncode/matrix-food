@@ -55,7 +55,6 @@ export function UserIndicator({ collapsed = false }: UserIndicatorProps) {
       >
         <div className="relative shrink-0">
           {activeUser.photoUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={activeUser.photoUrl}
               alt={activeUser.name}

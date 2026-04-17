@@ -100,7 +100,6 @@ export function PinPromptModal({
         <div className="p-6">
           <div className="mb-5 flex flex-col items-center text-center">
             {user.photoUrl ? (
-              // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={user.photoUrl}
                 alt={user.name}

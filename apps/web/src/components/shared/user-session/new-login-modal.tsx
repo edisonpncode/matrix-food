@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { X, UserPlus, Loader2, Mail, Lock, ArrowLeft } from "lucide-react";
 import { useLoggedUsersStore } from "@/lib/logged-users-store";
 import { trpc } from "@/lib/trpc";

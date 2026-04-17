@@ -107,7 +107,6 @@ export function UserSwitcherModal({ onClose }: UserSwitcherModalProps) {
                         }`}
                       >
                         {u.photoUrl ? (
-                          // eslint-disable-next-line @next/next/no-img-element
                           <img
                             src={u.photoUrl}
                             alt={u.name}

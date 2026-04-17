@@ -86,12 +86,19 @@ export function RoutePermissionGuard({ children }: RoutePermissionGuardProps) {
 
   const requiredPermission = matchPermission(pathname);
   const isAdminRoot = pathname === "/restaurante/admin";
-  const allowed =
-    requiredPermission === null
-      ? true
-      : Array.isArray(requiredPermission)
-        ? requiredPermission.length === 0 || canAny(requiredPermission)
-        : can(requiredPermission);
+
+  // Calcula `allowed` com narrowing explícito (`typeof === "string"` funciona
+  // melhor que `Array.isArray` com `readonly string[]` no strict TS).
+  let allowed = true;
+  if (requiredPermission !== null) {
+    if (typeof requiredPermission === "string") {
+      allowed = can(requiredPermission);
+    } else if (requiredPermission.length === 0) {
+      allowed = true; // explicitamente liberado para todos
+    } else {
+      allowed = canAny(requiredPermission);
+    }
+  }
 
   // Redireciona quando o Dashboard raiz é inacessível — evita loop
   // redirecionando se a rota padrão também for `/restaurante/admin`.
