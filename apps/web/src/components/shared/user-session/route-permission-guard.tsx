@@ -1,7 +1,9 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { useEffect } from "react";
+import { usePathname, useRouter } from "next/navigation";
 import { usePermissions } from "@/lib/permissions";
+import { useDefaultRoute } from "@/lib/default-route";
 import { PermissionGuard } from "./permission-guard";
 
 /**
@@ -42,11 +44,14 @@ const ROUTE_PERMISSIONS: Array<{
   { prefix: "/restaurante/admin/fiscal", permission: "fiscal.view" },
   { prefix: "/restaurante/admin/assinatura", permission: "billing.view" },
 
-  // Dashboard (root)
-  { prefix: "/restaurante/admin/mini-max", permission: [] }, // liberado para todos (beta)
+  // Neo Assistente (sempre liberado — fallback universal)
+  { prefix: "/restaurante/admin/mini-max", permission: [] },
 
-  // Nota: /restaurante/admin (dashboard raiz) não exige permissão,
-  // pois precisamos ter uma rota de fallback para usuário sem dashboard.view ser redirecionado.
+  // Dashboard raiz — exige dashboard.view. Usuários sem essa permissão
+  // são redirecionados para a sua "casa" (primeira área permitida) pelo
+  // bloco de redirect logo abaixo. NUNCA usar RoutePermissionGuard para
+  // mostrar "Acesso restrito" aqui: o Dashboard raiz deve ser silencioso.
+  { prefix: "/restaurante/admin", permission: "dashboard.view" },
 ];
 
 function matchPermission(pathname: string) {
@@ -67,12 +72,39 @@ interface RoutePermissionGuardProps {
  * usuário não tem permissão, mostrando a tela "Acesso restrito".
  *
  * A sidebar continua visível (e já filtra seus próprios itens).
+ *
+ * Caso especial do Dashboard raiz (`/restaurante/admin`): em vez de
+ * mostrar "Acesso restrito", redireciona silenciosamente para a rota
+ * padrão do usuário (primeira área permitida). Assim um funcionário
+ * sem `dashboard.view` nunca fica preso numa tela de negação.
  */
 export function RoutePermissionGuard({ children }: RoutePermissionGuardProps) {
   const pathname = usePathname();
-  const { user } = usePermissions();
+  const router = useRouter();
+  const { user, can, canAny } = usePermissions();
+  const defaultRoute = useDefaultRoute();
 
   const requiredPermission = matchPermission(pathname);
+  const isAdminRoot = pathname === "/restaurante/admin";
+  const allowed =
+    requiredPermission === null
+      ? true
+      : Array.isArray(requiredPermission)
+        ? requiredPermission.length === 0 || canAny(requiredPermission)
+        : can(requiredPermission);
+
+  // Redireciona quando o Dashboard raiz é inacessível — evita loop
+  // redirecionando se a rota padrão também for `/restaurante/admin`.
+  useEffect(() => {
+    if (
+      isAdminRoot &&
+      user &&
+      !allowed &&
+      defaultRoute !== "/restaurante/admin"
+    ) {
+      router.replace(defaultRoute);
+    }
+  }, [isAdminRoot, user, allowed, defaultRoute, router]);
 
   // Sem permissão mapeada → libera
   if (requiredPermission === null) return <>{children}</>;
@@ -86,6 +118,13 @@ export function RoutePermissionGuard({ children }: RoutePermissionGuardProps) {
   // o layout do app já tem sua própria camada de auth (Firebase/middleware).
   // O guard só age quando temos um LoggedUser e ele não tem acesso.
   if (!user) return <>{children}</>;
+
+  // Dashboard raiz sem permissão: mostra placeholder vazio enquanto o
+  // `useEffect` acima faz o `router.replace` — evita flash de "Acesso
+  // restrito".
+  if (isAdminRoot && !allowed) {
+    return null;
+  }
 
   return (
     <PermissionGuard permission={requiredPermission}>{children}</PermissionGuard>

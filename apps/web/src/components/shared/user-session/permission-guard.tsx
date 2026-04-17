@@ -3,6 +3,7 @@
 import { ShieldAlert, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { usePermissions } from "@/lib/permissions";
+import { useDefaultRoute } from "@/lib/default-route";
 
 interface PermissionGuardProps {
   /** Permissão(ões) necessária(s). Se array, usuário precisa ter PELO MENOS UMA. */
@@ -11,7 +12,11 @@ interface PermissionGuardProps {
   children: React.ReactNode;
   /** Conteúdo customizado quando negado. Se não passar, mostra tela padrão. */
   fallback?: React.ReactNode;
-  /** URL para botão "voltar" na tela de negação (default: /restaurante/admin) */
+  /**
+   * URL para botão "voltar" na tela de negação. Se não passar, usa a
+   * primeira rota que o usuário REALMENTE tem permissão de acessar
+   * (via `useDefaultRoute`). Nunca manda para uma área que ele não pode ver.
+   */
   backHref?: string;
 }
 
@@ -30,9 +35,10 @@ export function PermissionGuard({
   permission,
   children,
   fallback,
-  backHref = "/restaurante/admin",
+  backHref,
 }: PermissionGuardProps) {
   const { user, can, canAny } = usePermissions();
+  const smartDefault = useDefaultRoute();
 
   const allowed = Array.isArray(permission)
     ? canAny(permission)
@@ -41,6 +47,12 @@ export function PermissionGuard({
   if (allowed) return <>{children}</>;
 
   if (fallback !== undefined) return <>{fallback}</>;
+
+  // Se nenhum `backHref` foi passado, usa a primeira rota que o usuário
+  // realmente pode acessar — nunca o Dashboard por padrão, porque o
+  // funcionário pode não ter `dashboard.view`.
+  const targetHref = backHref ?? smartDefault;
+  const isDashboard = targetHref === "/restaurante/admin";
 
   return (
     <div className="flex min-h-[60vh] items-center justify-center p-6">
@@ -57,11 +69,11 @@ export function PermissionGuard({
             : "Você precisa estar logado para acessar esta área."}
         </p>
         <Link
-          href={backHref}
+          href={targetHref}
           className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors"
         >
           <ArrowLeft className="h-4 w-4" />
-          Voltar ao Dashboard
+          {isDashboard ? "Voltar ao Dashboard" : "Voltar para minha área"}
         </Link>
       </div>
     </div>
