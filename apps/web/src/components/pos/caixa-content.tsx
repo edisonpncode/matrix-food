@@ -10,7 +10,9 @@ import {
   Lock,
   Unlock,
   X,
+  EyeOff,
 } from "lucide-react";
+import { useCan } from "@/lib/permissions";
 
 type TransactionModalType = "WITHDRAWAL" | "DEPOSIT" | null;
 
@@ -21,6 +23,11 @@ export function CaixaContent() {
   const [txAmount, setTxAmount] = useState("");
   const [txDescription, setTxDescription] = useState("");
   const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
+  // Permissão: ver valores de vendas e saldo atual no caixa.
+  // Quando falso, escondemos os cards "Vendas"/"Saldo Atual" e a seção
+  // de "Saldo esperado"/"Diferença" no modal de fechamento.
+  const canViewTotals = useCan("cashRegister.viewTotals");
 
   const utils = trpc.useUtils();
 
@@ -147,39 +154,51 @@ export function CaixaContent() {
       </div>
 
       {/* Summary Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <div className="rounded-xl border bg-card p-4">
-          <p className="text-sm text-muted-foreground">Saldo Abertura</p>
-          <p className="text-xl font-bold">
-            {formatCurrency(summary?.openingBalance ?? 0)}
-          </p>
-        </div>
-        <div className="rounded-xl border bg-green-50 p-4">
-          <p className="text-sm text-green-600">Vendas</p>
-          <p className="text-xl font-bold text-green-700">
-            +{formatCurrency(summary?.totalSales ?? 0)}
-          </p>
-        </div>
-        <div className="rounded-xl border bg-red-50 p-4">
-          <p className="text-sm text-red-600">Retiradas</p>
-          <p className="text-xl font-bold text-red-700">
-            -{formatCurrency(summary?.totalWithdrawals ?? 0)}
-          </p>
-        </div>
-        <div className="rounded-xl border bg-primary/10 p-4">
-          <p className="text-sm text-primary">Saldo Atual</p>
-          <p className="text-2xl font-bold text-primary">
-            {formatCurrency(summary?.currentBalance ?? 0)}
-          </p>
-        </div>
-      </div>
+      {canViewTotals ? (
+        <>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+            <div className="rounded-xl border bg-card p-4">
+              <p className="text-sm text-muted-foreground">Saldo Abertura</p>
+              <p className="text-xl font-bold">
+                {formatCurrency(summary?.openingBalance ?? 0)}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-green-50 p-4">
+              <p className="text-sm text-green-600">Vendas</p>
+              <p className="text-xl font-bold text-green-700">
+                +{formatCurrency(summary?.totalSales ?? 0)}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-red-50 p-4">
+              <p className="text-sm text-red-600">Retiradas</p>
+              <p className="text-xl font-bold text-red-700">
+                -{formatCurrency(summary?.totalWithdrawals ?? 0)}
+              </p>
+            </div>
+            <div className="rounded-xl border bg-primary/10 p-4">
+              <p className="text-sm text-primary">Saldo Atual</p>
+              <p className="text-2xl font-bold text-primary">
+                {formatCurrency(summary?.currentBalance ?? 0)}
+              </p>
+            </div>
+          </div>
 
-      {/* Deposits row */}
-      {(summary?.totalDeposits ?? 0) > 0 && (
-        <div className="rounded-xl border bg-blue-50 p-4">
-          <p className="text-sm text-blue-600">Depósitos</p>
-          <p className="text-xl font-bold text-blue-700">
-            +{formatCurrency(summary?.totalDeposits ?? 0)}
+          {/* Deposits row */}
+          {(summary?.totalDeposits ?? 0) > 0 && (
+            <div className="rounded-xl border bg-blue-50 p-4">
+              <p className="text-sm text-blue-600">Depósitos</p>
+              <p className="text-xl font-bold text-blue-700">
+                +{formatCurrency(summary?.totalDeposits ?? 0)}
+              </p>
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="flex items-center gap-3 rounded-xl border border-dashed border-border bg-muted/40 p-4 text-muted-foreground">
+          <EyeOff className="h-5 w-5 shrink-0" />
+          <p className="text-sm">
+            Seu perfil não tem permissão para visualizar os valores de vendas
+            e saldo do caixa.
           </p>
         </div>
       )}
@@ -356,12 +375,14 @@ export function CaixaContent() {
               </button>
             </div>
 
-            <div className="mb-4 rounded-lg bg-accent p-4">
-              <p className="text-sm text-muted-foreground">Saldo esperado</p>
-              <p className="text-2xl font-bold text-primary">
-                {formatCurrency(summary?.currentBalance ?? 0)}
-              </p>
-            </div>
+            {canViewTotals && (
+              <div className="mb-4 rounded-lg bg-accent p-4">
+                <p className="text-sm text-muted-foreground">Saldo esperado</p>
+                <p className="text-2xl font-bold text-primary">
+                  {formatCurrency(summary?.currentBalance ?? 0)}
+                </p>
+              </div>
+            )}
 
             <div className="mb-4">
               <label className="mb-1 block text-sm font-medium">
@@ -379,7 +400,7 @@ export function CaixaContent() {
               />
             </div>
 
-            {closingBalance && (
+            {canViewTotals && closingBalance && (
               <div className="mb-4 rounded-lg border p-3">
                 <p className="text-sm text-muted-foreground">Diferença</p>
                 <p

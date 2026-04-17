@@ -45,6 +45,8 @@ export const AVAILABLE_PERMISSIONS = {
     permissions: {
       "cashRegister.view": "Ver caixa",
       "cashRegister.manage": "Abrir, fechar caixa e fazer sangrias",
+      "cashRegister.viewTotals":
+        "Ver valores de vendas e saldo atual no caixa",
     },
   },
   motoboys: {
