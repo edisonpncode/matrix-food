@@ -76,7 +76,10 @@ export function CaixaContent() {
         expectedBreakdown: data.expectedBreakdown,
         countedBreakdown: data.countedBreakdown,
       });
-      utils.cashRegister.getActiveSession.invalidate();
+      setCloseStep("review");
+      // NÃO invalida activeSession aqui — isso faria a página voltar pro
+      // estado "Caixa Fechado" e o modal de revisão sumiria. Invalida só
+      // no handleFinishClose, depois que o usuário confirmar.
     },
   });
 
@@ -108,7 +111,7 @@ export function CaixaContent() {
         pix: counted.pix || "0",
       },
     });
-    setCloseStep("review");
+    // Step muda pra "review" no onSuccess, só depois do servidor responder.
   }
 
   function resetCloseFlow() {
@@ -131,6 +134,8 @@ export function CaixaContent() {
         });
       }
     }
+    // Só agora invalida — depois de revisar/imprimir, a tela muda pro estado "Caixa Fechado".
+    utils.cashRegister.getActiveSession.invalidate();
     resetCloseFlow();
   }
 
@@ -479,6 +484,12 @@ export function CaixaContent() {
                   />
                 </div>
               ))}
+
+              {closeSession.error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  {closeSession.error.message}
+                </div>
+              )}
 
               <button
                 type="submit"

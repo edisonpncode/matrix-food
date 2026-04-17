@@ -71,7 +71,9 @@ export default function CaixaPage() {
         expectedBreakdown: data.expectedBreakdown,
         countedBreakdown: data.countedBreakdown,
       });
-      utils.cashRegister.getActiveSession.invalidate();
+      setCloseStep("review");
+      // Invalida activeSession só depois do usuário confirmar (handleFinishClose),
+      // para o modal de revisão não sumir com a mudança de estado.
     },
   });
 
@@ -103,7 +105,7 @@ export default function CaixaPage() {
         pix: counted.pix || "0",
       },
     });
-    setCloseStep("review");
+    // Step muda pra "review" no onSuccess.
   }
 
   function resetCloseFlow() {
@@ -125,6 +127,7 @@ export default function CaixaPage() {
         });
       }
     }
+    utils.cashRegister.getActiveSession.invalidate();
     resetCloseFlow();
   }
 
@@ -461,6 +464,12 @@ export default function CaixaPage() {
                   />
                 </div>
               ))}
+
+              {closeSession.error && (
+                <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                  {closeSession.error.message}
+                </div>
+              )}
 
               <button
                 type="submit"

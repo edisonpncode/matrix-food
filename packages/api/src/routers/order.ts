@@ -1102,6 +1102,26 @@ export const orderRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
 
+      // Pedidos do PDV só podem ser criados com caixa aberto — a venda
+      // precisa ser lançada em uma sessão de caixa para fechamento correto.
+      const [openCashSession] = await db
+        .select({ id: cashRegisterSessions.id })
+        .from(cashRegisterSessions)
+        .where(
+          and(
+            eq(cashRegisterSessions.tenantId, ctx.tenantId),
+            eq(cashRegisterSessions.status, "OPEN")
+          )
+        )
+        .limit(1);
+
+      if (!openCashSession) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "Não é possível criar pedidos sem um caixa aberto. Abra o caixa antes de registrar a venda.",
+        });
+      }
+
       // Calcular preços server-side (mesma lógica do create)
       const itemsWithPrices = await Promise.all(
         input.items.map(async (item) => {

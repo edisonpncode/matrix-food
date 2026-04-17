@@ -123,6 +123,28 @@ export const cashRegisterRouter = createTRPCRouter({
         });
       }
 
+      // Não permite fechar o caixa se houver pedidos em andamento — garante
+      // que nenhuma venda fique "órfã" sem uma sessão onde registrar.
+      const [pendingCount] = await db
+        .select({
+          count: sql<string>`COUNT(*)::text`,
+        })
+        .from(orders)
+        .where(
+          and(
+            eq(orders.tenantId, ctx.tenantId),
+            sql`${orders.status} NOT IN ('DELIVERED', 'PICKED_UP', 'CANCELLED')`
+          )
+        );
+
+      const pending = parseInt(pendingCount?.count ?? "0", 10);
+      if (pending > 0) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `Existem ${pending} pedido(s) em aberto. Finalize ou cancele todos antes de fechar o caixa.`,
+        });
+      }
+
       // Vendas líquidas (SALE + REFUND) agrupadas por método de pagamento do pedido.
       const salesByMethodRows = await db
         .select({

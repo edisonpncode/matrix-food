@@ -103,6 +103,9 @@ export default function NovoPedidoPage() {
       setShowCheckout(false);
       setAppliedPromos([]);
     },
+    onError: (error) => {
+      alert(error.message);
+    },
   });
 
   // Filtrar promoções ativas e válidas para hoje
