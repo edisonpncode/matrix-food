@@ -6,6 +6,11 @@ export {
   generateCustomerReceipt,
   generateKitchenTicket,
   generateDeliverySlip,
+  generateCashClosingReceipt,
   generateTestPage,
 } from "./escpos";
-export type { EscPosOrderData, EscPosConfig } from "./escpos";
+export type {
+  EscPosOrderData,
+  EscPosConfig,
+  EscPosCashClosingData,
+} from "./escpos";

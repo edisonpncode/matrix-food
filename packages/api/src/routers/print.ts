@@ -9,12 +9,17 @@ import {
   orderItemCustomizations,
   orderItemIngredients,
   tenantUsers,
+  cashRegisterSessions,
+  cashRegisterTransactions,
   eq,
+  and,
+  sql,
 } from "@matrix-food/database";
 import {
   generateCustomerReceipt,
   generateKitchenTicket,
   generateDeliverySlip,
+  generateCashClosingReceipt,
   generateTestPage,
 } from "@matrix-food/utils";
 import type { EscPosOrderData, EscPosConfig } from "@matrix-food/utils";
@@ -196,6 +201,112 @@ export const printRouter = createTRPCRouter({
       }
 
       // Enviar para impressora
+      try {
+        await sendToNetworkPrinter(
+          printer.networkConfig.ipAddress,
+          printer.networkConfig.port,
+          escPosData
+        );
+      } catch (err) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message:
+            err instanceof Error
+              ? err.message
+              : "Erro ao enviar para impressora.",
+        });
+      }
+
+      return { success: true };
+    }),
+
+  /**
+   * Envia relatorio de fechamento de caixa para impressora de rede.
+   */
+  sendCashClosingToNetwork: tenantProcedure
+    .input(
+      z.object({
+        sessionId: z.string().uuid(),
+        printerId: z.string().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [tenant] = await db
+        .select()
+        .from(tenants)
+        .where(eq(tenants.id, ctx.tenantId))
+        .limit(1);
+
+      if (!tenant?.printerSettings) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Nenhuma impressora configurada.",
+        });
+      }
+
+      const printer = tenant.printerSettings.printers.find(
+        (p) => p.id === input.printerId
+      );
+
+      if (
+        !printer ||
+        printer.connectionMethod !== "NETWORK" ||
+        !printer.networkConfig
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Impressora de rede nao encontrada.",
+        });
+      }
+
+      const [session] = await db
+        .select()
+        .from(cashRegisterSessions)
+        .where(
+          and(
+            eq(cashRegisterSessions.id, input.sessionId),
+            eq(cashRegisterSessions.tenantId, ctx.tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!session || session.status !== "CLOSED") {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Sessão precisa estar fechada para imprimir o relatório.",
+        });
+      }
+
+      const [sums] = await db
+        .select({
+          deposits: sql<string>`COALESCE(SUM(CASE WHEN ${cashRegisterTransactions.type} = 'DEPOSIT' THEN ${cashRegisterTransactions.amount}::numeric ELSE 0 END), 0)`,
+          withdrawals: sql<string>`COALESCE(SUM(CASE WHEN ${cashRegisterTransactions.type} = 'WITHDRAWAL' THEN ${cashRegisterTransactions.amount}::numeric ELSE 0 END), 0)`,
+          adjustments: sql<string>`COALESCE(SUM(CASE WHEN ${cashRegisterTransactions.type} = 'ADJUSTMENT' THEN ${cashRegisterTransactions.amount}::numeric ELSE 0 END), 0)`,
+          refunds: sql<string>`COALESCE(SUM(CASE WHEN ${cashRegisterTransactions.type} = 'REFUND' THEN ${cashRegisterTransactions.amount}::numeric ELSE 0 END), 0)`,
+        })
+        .from(cashRegisterTransactions)
+        .where(eq(cashRegisterTransactions.sessionId, input.sessionId));
+
+      const zeroBreakdown = { cash: "0", creditCard: "0", debitCard: "0", pix: "0" };
+      const escPosData = generateCashClosingReceipt({
+        restaurantName: tenant.name,
+        paperWidth: printer.paperWidth,
+        openedAt: session.openedAt,
+        closedAt: session.closedAt ?? new Date(),
+        openedBy: session.openedBy,
+        closedBy: session.closedBy ?? "-",
+        openingBalance: session.openingBalance,
+        deposits: sums?.deposits ?? "0",
+        withdrawals: sums?.withdrawals ?? "0",
+        adjustments: sums?.adjustments ?? "0",
+        refunds: sums?.refunds ?? "0",
+        expected: session.expectedBreakdown ?? zeroBreakdown,
+        counted: session.countedBreakdown ?? zeroBreakdown,
+        notes: session.notes,
+      });
+
       try {
         await sendToNetworkPrinter(
           printer.networkConfig.ipAddress,

@@ -10,17 +10,37 @@ import {
   Lock,
   Unlock,
   X,
+  Printer,
 } from "lucide-react";
 
 type TransactionModalType = "WITHDRAWAL" | "DEPOSIT" | null;
 
+type Breakdown = {
+  cash: string;
+  creditCard: string;
+  debitCard: string;
+  pix: string;
+};
+
+const EMPTY_BREAKDOWN: Breakdown = { cash: "", creditCard: "", debitCard: "", pix: "" };
+
+type CloseStep = "count" | "review" | null;
+
+type CloseResult = {
+  expectedBreakdown: Breakdown;
+  countedBreakdown: Breakdown;
+  sessionId: string;
+};
+
 export default function CaixaPage() {
   const [openingBalance, setOpeningBalance] = useState("");
-  const [closingBalance, setClosingBalance] = useState("");
   const [txModalType, setTxModalType] = useState<TransactionModalType>(null);
   const [txAmount, setTxAmount] = useState("");
   const [txDescription, setTxDescription] = useState("");
-  const [showCloseConfirm, setShowCloseConfirm] = useState(false);
+
+  const [closeStep, setCloseStep] = useState<CloseStep>(null);
+  const [counted, setCounted] = useState<Breakdown>(EMPTY_BREAKDOWN);
+  const [closeResult, setCloseResult] = useState<CloseResult | null>(null);
 
   const utils = trpc.useUtils();
 
@@ -32,6 +52,11 @@ export default function CaixaPage() {
     { enabled: !!activeSession }
   );
 
+  const { data: printerSettings } = trpc.tenant.getPrinterSettings.useQuery(
+    undefined,
+    { enabled: !!activeSession }
+  );
+
   const openSession = trpc.cashRegister.openSession.useMutation({
     onSuccess: () => {
       utils.cashRegister.getActiveSession.invalidate();
@@ -40,12 +65,17 @@ export default function CaixaPage() {
   });
 
   const closeSession = trpc.cashRegister.closeSession.useMutation({
-    onSuccess: () => {
+    onSuccess: (data) => {
+      setCloseResult({
+        sessionId: data.session.id,
+        expectedBreakdown: data.expectedBreakdown,
+        countedBreakdown: data.countedBreakdown,
+      });
       utils.cashRegister.getActiveSession.invalidate();
-      setShowCloseConfirm(false);
-      setClosingBalance("");
     },
   });
+
+  const printClosing = trpc.print.sendCashClosingToNetwork.useMutation();
 
   const addTransaction = trpc.cashRegister.addTransaction.useMutation({
     onSuccess: () => {
@@ -58,17 +88,44 @@ export default function CaixaPage() {
 
   function handleOpenSession(e: React.FormEvent) {
     e.preventDefault();
-    openSession.mutate({
-      openingBalance: openingBalance || "0",
-    });
+    openSession.mutate({ openingBalance: openingBalance || "0" });
   }
 
-  function handleCloseSession() {
+  function handleSubmitCount(e: React.FormEvent) {
+    e.preventDefault();
     if (!activeSession) return;
     closeSession.mutate({
       sessionId: activeSession.id,
-      closingBalance: closingBalance || "0",
+      counted: {
+        cash: counted.cash || "0",
+        creditCard: counted.creditCard || "0",
+        debitCard: counted.debitCard || "0",
+        pix: counted.pix || "0",
+      },
     });
+    setCloseStep("review");
+  }
+
+  function resetCloseFlow() {
+    setCloseStep(null);
+    setCounted(EMPTY_BREAKDOWN);
+    setCloseResult(null);
+    closeSession.reset();
+  }
+
+  function handleFinishClose() {
+    if (printerSettings?.printers && closeResult) {
+      const defaultPrinter =
+        printerSettings.printers.find((p) => p.isDefault && p.isActive) ??
+        printerSettings.printers.find((p) => p.isActive);
+      if (defaultPrinter && defaultPrinter.connectionMethod === "NETWORK") {
+        printClosing.mutate({
+          sessionId: closeResult.sessionId,
+          printerId: defaultPrinter.id,
+        });
+      }
+    }
+    resetCloseFlow();
   }
 
   function handleAddTransaction(e: React.FormEvent) {
@@ -90,7 +147,6 @@ export default function CaixaPage() {
     );
   }
 
-  // No active session - show open form
   if (!activeSession) {
     return (
       <div className="mx-auto max-w-md space-y-6">
@@ -132,7 +188,6 @@ export default function CaixaPage() {
     );
   }
 
-  // Active session - show dashboard
   const summary = sessionSummary?.summary;
   const transactions = sessionSummary?.transactions ?? [];
 
@@ -146,7 +201,6 @@ export default function CaixaPage() {
         </span>
       </div>
 
-      {/* Summary Cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div className="rounded-xl border bg-card p-4">
           <p className="text-sm text-muted-foreground">Saldo Abertura</p>
@@ -174,17 +228,28 @@ export default function CaixaPage() {
         </div>
       </div>
 
-      {/* Deposits row */}
-      {(summary?.totalDeposits ?? 0) > 0 && (
-        <div className="rounded-xl border bg-blue-50 p-4">
-          <p className="text-sm text-blue-600">Depósitos</p>
-          <p className="text-xl font-bold text-blue-700">
-            +{formatCurrency(summary?.totalDeposits ?? 0)}
-          </p>
+      {((summary?.totalDeposits ?? 0) > 0 ||
+        (summary?.totalRefunds ?? 0) < 0) && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {(summary?.totalDeposits ?? 0) > 0 && (
+            <div className="rounded-xl border bg-blue-50 p-4">
+              <p className="text-sm text-blue-600">Depósitos</p>
+              <p className="text-xl font-bold text-blue-700">
+                +{formatCurrency(summary?.totalDeposits ?? 0)}
+              </p>
+            </div>
+          )}
+          {(summary?.totalRefunds ?? 0) < 0 && (
+            <div className="rounded-xl border bg-orange-50 p-4">
+              <p className="text-sm text-orange-600">Estornos</p>
+              <p className="text-xl font-bold text-orange-700">
+                {formatCurrency(summary?.totalRefunds ?? 0)}
+              </p>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Action Buttons */}
       <div className="grid grid-cols-3 gap-4">
         <button
           onClick={() => setTxModalType("WITHDRAWAL")}
@@ -201,7 +266,10 @@ export default function CaixaPage() {
           <span className="text-sm font-medium">Depósito</span>
         </button>
         <button
-          onClick={() => setShowCloseConfirm(true)}
+          onClick={() => {
+            setCounted(EMPTY_BREAKDOWN);
+            setCloseStep("count");
+          }}
           className="flex flex-col items-center gap-2 rounded-xl border-2 border-border p-4 text-muted-foreground hover:bg-accent"
         >
           <Lock className="h-8 w-8" />
@@ -209,7 +277,6 @@ export default function CaixaPage() {
         </button>
       </div>
 
-      {/* Transaction History */}
       <div>
         <h2 className="mb-3 text-lg font-bold">Movimentações</h2>
         {transactions.length === 0 ? (
@@ -229,10 +296,12 @@ export default function CaixaPage() {
                       tx.type === "SALE"
                         ? "bg-green-100 text-green-600"
                         : tx.type === "WITHDRAWAL"
-                        ? "bg-red-100 text-red-600"
-                        : tx.type === "DEPOSIT"
-                        ? "bg-blue-100 text-blue-600"
-                        : "bg-gray-100 text-gray-600"
+                          ? "bg-red-100 text-red-600"
+                          : tx.type === "DEPOSIT"
+                            ? "bg-blue-100 text-blue-600"
+                            : tx.type === "REFUND"
+                              ? "bg-orange-100 text-orange-600"
+                              : "bg-gray-100 text-gray-600"
                     }`}
                   >
                     <DollarSign className="h-4 w-4" />
@@ -242,10 +311,12 @@ export default function CaixaPage() {
                       {tx.type === "SALE"
                         ? "Venda"
                         : tx.type === "WITHDRAWAL"
-                        ? "Retirada"
-                        : tx.type === "DEPOSIT"
-                        ? "Depósito"
-                        : "Ajuste"}
+                          ? "Retirada"
+                          : tx.type === "DEPOSIT"
+                            ? "Depósito"
+                            : tx.type === "REFUND"
+                              ? "Estorno"
+                              : "Ajuste"}
                     </p>
                     {tx.description && (
                       <p className="text-xs text-muted-foreground">
@@ -257,12 +328,16 @@ export default function CaixaPage() {
                 <div className="text-right">
                   <p
                     className={`text-sm font-bold ${
-                      tx.type === "WITHDRAWAL"
+                      parseFloat(tx.amount) < 0 || tx.type === "WITHDRAWAL"
                         ? "text-red-600"
                         : "text-green-600"
                     }`}
                   >
-                    {tx.type === "WITHDRAWAL" ? "-" : "+"}
+                    {parseFloat(tx.amount) < 0
+                      ? ""
+                      : tx.type === "WITHDRAWAL"
+                        ? "-"
+                        : "+"}
                     {formatCurrency(parseFloat(tx.amount))}
                   </p>
                   <p className="text-xs text-muted-foreground">
@@ -342,72 +417,166 @@ export default function CaixaPage() {
         </div>
       )}
 
-      {/* Close Cash Register Modal */}
-      {showCloseConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-2xl bg-card p-6 shadow-xl">
+      {closeStep === "count" && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-card p-6 shadow-xl">
             <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold">Fechar Caixa</h3>
+              <h3 className="text-lg font-bold">Fechar Caixa · Contagem</h3>
               <button
-                onClick={() => setShowCloseConfirm(false)}
+                onClick={resetCloseFlow}
                 className="text-muted-foreground hover:text-foreground"
               >
                 <X className="h-5 w-5" />
               </button>
             </div>
 
-            <div className="mb-4 rounded-lg bg-accent p-4">
-              <p className="text-sm text-muted-foreground">Saldo esperado</p>
-              <p className="text-2xl font-bold text-primary">
-                {formatCurrency(summary?.currentBalance ?? 0)}
-              </p>
+            <p className="mb-4 text-sm text-muted-foreground">
+              Informe os valores que você contou, sem consultar o sistema. As
+              diferenças serão mostradas após confirmar.
+            </p>
+
+            <form onSubmit={handleSubmitCount} className="space-y-3">
+              {(
+                [
+                  ["cash", "Dinheiro"],
+                  ["creditCard", "Crédito"],
+                  ["debitCard", "Débito"],
+                  ["pix", "PIX"],
+                ] as const
+              ).map(([key, label]) => (
+                <div key={key}>
+                  <label className="mb-1 block text-sm font-medium">
+                    {label} (R$)
+                  </label>
+                  <input
+                    type="number"
+                    value={counted[key]}
+                    onChange={(e) =>
+                      setCounted((prev) => ({ ...prev, [key]: e.target.value }))
+                    }
+                    placeholder="0,00"
+                    step="0.01"
+                    min="0"
+                    className="w-full rounded-lg border px-4 py-3 text-lg"
+                  />
+                </div>
+              ))}
+
+              <button
+                type="submit"
+                disabled={closeSession.isPending}
+                className="mt-2 w-full rounded-lg bg-primary py-3 text-base font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {closeSession.isPending ? "Processando..." : "Continuar"}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {closeStep === "review" && closeResult && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-lg rounded-2xl bg-card p-6 shadow-xl">
+            <div className="mb-4 flex items-center justify-between">
+              <h3 className="text-lg font-bold">Fechamento Confirmado</h3>
+              <button
+                onClick={handleFinishClose}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-5 w-5" />
+              </button>
             </div>
 
-            <div className="mb-4">
-              <label className="mb-1 block text-sm font-medium">
-                Saldo informado (R$)
-              </label>
-              <input
-                type="number"
-                value={closingBalance}
-                onChange={(e) => setClosingBalance(e.target.value)}
-                placeholder="Conte o dinheiro no caixa"
-                step="0.01"
-                min="0"
-                className="w-full rounded-lg border px-4 py-3 text-lg"
-                autoFocus
-              />
-            </div>
-
-            {closingBalance && (
-              <div className="mb-4 rounded-lg border p-3">
-                <p className="text-sm text-muted-foreground">Diferença</p>
-                <p
-                  className={`text-lg font-bold ${
-                    parseFloat(closingBalance) ===
-                    (summary?.currentBalance ?? 0)
-                      ? "text-green-600"
-                      : "text-red-600"
-                  }`}
-                >
-                  {formatCurrency(
-                    parseFloat(closingBalance) -
-                      (summary?.currentBalance ?? 0)
-                  )}
-                </p>
-              </div>
-            )}
+            <DifferencesTable result={closeResult} />
 
             <button
-              onClick={handleCloseSession}
-              disabled={closeSession.isPending}
-              className="w-full rounded-lg bg-red-600 py-3 text-base font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              onClick={handleFinishClose}
+              disabled={printClosing.isPending}
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-lg bg-primary py-3 text-base font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
-              {closeSession.isPending ? "Fechando..." : "Confirmar Fechamento"}
+              <Printer className="h-5 w-5" />
+              {printClosing.isPending
+                ? "Imprimindo..."
+                : "Imprimir e Concluir"}
             </button>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function DifferencesTable({ result }: { result: CloseResult }) {
+  const rows: Array<[string, keyof Breakdown]> = [
+    ["Dinheiro", "cash"],
+    ["Crédito", "creditCard"],
+    ["Débito", "debitCard"],
+    ["PIX", "pix"],
+  ];
+
+  const totals = rows.reduce(
+    (acc, [, key]) => {
+      acc.expected += parseFloat(result.expectedBreakdown[key] || "0");
+      acc.counted += parseFloat(result.countedBreakdown[key] || "0");
+      return acc;
+    },
+    { expected: 0, counted: 0 }
+  );
+  const totalDiff = totals.counted - totals.expected;
+
+  return (
+    <div className="overflow-hidden rounded-lg border">
+      <table className="w-full text-sm">
+        <thead className="bg-muted">
+          <tr>
+            <th className="p-2 text-left font-semibold">Método</th>
+            <th className="p-2 text-right font-semibold">Esperado</th>
+            <th className="p-2 text-right font-semibold">Contado</th>
+            <th className="p-2 text-right font-semibold">Diferença</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, key]) => {
+            const expected = parseFloat(result.expectedBreakdown[key] || "0");
+            const counted = parseFloat(result.countedBreakdown[key] || "0");
+            const diff = counted - expected;
+            return (
+              <tr key={key} className="border-t">
+                <td className="p-2">{label}</td>
+                <td className="p-2 text-right">{formatCurrency(expected)}</td>
+                <td className="p-2 text-right">{formatCurrency(counted)}</td>
+                <td
+                  className={`p-2 text-right font-semibold ${
+                    Math.abs(diff) < 0.005
+                      ? "text-green-600"
+                      : diff < 0
+                        ? "text-red-600"
+                        : "text-amber-600"
+                  }`}
+                >
+                  {formatCurrency(diff)}
+                </td>
+              </tr>
+            );
+          })}
+          <tr className="border-t bg-muted/50 font-bold">
+            <td className="p-2">Total</td>
+            <td className="p-2 text-right">{formatCurrency(totals.expected)}</td>
+            <td className="p-2 text-right">{formatCurrency(totals.counted)}</td>
+            <td
+              className={`p-2 text-right ${
+                Math.abs(totalDiff) < 0.005
+                  ? "text-green-600"
+                  : totalDiff < 0
+                    ? "text-red-600"
+                    : "text-amber-600"
+              }`}
+            >
+              {formatCurrency(totalDiff)}
+            </td>
+          </tr>
+        </tbody>
+      </table>
     </div>
   );
 }

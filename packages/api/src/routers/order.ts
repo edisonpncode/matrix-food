@@ -23,6 +23,7 @@ import {
   customers,
   customerTenants,
   tenantUsers,
+  activityLogs,
   eq,
   and,
   not,
@@ -971,6 +972,7 @@ export const orderRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      const db = getDb();
       const updateData: Record<string, unknown> = { status: input.status };
 
       // Se status é OUT_FOR_DELIVERY e deliveryPersonId fornecido, atribuir entregador
@@ -978,7 +980,85 @@ export const orderRouter = createTRPCRouter({
         updateData.deliveryPersonId = input.deliveryPersonId;
       }
 
-      const [updated] = await getDb()
+      // Caminho especial para cancelamento: estorna caixa se o pedido foi pago
+      // e registra log de auditoria (ORDER_CANCELLED). Idempotente.
+      if (input.status === "CANCELLED") {
+        const [existing] = await db
+          .select()
+          .from(orders)
+          .where(
+            and(eq(orders.id, input.id), eq(orders.tenantId, ctx.tenantId))
+          )
+          .limit(1);
+
+        if (!existing) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Pedido não encontrado",
+          });
+        }
+
+        if (existing.status === "CANCELLED") {
+          return existing;
+        }
+
+        const wasPaid = existing.paymentStatus === "PAID";
+
+        if (wasPaid) {
+          // Busca sessão de caixa aberta para estornar a venda.
+          const [activeSession] = await db
+            .select()
+            .from(cashRegisterSessions)
+            .where(
+              and(
+                eq(cashRegisterSessions.tenantId, ctx.tenantId),
+                eq(cashRegisterSessions.status, "OPEN")
+              )
+            )
+            .limit(1);
+
+          if (activeSession) {
+            const refundAmount = (-parseFloat(existing.total)).toFixed(2);
+            await db.insert(cashRegisterTransactions).values({
+              sessionId: activeSession.id,
+              tenantId: ctx.tenantId,
+              type: "REFUND",
+              amount: refundAmount,
+              description: `Estorno pedido ${existing.displayNumber}`,
+              orderId: existing.id,
+              createdBy: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+            });
+          }
+
+          updateData.paymentStatus = "REFUNDED";
+        }
+
+        const [updated] = await db
+          .update(orders)
+          .set(updateData)
+          .where(
+            and(eq(orders.id, input.id), eq(orders.tenantId, ctx.tenantId))
+          )
+          .returning();
+
+        await db.insert(activityLogs).values({
+          tenantId: ctx.tenantId,
+          userName: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          action: "ORDER_CANCELLED",
+          description: `Pedido ${existing.displayNumber} cancelado`,
+          metadata: {
+            orderId: existing.id,
+            displayNumber: existing.displayNumber,
+            total: existing.total,
+            wasPaid,
+            paymentMethod: existing.paymentMethod,
+          },
+        });
+
+        return updated;
+      }
+
+      const [updated] = await db
         .update(orders)
         .set(updateData)
         .where(

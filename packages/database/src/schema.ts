@@ -121,6 +121,7 @@ export const cashTransactionTypeEnum = pgEnum("cash_transaction_type", [
   "WITHDRAWAL",
   "DEPOSIT",
   "ADJUSTMENT",
+  "REFUND",
 ]);
 
 export const cashSessionStatusEnum = pgEnum("cash_session_status", [
@@ -1026,6 +1027,20 @@ export const cashRegisterSessions = pgTable(
       .default("0"),
     closingBalance: decimal("closing_balance", { precision: 10, scale: 2 }),
     expectedBalance: decimal("expected_balance", { precision: 10, scale: 2 }),
+    /** Valores contados pelo funcionário no fechamento, por método de pagamento */
+    countedBreakdown: jsonb("counted_breakdown").$type<{
+      cash: string;
+      creditCard: string;
+      debitCard: string;
+      pix: string;
+    }>(),
+    /** Valores esperados no fechamento (snapshot), por método de pagamento */
+    expectedBreakdown: jsonb("expected_breakdown").$type<{
+      cash: string;
+      creditCard: string;
+      debitCard: string;
+      pix: string;
+    }>(),
     status: cashSessionStatusEnum("status").notNull().default("OPEN"),
     openedAt: timestamp("opened_at").notNull().defaultNow(),
     closedAt: timestamp("closed_at"),

@@ -585,6 +585,188 @@ export function generateDeliverySlip(
   return new Uint8Array(bytes);
 }
 
+export interface EscPosCashClosingData {
+  restaurantName: string;
+  paperWidth: "80mm" | "58mm";
+  openedAt: string | Date;
+  closedAt: string | Date;
+  openedBy: string;
+  closedBy: string;
+  openingBalance: string;
+  deposits: string;
+  withdrawals: string;
+  adjustments: string;
+  refunds: string;
+  expected: {
+    cash: string;
+    creditCard: string;
+    debitCard: string;
+    pix: string;
+  };
+  counted: {
+    cash: string;
+    creditCard: string;
+    debitCard: string;
+    pix: string;
+  };
+  notes?: string | null;
+}
+
+/** Gera relatorio de fechamento de caixa em ESC/POS */
+export function generateCashClosingReceipt(
+  data: EscPosCashClosingData
+): Uint8Array {
+  const bytes: number[] = [];
+  const pw = data.paperWidth;
+
+  const diff = {
+    cash: (parseFloat(data.counted.cash) - parseFloat(data.expected.cash)).toFixed(2),
+    creditCard: (parseFloat(data.counted.creditCard) - parseFloat(data.expected.creditCard)).toFixed(2),
+    debitCard: (parseFloat(data.counted.debitCard) - parseFloat(data.expected.debitCard)).toFixed(2),
+    pix: (parseFloat(data.counted.pix) - parseFloat(data.expected.pix)).toFixed(2),
+  };
+
+  const expectedTotal =
+    parseFloat(data.expected.cash) +
+    parseFloat(data.expected.creditCard) +
+    parseFloat(data.expected.debitCard) +
+    parseFloat(data.expected.pix);
+  const countedTotal =
+    parseFloat(data.counted.cash) +
+    parseFloat(data.counted.creditCard) +
+    parseFloat(data.counted.debitCard) +
+    parseFloat(data.counted.pix);
+  const totalDiff = (countedTotal - expectedTotal).toFixed(2);
+
+  bytes.push(...CMD.INIT);
+
+  // Cabecalho
+  bytes.push(...CMD.ALIGN_CENTER);
+  bytes.push(...CMD.BOLD_ON);
+  bytes.push(...CMD.DOUBLE_SIZE_ON);
+  bytes.push(...textToBytes(data.restaurantName));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.NORMAL_SIZE);
+  bytes.push(...textToBytes("FECHAMENTO DE CAIXA"));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_OFF);
+
+  bytes.push(...CMD.ALIGN_LEFT);
+  bytes.push(...separator(pw));
+  bytes.push(...CMD.LINE_FEED);
+
+  // Datas e operadores
+  bytes.push(...textToBytes(`Abertura:  ${formatDateTime(data.openedAt)}`));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...textToBytes(`Por: ${data.openedBy}`));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...textToBytes(`Fechamento:${formatDateTime(data.closedAt)}`));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...textToBytes(`Por: ${data.closedBy}`));
+  bytes.push(...CMD.LINE_FEED);
+
+  bytes.push(...separator(pw));
+  bytes.push(...CMD.LINE_FEED);
+
+  // Saldo inicial e movimentos
+  bytes.push(
+    ...twoColumnLine("Saldo Abertura:", formatCurrencyPlain(data.openingBalance), pw)
+  );
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("Depositos:", formatCurrencyPlain(data.deposits), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(
+    ...twoColumnLine("Retiradas:", `-${formatCurrencyPlain(data.withdrawals)}`, pw)
+  );
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(
+    ...twoColumnLine("Ajustes:", formatCurrencyPlain(data.adjustments), pw)
+  );
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(
+    ...twoColumnLine("Estornos:", formatCurrencyPlain(data.refunds), pw)
+  );
+  bytes.push(...CMD.LINE_FEED);
+
+  bytes.push(...separator(pw));
+  bytes.push(...CMD.LINE_FEED);
+
+  // Esperado
+  bytes.push(...CMD.BOLD_ON);
+  bytes.push(...textToBytes("ESPERADO"));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_OFF);
+  bytes.push(...twoColumnLine("Dinheiro:", formatCurrencyPlain(data.expected.cash), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("Credito:", formatCurrencyPlain(data.expected.creditCard), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("Debito:", formatCurrencyPlain(data.expected.debitCard), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("PIX:", formatCurrencyPlain(data.expected.pix), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_ON);
+  bytes.push(...twoColumnLine("Total:", formatCurrencyPlain(expectedTotal.toFixed(2)), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_OFF);
+
+  bytes.push(...separator(pw));
+  bytes.push(...CMD.LINE_FEED);
+
+  // Contado
+  bytes.push(...CMD.BOLD_ON);
+  bytes.push(...textToBytes("CONTADO"));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_OFF);
+  bytes.push(...twoColumnLine("Dinheiro:", formatCurrencyPlain(data.counted.cash), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("Credito:", formatCurrencyPlain(data.counted.creditCard), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("Debito:", formatCurrencyPlain(data.counted.debitCard), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("PIX:", formatCurrencyPlain(data.counted.pix), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_ON);
+  bytes.push(...twoColumnLine("Total:", formatCurrencyPlain(countedTotal.toFixed(2)), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_OFF);
+
+  bytes.push(...separator(pw));
+  bytes.push(...CMD.LINE_FEED);
+
+  // Diferencas
+  bytes.push(...CMD.BOLD_ON);
+  bytes.push(...textToBytes("DIFERENCAS"));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_OFF);
+  bytes.push(...twoColumnLine("Dinheiro:", formatCurrencyPlain(diff.cash), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("Credito:", formatCurrencyPlain(diff.creditCard), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("Debito:", formatCurrencyPlain(diff.debitCard), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...twoColumnLine("PIX:", formatCurrencyPlain(diff.pix), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.BOLD_ON);
+  bytes.push(...CMD.DOUBLE_HEIGHT_ON);
+  bytes.push(...twoColumnLine("TOTAL:", formatCurrencyPlain(totalDiff), pw));
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.NORMAL_SIZE);
+  bytes.push(...CMD.BOLD_OFF);
+
+  if (data.notes) {
+    bytes.push(...separator(pw));
+    bytes.push(...CMD.LINE_FEED);
+    bytes.push(...textToBytes(`Obs: ${data.notes}`));
+    bytes.push(...CMD.LINE_FEED);
+  }
+
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.LINE_FEED);
+  bytes.push(...CMD.FEED_AND_CUT);
+
+  return new Uint8Array(bytes);
+}
+
 /** Gera pagina de teste em ESC/POS */
 export function generateTestPage(
   restaurantName: string,
