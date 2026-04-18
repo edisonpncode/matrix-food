@@ -1,9 +1,12 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "@matrix-food/api";
 import type { TRPCContext } from "@matrix-food/api";
+import { getTokens } from "next-firebase-auth-edge";
+import { cookies } from "next/headers";
+import { authConfig } from "@matrix-food/auth";
 import { parseCustomerSessionCookie } from "@/lib/customer-session";
 
-function createContext(req: Request): TRPCContext {
+async function createContext(req: Request): Promise<TRPCContext> {
   const referer = req.headers.get("referer") || "";
   const url = new URL(referer, "http://localhost");
   const pathname = url.pathname;
@@ -15,6 +18,34 @@ function createContext(req: Request): TRPCContext {
   const customer = customerPayload
     ? { customerId: customerPayload.customerId, phone: customerPayload.phone }
     : null;
+
+  // Superadmin routes - valida cookie Firebase real e delega o email ao procedure
+  if (pathname.startsWith("/admin")) {
+    try {
+      const tokens = await getTokens(await cookies(), {
+        apiKey: authConfig.apiKey,
+        cookieName: authConfig.cookieName,
+        cookieSignatureKeys: authConfig.cookieSignatureKeys,
+        serviceAccount: authConfig.serviceAccount,
+      });
+      if (tokens?.decodedToken?.email) {
+        return {
+          user: {
+            uid: tokens.decodedToken.uid,
+            email: tokens.decodedToken.email,
+            name: tokens.decodedToken.name ?? null,
+            tenantId: null,
+            role: "OWNER",
+          },
+          tenantId: null,
+          customer,
+        };
+      }
+    } catch (err) {
+      console.error("Falha ao validar sessão superadmin:", err);
+    }
+    return { user: null, tenantId: null, customer };
+  }
 
   // Admin routes - role OWNER
   if (pathname.startsWith("/restaurante/admin")) {

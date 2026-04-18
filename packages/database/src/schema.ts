@@ -2296,3 +2296,21 @@ export const morpheuMessagesRelations = relations(
     }),
   })
 );
+
+export const superadminAuditLogs = pgTable(
+  "superadmin_audit_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    email: text("email").notNull(),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+    event: text("event").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => ({
+    emailIdx: index("superadmin_audit_logs_email_idx").on(table.email),
+    createdAtIdx: index("superadmin_audit_logs_created_at_idx").on(
+      table.createdAt
+    ),
+  })
+);
