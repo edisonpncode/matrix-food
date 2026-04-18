@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Shield,
+  MessageCircle,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -18,6 +19,7 @@ const menuItems = [
   { href: "/restaurantes", label: "Restaurantes", icon: Store },
   { href: "/planos", label: "Planos", icon: CreditCard },
   { href: "/cobrancas", label: "Cobranças", icon: Receipt },
+  { href: "/morpheu", label: "Morpheu", icon: MessageCircle },
 ];
 
 export function Sidebar() {

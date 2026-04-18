@@ -131,3 +131,44 @@ const enforceCustomer = t.middleware(({ ctx, next }) => {
  * Requer login via Firebase Phone Auth ou senha (HMAC cookie).
  */
 export const customerProcedure = t.procedure.use(enforceCustomer);
+
+/**
+ * Middleware que verifica se o usuário é SUPER ADMIN da Matrix Food.
+ *
+ * Critério (em ordem):
+ *  1. uid === "dev-superadmin" (contexto fixo do apps/superadmin em dev)
+ *  2. email contido em `SUPERADMIN_EMAILS` (CSV em env, ex: "a@x.com,b@y.com")
+ */
+const enforceSuperAdmin = t.middleware(({ ctx, next }) => {
+  const user = ctx.user;
+  if (!user?.uid) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "Você precisa estar logado.",
+    });
+  }
+
+  const allowlist = (process.env.SUPERADMIN_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+
+  const isDevSuperadmin = user.uid === "dev-superadmin";
+  const isAllowlisted =
+    !!user.email && allowlist.includes(user.email.toLowerCase());
+
+  if (!isDevSuperadmin && !isAllowlisted) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Acesso restrito a superadministradores.",
+    });
+  }
+
+  return next({ ctx: { user } });
+});
+
+/**
+ * Procedure de superadmin — somente Matrix Food team.
+ * Usada pra config global do Morpheu, auditoria multi-tenant, etc.
+ */
+export const superadminProcedure = t.procedure.use(enforceSuperAdmin);

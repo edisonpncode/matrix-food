@@ -4,7 +4,8 @@
   "private": true,
   "exports": {
     ".": "./src/index.ts",
-    "./root": "./src/root.ts"
+    "./root": "./src/root.ts",
+    "./services/morpheu": "./src/services/morpheu/index.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests"
@@ -13,7 +14,9 @@
     "@matrix-food/auth": "workspace:*",
     "@matrix-food/database": "workspace:*",
     "@matrix-food/utils": "workspace:*",
+    "@ai-sdk/google": "^3.0.54",
     "@trpc/server": "^11.1.2",
+    "ai": "^6.0.141",
     "bcryptjs": "^3.0.3",
     "superjson": "^2.2.6",
     "zod": "^3.25.67"

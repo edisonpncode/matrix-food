@@ -35,6 +35,18 @@ import {
 } from "@matrix-food/database";
 import { generateOrderNumber, pointInPolygon } from "@matrix-food/utils";
 import { tryAutoEmitNfce } from "../services/fiscal/auto-emit";
+import { emitMorpheuEvent, getTenantName } from "../services/morpheu";
+
+/**
+ * Formata um Decimal/string/number em BRL com duas casas (sem o prefixo "R$").
+ */
+function brl(v: unknown): string {
+  const n = typeof v === "number" ? v : Number(v ?? 0);
+  return n.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 // --- Schemas de validação ---
 
@@ -1053,6 +1065,21 @@ export const orderRouter = createTRPCRouter({
             wasPaid,
             paymentMethod: existing.paymentMethod,
           },
+        });
+
+        // Notifica Morpheu (fire-and-forget). Não bloqueia nem quebra a mutation
+        // caso o WhatsApp falhe.
+        void (async () => {
+          const tenantName = await getTenantName(ctx.tenantId);
+          await emitMorpheuEvent(ctx.tenantId, "ORDER_CANCEL", {
+            tenantName,
+            orderNumber: existing.displayNumber ?? String(existing.orderNumber),
+            customerName: existing.customerName ?? "Cliente não informado",
+            total: brl(existing.total),
+            reason: "Não informado",
+          });
+        })().catch(() => {
+          // ignora — já há log em morpheuMessages
         });
 
         return updated;

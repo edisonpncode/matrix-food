@@ -12,6 +12,16 @@ import {
   sql,
   inArray,
 } from "@matrix-food/database";
+import { emitMorpheuEvent, getTenantName } from "../services/morpheu";
+
+/** Formata string decimal em BRL ex: '150.00' -> '150,00'. */
+function brl(v: string | number): string {
+  const n = typeof v === "number" ? v : parseFloat(v);
+  return n.toLocaleString("pt-BR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
 
 type MethodKey = "cash" | "creditCard" | "debitCard" | "pix";
 
@@ -85,6 +95,17 @@ export const cashRegisterRouter = createTRPCRouter({
           notes: input.notes,
         })
         .returning();
+
+      // Morpheu: notifica abertura de caixa (fire-and-forget)
+      void (async () => {
+        const tenantName = await getTenantName(ctx.tenantId);
+        await emitMorpheuEvent(ctx.tenantId, "CASH_OPEN", {
+          tenantName,
+          cashierName:
+            ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          initialAmount: brl(input.openingBalance),
+        });
+      })().catch(() => {});
 
       return session;
     }),
@@ -242,6 +263,81 @@ export const cashRegisterRouter = createTRPCRouter({
         });
       }
 
+      // Morpheu: notifica fechamento de caixa com relatório detalhado
+      void (async () => {
+        const tenantName = await getTenantName(ctx.tenantId);
+
+        // Top 5 categorias vendidas durante a sessão (por valor)
+        const { orderItems, products, categories } = await import(
+          "@matrix-food/database"
+        );
+        const categoryRows = await db
+          .select({
+            categoryName: categories.name,
+            qty: sql<number>`COALESCE(SUM(${orderItems.quantity}),0)::int`,
+            revenue: sql<number>`COALESCE(SUM(${orderItems.totalPrice}::numeric),0)::numeric`,
+          })
+          .from(cashRegisterTransactions)
+          .innerJoin(orders, eq(orders.id, cashRegisterTransactions.orderId))
+          .innerJoin(orderItems, eq(orderItems.orderId, orders.id))
+          .leftJoin(products, eq(products.id, orderItems.productId))
+          .leftJoin(categories, eq(categories.id, products.categoryId))
+          .where(
+            and(
+              eq(cashRegisterTransactions.sessionId, input.sessionId),
+              eq(cashRegisterTransactions.type, "SALE")
+            )
+          )
+          .groupBy(categories.id, categories.name)
+          .orderBy(
+            desc(sql`COALESCE(SUM(${orderItems.totalPrice}::numeric),0)`)
+          )
+          .limit(5);
+
+        const lines: string[] = [];
+        lines.push(`🧾 *Fechamento de caixa — ${tenantName}*`);
+        lines.push(
+          `Fechado por: ${ctx.user.name ?? ctx.user.email ?? "Funcionário"}`
+        );
+        lines.push("");
+        lines.push(`*Vendas por forma de pagamento:*`);
+        lines.push(`• Dinheiro: R$ ${brl(salesByMethod.cash)}`);
+        lines.push(`• Crédito: R$ ${brl(salesByMethod.creditCard)}`);
+        lines.push(`• Débito: R$ ${brl(salesByMethod.debitCard)}`);
+        lines.push(`• PIX: R$ ${brl(salesByMethod.pix)}`);
+        lines.push("");
+        lines.push(`*Total vendido:* R$ ${brl(salesNet)}`);
+        lines.push(`*Em caixa (contado):* R$ ${brl(closingBalance)}`);
+        lines.push(
+          `*Esperado em caixa:* R$ ${brl(expectedBalanceTotal)}`
+        );
+        const diff = closingBalance - expectedBalanceTotal;
+        if (Math.abs(diff) > 0.005) {
+          lines.push(
+            `*Diferença:* ${diff >= 0 ? "+" : ""}R$ ${brl(Math.abs(diff))}`
+          );
+        }
+        if (categoryRows.length > 0) {
+          lines.push("");
+          lines.push(`*Top categorias:*`);
+          for (const c of categoryRows) {
+            lines.push(
+              `• ${c.categoryName ?? "Sem categoria"}: ${c.qty} itens — R$ ${brl(Number(c.revenue))}`
+            );
+          }
+        }
+        const detailMessage = lines.join("\n");
+
+        await emitMorpheuEvent(ctx.tenantId, "CASH_CLOSE", {
+          tenantName,
+          cashierName: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          totalSold: brl(salesNet),
+          totalInCash: brl(closingBalance),
+          cashRegisterId: updated.id,
+          detailMessage,
+        });
+      })().catch(() => {});
+
       // Devolve breakdown para que a UI exiba a tela de diferenças.
       return {
         session: updated,
@@ -317,6 +413,22 @@ export const cashRegisterRouter = createTRPCRouter({
           createdBy: ctx.user.name ?? ctx.user.email ?? "Funcionário",
         })
         .returning();
+
+      // Morpheu: notifica depósito / retirada (fire-and-forget)
+      if (input.type === "DEPOSIT" || input.type === "WITHDRAWAL") {
+        const event =
+          input.type === "DEPOSIT" ? "CASH_DEPOSIT" : "CASH_WITHDRAW";
+        void (async () => {
+          const tenantName = await getTenantName(ctx.tenantId);
+          await emitMorpheuEvent(ctx.tenantId, event, {
+            tenantName,
+            cashierName:
+              ctx.user.name ?? ctx.user.email ?? "Funcionário",
+            amount: brl(input.amount),
+            description: input.description ?? "Sem descrição",
+          });
+        })().catch(() => {});
+      }
 
       return transaction;
     }),

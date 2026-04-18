@@ -12,7 +12,7 @@ import {
   uniqueIndex,
   index,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 // ============================================
 // ENUMS
@@ -1965,6 +1965,334 @@ export const fiscalDocumentsRelations = relations(
     order: one(orders, {
       fields: [fiscalDocuments.orderId],
       references: [orders.id],
+    }),
+  })
+);
+
+// ============================================
+// MORPHEU (Gerente de IA via WhatsApp Cloud API)
+// ============================================
+
+export const morpheuDirectionEnum = pgEnum("morpheu_direction", [
+  "INBOUND",
+  "OUTBOUND",
+]);
+
+export const morpheuMessageTypeEnum = pgEnum("morpheu_message_type", [
+  "TEXT",
+  "TEMPLATE",
+  "INTERACTIVE",
+  "REACTION",
+  "SYSTEM",
+]);
+
+export const morpheuAuthRoleEnum = pgEnum("morpheu_auth_role", [
+  "OWNER",
+  "MANAGER",
+]);
+
+export const morpheuTemplateStatusEnum = pgEnum("morpheu_template_status", [
+  "DRAFT",
+  "PENDING",
+  "APPROVED",
+  "REJECTED",
+  "PAUSED",
+  "DISABLED",
+]);
+
+export const morpheuMessageStatusEnum = pgEnum("morpheu_message_status", [
+  "QUEUED",
+  "SENT",
+  "DELIVERED",
+  "READ",
+  "FAILED",
+  "RECEIVED",
+]);
+
+/**
+ * Configuração global da integração WhatsApp Cloud API.
+ * Apenas UMA linha — editada pelo superadmin.
+ * Credenciais criptografadas com FISCAL_ENCRYPTION_KEY (reutiliza encrypt/decrypt).
+ */
+export const morpheuConfig = pgTable("morpheu_config", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** ID do App do Meta for Developers */
+  metaAppId: varchar("meta_app_id", { length: 64 }),
+  /** Access Token de longa duração (System User Token) criptografado */
+  encryptedAccessToken: text("encrypted_access_token"),
+  /** Phone Number ID do WhatsApp Business */
+  metaPhoneNumberId: varchar("meta_phone_number_id", { length: 64 }),
+  /** WhatsApp Business Account ID (WABA) */
+  metaBusinessAccountId: varchar("meta_business_account_id", { length: 64 }),
+  /** Versão da Graph API (ex: v21.0) */
+  graphApiVersion: varchar("graph_api_version", { length: 10 })
+    .notNull()
+    .default("v21.0"),
+  /** Token que o Meta envia no GET de verificação do webhook */
+  webhookVerifyToken: varchar("webhook_verify_token", { length: 128 }),
+  /** App Secret usado pra validar HMAC do webhook (criptografado) */
+  encryptedWebhookSecret: text("encrypted_webhook_secret"),
+  /** Nome de exibição do assistente (default: "Morpheu") */
+  displayName: varchar("display_name", { length: 50 })
+    .notNull()
+    .default("Morpheu"),
+  /** Prompt default do sistema (sobrescreve system-prompt.ts se preenchido) */
+  defaultSystemPrompt: text("default_system_prompt"),
+  /** Integração ativa globalmente */
+  enabled: boolean("enabled").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at")
+    .notNull()
+    .defaultNow()
+    .$onUpdate(() => new Date()),
+});
+
+/**
+ * Preferências de notificação por tenant.
+ */
+export const morpheuTenantSettings = pgTable(
+  "morpheu_tenant_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" })
+      .unique(),
+    enabled: boolean("enabled").notNull().default(false),
+
+    // Notificações operacionais
+    notifyCashOpen: boolean("notify_cash_open").notNull().default(true),
+    notifyCashDeposit: boolean("notify_cash_deposit").notNull().default(true),
+    notifyCashWithdraw: boolean("notify_cash_withdraw").notNull().default(true),
+    notifyOrderCancel: boolean("notify_order_cancel").notNull().default(true),
+    notifyCashClose: boolean("notify_cash_close").notNull().default(true),
+
+    // Proativo
+    notifyDailySummary: boolean("notify_daily_summary")
+      .notNull()
+      .default(true),
+    notifyAnomalyAlerts: boolean("notify_anomaly_alerts")
+      .notNull()
+      .default(true),
+
+    // Quiet hours (HH:mm) — default 00:00 a 07:00 não perturba
+    quietHoursStart: varchar("quiet_hours_start", { length: 5 })
+      .notNull()
+      .default("00:00"),
+    quietHoursEnd: varchar("quiet_hours_end", { length: 5 })
+      .notNull()
+      .default("07:00"),
+
+    // Digest mode (agrupa notificações menores no horário de pico)
+    digestModeEnabled: boolean("digest_mode_enabled")
+      .notNull()
+      .default(false),
+    digestWindowStart: varchar("digest_window_start", { length: 5 })
+      .notNull()
+      .default("19:00"),
+    digestWindowEnd: varchar("digest_window_end", { length: 5 })
+      .notNull()
+      .default("22:00"),
+    digestIntervalMinutes: integer("digest_interval_minutes")
+      .notNull()
+      .default(30),
+
+    // Timezone do restaurante pra cron e quiet hours
+    timezone: varchar("timezone", { length: 50 })
+      .notNull()
+      .default("America/Sao_Paulo"),
+
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("morpheu_tenant_settings_tenant_idx").on(table.tenantId),
+  ]
+);
+
+/**
+ * Usuários autorizados a conversar com Morpheu via WhatsApp.
+ * Cada tenant tem: 1 OWNER (sempre) + até 1 MANAGER ativo por vez.
+ * MANAGER pode ser desativado pra liberar o slot pra outro usuário.
+ */
+export const morpheuAuthorizedUsers = pgTable(
+  "morpheu_authorized_users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** FK opcional pro tenantUsers (OWNER pode não ter linha em tenantUsers) */
+    tenantUserId: uuid("tenant_user_id").references(() => tenantUsers.id, {
+      onDelete: "set null",
+    }),
+    role: morpheuAuthRoleEnum("role").notNull(),
+    /** Telefone em formato E.164 ex: +5551999999999 */
+    phoneE164: varchar("phone_e164", { length: 20 }),
+    phoneVerified: boolean("phone_verified").notNull().default(false),
+    phoneVerifiedAt: timestamp("phone_verified_at"),
+    /** Código OTP criptografado e expiração */
+    otpCodeHash: varchar("otp_code_hash", { length: 128 }),
+    otpExpiresAt: timestamp("otp_expires_at"),
+    otpAttempts: integer("otp_attempts").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("morpheu_auth_users_tenant_idx").on(table.tenantId),
+    index("morpheu_auth_users_phone_idx").on(table.phoneE164),
+    /** Trava: 1 MANAGER ativo por tenant; OWNER é único por tenant (parcial: só ativos) */
+    uniqueIndex("morpheu_auth_users_tenant_role_active_uniq")
+      .on(table.tenantId, table.role)
+      .where(sql`active = true`),
+  ]
+);
+
+/**
+ * Templates aprovados no Meta Business Manager.
+ * Alimenta o dropdown da UI e valida placeholders antes de enviar.
+ */
+export const morpheuTemplates = pgTable(
+  "morpheu_templates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Nome técnico exato cadastrado no Meta (ex: morpheu_cash_open) */
+    name: varchar("name", { length: 100 }).notNull().unique(),
+    /** Categoria Meta: UTILITY, MARKETING, AUTHENTICATION */
+    category: varchar("category", { length: 30 }).notNull().default("UTILITY"),
+    language: varchar("language", { length: 10 }).notNull().default("pt_BR"),
+    /** Corpo com placeholders {{1}}, {{2}}... */
+    bodyText: text("body_text").notNull(),
+    /** Lista ordenada de nomes lógicos pros placeholders: ["tenantName","cashierName",...] */
+    placeholders: jsonb("placeholders")
+      .notNull()
+      .$type<string[]>()
+      .default([]),
+    metaTemplateId: varchar("meta_template_id", { length: 64 }),
+    status: morpheuTemplateStatusEnum("status").notNull().default("DRAFT"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [index("morpheu_templates_status_idx").on(table.status)]
+);
+
+/**
+ * Log de todas as mensagens (inbound + outbound).
+ * Auditoria + base pra exibir histórico na UI.
+ */
+export const morpheuMessages = pgTable(
+  "morpheu_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id").references(() => tenants.id, {
+      onDelete: "cascade",
+    }),
+    authorizedUserId: uuid("authorized_user_id").references(
+      () => morpheuAuthorizedUsers.id,
+      { onDelete: "set null" }
+    ),
+    /** FK opcional à conversa de IA pra agrupar contexto */
+    conversationId: uuid("conversation_id").references(
+      () => aiConversations.id,
+      { onDelete: "set null" }
+    ),
+    direction: morpheuDirectionEnum("direction").notNull(),
+    messageType: morpheuMessageTypeEnum("message_type").notNull(),
+    /** Preenchido quando messageType=TEMPLATE */
+    templateName: varchar("template_name", { length: 100 }),
+    /** Texto plano da msg (pra search/auditoria) */
+    body: text("body"),
+    /** Payload bruto enviado/recebido na Graph API */
+    rawPayload: jsonb("raw_payload").$type<Record<string, unknown>>(),
+    /** ID retornado pelo WhatsApp (wamid...) */
+    whatsappMessageId: varchar("whatsapp_message_id", { length: 128 }),
+    /** Telefone do remetente (inbound) ou destinatário (outbound) */
+    phoneE164: varchar("phone_e164", { length: 20 }),
+    status: morpheuMessageStatusEnum("status").notNull().default("QUEUED"),
+    errorCode: varchar("error_code", { length: 50 }),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("morpheu_messages_tenant_idx").on(table.tenantId),
+    index("morpheu_messages_auth_user_idx").on(table.authorizedUserId),
+    index("morpheu_messages_wamid_idx").on(table.whatsappMessageId),
+    index("morpheu_messages_created_idx").on(table.createdAt),
+  ]
+);
+
+/**
+ * Idempotência: cada evento do webhook Meta processado uma única vez.
+ */
+export const morpheuWebhookEvents = pgTable(
+  "morpheu_webhook_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** ID único do evento na Graph API (entry.id + changes[].value.messages[].id) */
+    metaEventId: varchar("meta_event_id", { length: 200 }).notNull().unique(),
+    processedAt: timestamp("processed_at").notNull().defaultNow(),
+    payload: jsonb("payload").$type<Record<string, unknown>>(),
+  },
+  (table) => [
+    index("morpheu_webhook_events_processed_idx").on(table.processedAt),
+  ]
+);
+
+// --- Morpheu Relations ---
+
+export const morpheuTenantSettingsRelations = relations(
+  morpheuTenantSettings,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [morpheuTenantSettings.tenantId],
+      references: [tenants.id],
+    }),
+  })
+);
+
+export const morpheuAuthorizedUsersRelations = relations(
+  morpheuAuthorizedUsers,
+  ({ one, many }) => ({
+    tenant: one(tenants, {
+      fields: [morpheuAuthorizedUsers.tenantId],
+      references: [tenants.id],
+    }),
+    tenantUser: one(tenantUsers, {
+      fields: [morpheuAuthorizedUsers.tenantUserId],
+      references: [tenantUsers.id],
+    }),
+    messages: many(morpheuMessages),
+  })
+);
+
+export const morpheuMessagesRelations = relations(
+  morpheuMessages,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [morpheuMessages.tenantId],
+      references: [tenants.id],
+    }),
+    authorizedUser: one(morpheuAuthorizedUsers, {
+      fields: [morpheuMessages.authorizedUserId],
+      references: [morpheuAuthorizedUsers.id],
+    }),
+    conversation: one(aiConversations, {
+      fields: [morpheuMessages.conversationId],
+      references: [aiConversations.id],
     }),
   })
 );
