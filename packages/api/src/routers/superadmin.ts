@@ -108,7 +108,7 @@ export const superadminRouter = createTRPCRouter({
         totalRevenue: sql<number>`COALESCE(SUM(${orders.total}::numeric), 0)::numeric`,
       })
       .from(orders)
-      .where(sql`${orders.createdAt} >= ${startOfToday}`);
+      .where(sql`${orders.createdAt} >= ${startOfToday.toISOString()}`);
 
     return {
       tenants: {
