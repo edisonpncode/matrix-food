@@ -17,6 +17,15 @@ export default [
       ],
       "@typescript-eslint/no-explicit-any": "warn",
       "no-console": ["warn", { allow: ["warn", "error", "info"] }],
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector:
+            "JSXOpeningElement:has(JSXAttribute[name.name='target'][value.value='_blank']):not(:has(JSXAttribute[name.name='rel']))",
+          message:
+            "Links com target=\"_blank\" devem ter rel=\"noopener noreferrer\" para evitar reverse-tabnabbing.",
+        },
+      ],
     },
   }),
   {

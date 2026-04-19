@@ -14,3 +14,9 @@ export type {
   EscPosConfig,
   EscPosCashClosingData,
 } from "./escpos";
+export {
+  buildContentSecurityPolicy,
+  getSecurityHeaders,
+} from "./security-headers";
+export type { SecurityHeaderOptions } from "./security-headers";
+export { createLogger, logger } from "./logger";

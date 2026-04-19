@@ -11,6 +11,7 @@ import {
   desc,
   sql,
 } from "@matrix-food/database";
+import { rateLimit } from "../lib/rate-limit";
 
 export const loyaltyRouter = createTRPCRouter({
   // ============================================
@@ -321,7 +322,12 @@ export const loyaltyRouter = createTRPCRouter({
         rewardId: z.string().uuid(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      rateLimit(
+        "loyalty.redeemReward",
+        `${ctx.ip ?? ""}:${input.tenantId}:${input.customerPhone}`,
+        { limit: 10, windowMs: 60_000 }
+      );
       const db = getDb();
 
       // Verificar se fidelidade está ativa

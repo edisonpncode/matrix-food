@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import { getSecurityHeaders } from "@matrix-food/utils";
+
+const securityHeaders = getSecurityHeaders({ reportOnly: true });
 
 const nextConfig: NextConfig = {
   transpilePackages: [
@@ -14,6 +17,14 @@ const nextConfig: NextConfig = {
         hostname: "res.cloudinary.com",
       },
     ],
+  },
+  async headers() {
+    return [
+      {
+        source: "/:path*",
+        headers: securityHeaders,
+      },
+    ];
   },
 };
 

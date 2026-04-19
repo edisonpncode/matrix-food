@@ -36,6 +36,11 @@ import {
 import { generateOrderNumber, pointInPolygon } from "@matrix-food/utils";
 import { tryAutoEmitNfce } from "../services/fiscal/auto-emit";
 import { emitMorpheuEvent, getTenantName } from "../services/morpheu";
+import {
+  signOrderAccessToken,
+  verifyOrderAccessToken,
+} from "../lib/order-token";
+import { rateLimit } from "../lib/rate-limit";
 
 /**
  * Formata um Decimal/string/number em BRL com duas casas (sem o prefixo "R$").
@@ -46,6 +51,18 @@ function brl(v: unknown): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+/**
+ * Remove `latitude`/`longitude` do endereço antes de devolver em rotas
+ * públicas — evita vazar geolocalização precisa do cliente.
+ */
+function sanitizePublicDeliveryAddress(addr: unknown): unknown {
+  if (!addr || typeof addr !== "object") return addr;
+  const rest = { ...(addr as Record<string, unknown>) };
+  delete rest.latitude;
+  delete rest.longitude;
+  return rest;
 }
 
 // --- Schemas de validação ---
@@ -294,7 +311,11 @@ export const orderRouter = createTRPCRouter({
         items: z.array(orderItemInput).min(1),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      rateLimit("order.create", ctx.ip ?? "", {
+        limit: 10,
+        windowMs: 60_000,
+      });
       const db = getDb();
 
       // 1. Calcular preços server-side para cada item
@@ -802,15 +823,29 @@ export const orderRouter = createTRPCRouter({
         total: order.total,
         status: order.status,
         loyaltyPointsEarned,
+        accessToken: signOrderAccessToken(order.id),
       };
     }),
 
   /**
-   * Busca pedido por ID (público - cliente pode ver seu pedido).
+   * Busca pedido por ID (público — cliente pode ver o próprio pedido).
+   *
+   * Segurança: exige `token` HMAC emitido por `order.create` (prova de posse).
+   * Sem token válido, retorna `null` (mesma resposta de "não encontrado"),
+   * evitando enumeração e IDOR entre tenants.
    */
   getById: publicProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(
+      z.object({
+        id: z.string().uuid(),
+        token: z.string().min(1),
+      })
+    )
     .query(async ({ input }) => {
+      if (!verifyOrderAccessToken(input.id, input.token)) {
+        return null;
+      }
+
       const db = getDb();
 
       const [order] = await db
@@ -841,7 +876,17 @@ export const orderRouter = createTRPCRouter({
         })
       );
 
-      return { ...order, items: itemsWithDetails };
+      // Remove coordenadas precisas (lat/lng) do endereço antes de devolver
+      // publicamente — reduz exposição se o token vazar.
+      const sanitizedAddress = sanitizePublicDeliveryAddress(
+        order.deliveryAddress
+      );
+
+      return {
+        ...order,
+        deliveryAddress: sanitizedAddress,
+        items: itemsWithDetails,
+      };
     }),
 
   /**

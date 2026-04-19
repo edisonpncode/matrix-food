@@ -25,6 +25,8 @@ export interface TRPCContext {
   user: AuthUser | null;
   tenantId: string | null;
   customer?: CustomerAuth | null;
+  /** IP do cliente (best-effort, via x-forwarded-for/x-real-ip). Usado p/ rate limit. */
+  ip?: string | null;
 }
 
 /**

@@ -18,7 +18,8 @@ export const tenantRouter = createTRPCRouter({
       const conditions = [eq(tenants.isActive, true)];
 
       if (input.search && input.search.trim()) {
-        conditions.push(ilike(tenants.name, `%${input.search.trim()}%`));
+        const escaped = input.search.trim().replace(/[\\%_]/g, (c) => "\\" + c);
+        conditions.push(ilike(tenants.name, `%${escaped}%`));
       }
 
       const results = await db

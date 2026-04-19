@@ -11,13 +11,14 @@
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@ai-sdk/google": "^3.0.54",
     "@matrix-food/auth": "workspace:*",
     "@matrix-food/database": "workspace:*",
     "@matrix-food/utils": "workspace:*",
-    "@ai-sdk/google": "^3.0.54",
     "@trpc/server": "^11.1.2",
     "ai": "^6.0.141",
     "bcryptjs": "^3.0.3",
+    "lru-cache": "^11.3.5",
     "superjson": "^2.2.6",
     "zod": "^3.25.67"
   },

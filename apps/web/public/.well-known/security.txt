@@ -1,0 +1,4 @@
+Contact: mailto:edisonpn@rede.ulbra.br
+Preferred-Languages: pt-BR, en
+Expires: 2027-04-19T23:59:59-03:00
+Canonical: https://matrixfood.app/.well-known/security.txt

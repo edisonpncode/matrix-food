@@ -15,6 +15,7 @@ import {
   and,
   desc,
 } from "@matrix-food/database";
+import { rateLimit } from "../lib/rate-limit";
 
 /**
  * Schema de endereço do cliente.
@@ -66,7 +67,11 @@ export const customerPortalRouter = createTRPCRouter({
         name: z.string().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
+      rateLimit("customerPortal.linkOrCreate", ctx.ip ?? "", {
+        limit: 10,
+        windowMs: 60_000,
+      });
       const db = getDb();
       const phone = normalizePhone(input.phone);
 

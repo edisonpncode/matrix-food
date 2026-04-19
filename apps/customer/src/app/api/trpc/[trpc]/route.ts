@@ -17,6 +17,15 @@ function parseCookie(header: string | null, name: string): string | undefined {
   return match ? decodeURIComponent(match.slice(name.length + 1)) : undefined;
 }
 
+function extractIp(req: Request): string | null {
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) {
+    const first = fwd.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.headers.get("x-real-ip");
+}
+
 const handler = (req: Request) =>
   fetchRequestHandler({
     endpoint: "/api/trpc",
@@ -32,6 +41,7 @@ const handler = (req: Request) =>
         customer: session
           ? { uid: session.uid, phone: session.phone }
           : null,
+        ip: extractIp(req),
       };
     },
     onError: ({ path, error }) => {

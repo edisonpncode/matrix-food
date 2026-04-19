@@ -127,7 +127,7 @@ export const analyticsRouter = createTRPCRouter({
         .where(
           and(
             eq(orders.tenantId, ctx.tenantId),
-            sql`${orders.createdAt} >= NOW() - INTERVAL '${sql.raw(String(input.days))} days'`
+            sql`${orders.createdAt} >= NOW() - (${input.days} * INTERVAL '1 day')`
           )
         )
         .groupBy(sql`DATE(${orders.createdAt})`)

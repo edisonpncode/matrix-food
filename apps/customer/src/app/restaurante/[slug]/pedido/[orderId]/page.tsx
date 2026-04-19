@@ -2,6 +2,7 @@
 
 import { use } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { CheckCircle, Clock, ArrowLeft } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
@@ -24,10 +25,13 @@ const STATUS_LABELS: Record<string, string> = {
 
 export default function OrderConfirmationPage({ params }: PageProps) {
   const { slug, orderId } = use(params);
+  const searchParams = useSearchParams();
+  const token = searchParams.get("t") ?? "";
 
-  const { data: order, isLoading } = trpc.order.getById.useQuery({
-    id: orderId,
-  });
+  const { data: order, isLoading } = trpc.order.getById.useQuery(
+    { id: orderId, token },
+    { enabled: token.length > 0 }
+  );
 
   if (isLoading) {
     return (

@@ -13,6 +13,7 @@ import {
   desc,
 } from "@matrix-food/database";
 import { getAllPermissions } from "./userType";
+import { rateLimit } from "../lib/rate-limit";
 
 /**
  * Regex de senha forte:
@@ -521,6 +522,11 @@ export const staffRouter = createTRPCRouter({
   verifyPin: tenantProcedure
     .input(z.object({ pin: z.string().min(4).max(6) }))
     .mutation(async ({ ctx, input }) => {
+      rateLimit(
+        "staff.verifyPin",
+        `${ctx.ip ?? ""}:${ctx.tenantId}`,
+        { limit: 10, windowMs: 60_000 }
+      );
       const db = getDb();
 
       const [user] = await db
@@ -631,6 +637,11 @@ export const staffRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      rateLimit(
+        "staff.loginByEmailPassword",
+        `${ctx.ip ?? ""}:${input.email.toLowerCase()}`,
+        { limit: 5, windowMs: 60_000 }
+      );
       const db = getDb();
 
       const [user] = await db
@@ -709,6 +720,11 @@ export const staffRouter = createTRPCRouter({
       })
     )
     .mutation(async ({ ctx, input }) => {
+      rateLimit(
+        "staff.loginByEmailPin",
+        `${ctx.ip ?? ""}:${input.email.toLowerCase()}`,
+        { limit: 5, windowMs: 60_000 }
+      );
       const db = getDb();
 
       const [user] = await db

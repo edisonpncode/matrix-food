@@ -13,6 +13,7 @@ import {
   sql,
   ilike,
 } from "@matrix-food/database";
+import { logAudit } from "../lib/audit";
 
 /**
  * Schema de endereço reutilizado em várias procedures.
@@ -117,7 +118,8 @@ export const customerRouter = createTRPCRouter({
       const db = getDb();
       const raw = input.query.trim();
       const digits = raw.replace(/\D/g, "");
-      const textPattern = `%${raw}%`;
+      const escaped = raw.replace(/[\\%_]/g, (c) => "\\" + c);
+      const textPattern = `%${escaped}%`;
 
       const conditions = [ilike(customers.name, textPattern)];
 
@@ -161,7 +163,8 @@ export const customerRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const db = getDb();
       const offset = (input.page - 1) * input.limit;
-      const searchPattern = `%${input.query}%`;
+      const escaped = input.query.replace(/[\\%_]/g, (c) => "\\" + c);
+      const searchPattern = `%${escaped}%`;
 
       const results = await db
         .select({
@@ -258,6 +261,13 @@ export const customerRouter = createTRPCRouter({
           )
         )
         .limit(1);
+
+      void logAudit({
+        ctx,
+        action: "CUSTOMER_PII_VIEW",
+        targetType: "customer",
+        targetId: customer.id,
+      });
 
       return { ...customer, tenantStats: tenantStats ?? null };
     }),
@@ -506,11 +516,12 @@ export const customerRouter = createTRPCRouter({
       const db = getDb();
       const offset = (input.page - 1) * input.limit;
 
-      const searchCondition = input.query
+      const escapedQuery = input.query?.replace(/[\\%_]/g, (c) => "\\" + c);
+      const searchCondition = escapedQuery
         ? or(
-            ilike(customers.name, `%${input.query}%`),
-            ilike(customers.phone, `%${input.query}%`),
-            ilike(customers.cpf, `%${input.query}%`)
+            ilike(customers.name, `%${escapedQuery}%`),
+            ilike(customers.phone, `%${escapedQuery}%`),
+            ilike(customers.cpf, `%${escapedQuery}%`)
           )
         : undefined;
 

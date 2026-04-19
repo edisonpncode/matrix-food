@@ -280,10 +280,46 @@ export function OrderReceipt({
   );
 }
 
-/**
- * Opens a new window with the receipt content and triggers the print dialog.
- * @param elementId - The ID of the receipt element to print (e.g., "receipt-{orderId}")
- */
+const PRINT_STYLES = `
+  body {
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    margin: 0;
+    padding: 8px;
+    width: 300px;
+    color: #000;
+  }
+  .text-center { text-align: center; }
+  .text-right { text-align: right; }
+  .font-bold { font-weight: bold; }
+  .italic { font-style: italic; }
+  .uppercase { text-transform: uppercase; }
+  .text-sm { font-size: 14px; }
+  .text-lg { font-size: 16px; }
+  .text-\\[10px\\] { font-size: 10px; }
+  .mb-1 { margin-bottom: 4px; }
+  .mb-2 { margin-bottom: 8px; }
+  .mt-2 { margin-top: 8px; }
+  .pl-3 { padding-left: 12px; }
+  .ml-2 { margin-left: 8px; }
+  .pt-1 { padding-top: 4px; }
+  .px-2 { padding-left: 8px; padding-right: 8px; }
+  .py-0\\.5 { padding-top: 2px; padding-bottom: 2px; }
+  .p-4 { padding: 16px; }
+  .space-y-0\\.5 > * + * { margin-top: 2px; }
+  .space-y-1\\.5 > * + * { margin-top: 6px; }
+  .divider {
+    border-bottom: 1px dashed #000;
+    margin: 8px 0;
+  }
+  .flex { display: flex; }
+  .justify-between { justify-content: space-between; }
+  .flex-shrink-0 { flex-shrink: 0; }
+  .inline-block { display: inline-block; }
+  .rounded { border-radius: 4px; }
+  .border { border: 1px solid #000; }
+`;
+
 export function printReceipt(elementId: string) {
   const content = document.getElementById(elementId);
   if (!content) return;
@@ -291,66 +327,17 @@ export function printReceipt(elementId: string) {
   const printWindow = window.open("", "_blank");
   if (!printWindow) return;
 
-  printWindow.document.write(`
-    <html>
-      <head>
-        <title>Pedido</title>
-        <style>
-          body {
-            font-family: 'Courier New', monospace;
-            font-size: 12px;
-            margin: 0;
-            padding: 8px;
-            width: 300px;
-            color: #000;
-          }
-          .text-center { text-align: center; }
-          .text-right { text-align: right; }
-          .font-bold { font-weight: bold; }
-          .italic { font-style: italic; }
-          .uppercase { text-transform: uppercase; }
-          .text-sm { font-size: 14px; }
-          .text-lg { font-size: 16px; }
-          .text-\\[10px\\] { font-size: 10px; }
-          .mb-1 { margin-bottom: 4px; }
-          .mb-2 { margin-bottom: 8px; }
-          .mt-2 { margin-top: 8px; }
-          .pl-3 { padding-left: 12px; }
-          .ml-2 { margin-left: 8px; }
-          .pt-1 { padding-top: 4px; }
-          .px-2 { padding-left: 8px; padding-right: 8px; }
-          .py-0\\.5 { padding-top: 2px; padding-bottom: 2px; }
-          .p-4 { padding: 16px; }
-          .space-y-0\\.5 > * + * { margin-top: 2px; }
-          .space-y-1\\.5 > * + * { margin-top: 6px; }
-          .divider {
-            border-bottom: 1px dashed #000;
-            margin: 8px 0;
-          }
-          .flex {
-            display: flex;
-          }
-          .justify-between {
-            justify-content: space-between;
-          }
-          .flex-shrink-0 {
-            flex-shrink: 0;
-          }
-          .inline-block {
-            display: inline-block;
-          }
-          .rounded {
-            border-radius: 4px;
-          }
-          .border {
-            border: 1px solid #000;
-          }
-        </style>
-      </head>
-      <body>${content.innerHTML}</body>
-    </html>
-  `);
-  printWindow.document.close();
+  const doc = printWindow.document;
+  doc.open();
+  doc.write("<!doctype html><html><head><title>Pedido</title></head><body></body></html>");
+  doc.close();
+
+  const style = doc.createElement("style");
+  style.textContent = PRINT_STYLES;
+  doc.head.appendChild(style);
+
+  doc.body.appendChild(doc.importNode(content, true));
+
   printWindow.focus();
   printWindow.print();
   printWindow.close();

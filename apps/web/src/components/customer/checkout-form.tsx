@@ -317,7 +317,11 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
       });
 
       clearCart();
-      router.push(`/restaurantes/${tenant.slug}/pedido/${result.id}`);
+      router.push(
+        `/restaurantes/${tenant.slug}/pedido/${result.id}?t=${encodeURIComponent(
+          result.accessToken
+        )}`
+      );
     } catch {
       alert("Erro ao criar pedido. Tente novamente.");
     } finally {
@@ -798,6 +802,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
               <a
                 href="/termos"
                 target="_blank"
+                rel="noopener noreferrer"
                 className="text-primary underline"
               >
                 Termos de Uso
@@ -806,6 +811,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
               <a
                 href="/privacidade"
                 target="_blank"
+                rel="noopener noreferrer"
                 className="text-primary underline"
               >
                 Politica de Privacidade

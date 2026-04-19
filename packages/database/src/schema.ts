@@ -387,6 +387,48 @@ export const activityLogs = pgTable(
 );
 
 // ============================================
+// AUDIT LOGS (auditoria global / cross-tenant)
+// ============================================
+// Registra eventos sensíveis que não cabem em `activity_logs` (enum fechado
+// e tenantId NOT NULL): ações de superadmin, acesso a PII de cliente por
+// staff, alterações de config cross-tenant, etc.
+// Campos de ação são strings livres — cada caller convenciona seu nome.
+
+export const auditLogs = pgTable(
+  "audit_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Tenant afetado, se houver. Ações de superadmin globais ficam NULL. */
+    tenantId: uuid("tenant_id").references(() => tenants.id, {
+      onDelete: "set null",
+    }),
+    /** Firebase UID do ator (staff/superadmin) — não é FK pra sobreviver a deleções. */
+    actorUid: varchar("actor_uid", { length: 128 }),
+    /** Email do ator no momento da ação. */
+    actorEmail: varchar("actor_email", { length: 255 }),
+    /** Papel resumido: "superadmin" | "owner" | "staff" | "system". */
+    actorRole: varchar("actor_role", { length: 32 }),
+    /** Nome curto da ação (ex: "CUSTOMER_PII_VIEW", "SUPERADMIN_TENANT_IMPERSONATE"). */
+    action: varchar("action", { length: 64 }).notNull(),
+    /** Tipo do recurso tocado (ex: "customer", "tenant", "morpheu_config"). */
+    targetType: varchar("target_type", { length: 64 }),
+    /** ID do recurso (string genérica — pode ser UUID ou identificador externo). */
+    targetId: varchar("target_id", { length: 128 }),
+    /** Dados extras — nunca persistir CPF/PIN/senha aqui. */
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    ipAddress: varchar("ip_address", { length: 45 }),
+    userAgent: varchar("user_agent", { length: 500 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("audit_logs_created_idx").on(table.createdAt),
+    index("audit_logs_tenant_idx").on(table.tenantId, table.createdAt),
+    index("audit_logs_actor_idx").on(table.actorUid, table.createdAt),
+    index("audit_logs_action_idx").on(table.action, table.createdAt),
+  ]
+);
+
+// ============================================
 // CUSTOMERS (Clientes)
 // ============================================
 

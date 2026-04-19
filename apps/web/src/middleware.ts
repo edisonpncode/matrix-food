@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { authMiddleware, redirectToPath } from "next-firebase-auth-edge";
+import { authMiddleware } from "next-firebase-auth-edge";
 import { authConfig } from "@matrix-food/auth";
 
 const SUPERADMIN_LOGIN = "/admin/login";
@@ -54,7 +54,8 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next();
     },
     handleError: async (error) => {
-      console.error("middleware /admin auth error:", error);
+      const msg = error instanceof Error ? error.message : "unknown";
+      console.error("middleware auth error:", msg);
       if (needsSuperadmin(request.nextUrl.pathname)) {
         return redirectToLoginPage(request);
       }

@@ -2,6 +2,7 @@
 
 import { use } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { CheckCircle, Clock, ArrowLeft, Package, Bike, MapPin, XCircle } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
@@ -36,10 +37,13 @@ function getStepIndex(status: string, steps: typeof STATUS_STEPS): number {
 
 export default function OrderConfirmationPage({ params }: PageProps) {
   const { slug, orderId } = use(params);
+  const searchParams = useSearchParams();
+  const token = searchParams.get("t") ?? "";
 
   const { data: order, isLoading } = trpc.order.getById.useQuery(
-    { id: orderId },
+    { id: orderId, token },
     {
+      enabled: token.length > 0,
       refetchInterval: (query) => {
         const status = query.state.data?.status;
         if (status && TERMINAL_STATUSES.includes(status)) return false;

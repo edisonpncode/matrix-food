@@ -6,10 +6,21 @@ import { cookies } from "next/headers";
 import { authConfig } from "@matrix-food/auth";
 import { parseCustomerSessionCookie } from "@/lib/customer-session";
 
+/** Extrai o IP do cliente de headers de proxy (best-effort). */
+function extractIp(req: Request): string | null {
+  const fwd = req.headers.get("x-forwarded-for");
+  if (fwd) {
+    const first = fwd.split(",")[0]?.trim();
+    if (first) return first;
+  }
+  return req.headers.get("x-real-ip");
+}
+
 async function createContext(req: Request): Promise<TRPCContext> {
   const referer = req.headers.get("referer") || "";
   const url = new URL(referer, "http://localhost");
   const pathname = url.pathname;
+  const ip = extractIp(req);
 
   // Sessão do cliente (consumidor — link de pedidos)
   const customerPayload = parseCustomerSessionCookie(
@@ -39,12 +50,13 @@ async function createContext(req: Request): Promise<TRPCContext> {
           },
           tenantId: null,
           customer,
+          ip,
         };
       }
     } catch (err) {
       console.error("Falha ao validar sessão superadmin:", err);
     }
-    return { user: null, tenantId: null, customer };
+    return { user: null, tenantId: null, customer, ip };
   }
 
   // Admin routes - role OWNER
@@ -59,6 +71,7 @@ async function createContext(req: Request): Promise<TRPCContext> {
       },
       tenantId: process.env.DEV_TENANT_ID ?? null,
       customer,
+      ip,
     };
   }
 
@@ -74,6 +87,7 @@ async function createContext(req: Request): Promise<TRPCContext> {
       },
       tenantId: process.env.DEV_TENANT_ID ?? null,
       customer,
+      ip,
     };
   }
 
@@ -82,6 +96,7 @@ async function createContext(req: Request): Promise<TRPCContext> {
     user: null,
     tenantId: null,
     customer,
+    ip,
   };
 }
 

@@ -19,6 +19,7 @@ import {
   desc,
   sql,
 } from "@matrix-food/database";
+import { logAudit } from "../lib/audit";
 import {
   encrypt,
   decrypt,
@@ -85,7 +86,7 @@ const configRouter = createTRPCRouter({
         enabled: z.boolean().optional(),
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ ctx, input }) => {
       const db = getDb();
       const [existing] = await db.select().from(morpheuConfig).limit(1);
 
@@ -108,11 +109,21 @@ const configRouter = createTRPCRouter({
         patch.defaultSystemPrompt = input.defaultSystemPrompt;
       if (input.enabled !== undefined) patch.enabled = input.enabled;
 
+      // Metadata p/ audit: lista campos alterados SEM valores sensíveis.
+      const changedFields = Object.keys(input);
+
       if (existing) {
         await db
           .update(morpheuConfig)
           .set(patch)
           .where(eq(morpheuConfig.id, existing.id));
+        void logAudit({
+          ctx,
+          action: "SUPERADMIN_MORPHEU_CONFIG_UPDATE",
+          targetType: "morpheu_config",
+          targetId: existing.id,
+          metadata: { changedFields },
+        });
         return { id: existing.id, updated: true };
       }
 
@@ -134,6 +145,13 @@ const configRouter = createTRPCRouter({
         .insert(morpheuConfig)
         .values(patch as typeof morpheuConfig.$inferInsert)
         .returning();
+      void logAudit({
+        ctx,
+        action: "SUPERADMIN_MORPHEU_CONFIG_CREATE",
+        targetType: "morpheu_config",
+        targetId: created!.id,
+        metadata: { changedFields },
+      });
       return { id: created!.id, updated: false };
     }),
 

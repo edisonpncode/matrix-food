@@ -3,10 +3,21 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
+// Migração v1→v2: limpa chave órfã em localStorage de versões anteriores
+// que persistiam metadata (nome, e-mail, permissões) fora da aba.
+if (typeof window !== "undefined") {
+  try {
+    window.localStorage.removeItem("matrix-food-logged-users");
+  } catch {
+    // ignora (navegação privada com storage restrito)
+  }
+}
+
 /**
  * Representa um usuário que está "logado" neste dispositivo.
- * Essa lista é persistida em localStorage e permite troca rápida
- * entre operadores usando apenas o PIN.
+ * A lista é persistida em `sessionStorage` (escopo de aba) para permitir
+ * troca rápida entre operadores via PIN sem expor metadata (nome, e-mail,
+ * permissões) a um eventual XSS persistente no navegador.
  *
  * IMPORTANTE: Nunca armazenar senhas ou PINs aqui.
  */
@@ -128,8 +139,8 @@ export const useLoggedUsersStore = create<LoggedUsersState>()(
     }),
     {
       name: "matrix-food-logged-users",
-      storage: createJSONStorage(() => localStorage),
-      version: 1,
+      storage: createJSONStorage(() => sessionStorage),
+      version: 2,
     }
   )
 );

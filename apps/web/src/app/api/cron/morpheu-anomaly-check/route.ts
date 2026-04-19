@@ -27,6 +27,7 @@ import {
   emitMorpheuEvent,
   getTenantName,
 } from "@matrix-food/api/services/morpheu";
+import { isAuthorizedBearer } from "@/lib/bearer-auth";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -116,8 +117,7 @@ async function handle(req: Request) {
       { status: 500 }
     );
   }
-  const auth = req.headers.get("authorization");
-  if (auth !== `Bearer ${secret}`) {
+  if (!isAuthorizedBearer(req.headers.get("authorization"), secret)) {
     return new NextResponse("Unauthorized", { status: 401 });
   }
 
