@@ -6,6 +6,7 @@ import { getTokens } from "next-firebase-auth-edge";
 import { cookies } from "next/headers";
 import { authConfig } from "@matrix-food/auth";
 import { parseCustomerSessionCookie } from "@/lib/customer-session";
+import { parseStaffSessionCookie } from "@/lib/staff-session";
 import { getDb, tenantUsers, eq, and } from "@matrix-food/database";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
@@ -83,13 +84,16 @@ async function createContext(req: Request): Promise<TRPCContext> {
     return { user: null, tenantId: null, customer, ip };
   }
 
-  // Painel restaurante / POS — em produção exigem cookie Firebase válido E
-  // vínculo ativo em tenant_users. Em dev o atalho hardcoded é mantido para
-  // não quebrar o fluxo local (sem Firebase real).
+  // Painel restaurante / POS — em produção exigem identidade real:
+  //   1) cookie Firebase válido + vínculo ativo em tenant_users (dono/admin), OU
+  //   2) cookie HMAC de sessão staff (login direto por email+senha).
+  // Em dev, mantemos o atalho hardcoded para não quebrar fluxo local sem
+  // Firebase real.
   const isRestauranteAdmin = pathname.startsWith("/restaurante/admin");
   const isRestaurantePos = pathname.startsWith("/restaurante/pos");
   if (isRestauranteAdmin || isRestaurantePos) {
     if (IS_PRODUCTION) {
+      // 1) Firebase tem precedência (dono autenticado).
       try {
         const tokens = await getTokens(await cookies(), {
           apiKey: authConfig.apiKey,
@@ -98,29 +102,45 @@ async function createContext(req: Request): Promise<TRPCContext> {
           serviceAccount: authConfig.serviceAccount,
         });
         const decoded = tokens?.decodedToken;
-        if (!decoded?.uid) {
-          return { user: null, tenantId: null, customer, ip };
+        if (decoded?.uid) {
+          const link = await resolveTenantUser(decoded.uid);
+          if (link) {
+            return {
+              user: {
+                uid: decoded.uid,
+                email: decoded.email ?? null,
+                name: decoded.name ?? null,
+                tenantId: link.tenantId,
+                role: link.role,
+              },
+              tenantId: link.tenantId,
+              customer,
+              ip,
+            };
+          }
         }
-        const link = await resolveTenantUser(decoded.uid);
-        if (!link) {
-          return { user: null, tenantId: null, customer, ip };
-        }
+      } catch (err) {
+        console.error("Falha ao validar sessão Firebase de restaurante:", err);
+      }
+
+      // 2) Fallback: sessão HMAC de funcionário.
+      const staff = parseStaffSessionCookie(req.headers.get("cookie"));
+      if (staff) {
         return {
           user: {
-            uid: decoded.uid,
-            email: decoded.email ?? null,
-            name: decoded.name ?? null,
-            tenantId: link.tenantId,
-            role: link.role,
+            uid: `staff:${staff.staffId}`,
+            email: null,
+            name: null,
+            tenantId: staff.tenantId,
+            role: staff.role,
           },
-          tenantId: link.tenantId,
+          tenantId: staff.tenantId,
           customer,
           ip,
         };
-      } catch (err) {
-        console.error("Falha ao validar sessão de restaurante:", err);
-        return { user: null, tenantId: null, customer, ip };
       }
+
+      return { user: null, tenantId: null, customer, ip };
     }
 
     // Dev only — atalho para desenvolvimento local sem Firebase.

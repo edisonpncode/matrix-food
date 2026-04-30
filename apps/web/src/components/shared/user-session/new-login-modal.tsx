@@ -18,7 +18,7 @@ type Step = "EMAIL" | "ADMIN_PASSWORD" | "STAFF_PASSWORD";
  * Fluxo:
  * 1) Digita email → sistema detecta (admin vs funcionário) via trpc.staff.checkEmail
  * 2a) Se admin → pede senha do Firebase (signInWithEmailAndPassword)
- * 2b) Se funcionário → pede senha forte local (trpc.staff.loginByEmailPassword)
+ * 2b) Se funcionário → pede senha forte local (POST /api/staff/login)
  * 3) Adiciona usuário à lista de logados e define como ativo
  */
 export function NewLoginModal({ onClose, onSuccess }: NewLoginModalProps) {
@@ -31,27 +31,38 @@ export function NewLoginModal({ onClose, onSuccess }: NewLoginModalProps) {
   const addUser = useLoggedUsersStore((s) => s.addUser);
   const utils = trpc.useUtils();
 
-  const loginStaff = trpc.staff.loginByEmailPassword.useMutation({
-    onSuccess: (data) => {
-      addUser({
-        id: data.id,
-        name: data.name,
-        email: data.email ?? null,
-        photoUrl: data.photoUrl ?? null,
-        role: data.role,
-        userTypeId: data.userTypeId ?? null,
-        userTypeName: data.userTypeName ?? null,
-        permissions: data.permissions ?? {},
-        kind: "staff",
-      });
-      setLoading(false);
-      onSuccess();
-    },
-    onError: (err) => {
-      setError(err.message || "Email ou senha inválidos.");
-      setLoading(false);
-    },
-  });
+  async function loginStaffViaApi(email: string, password: string) {
+    const res = await fetch("/api/staff/login", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    const data = (await res.json().catch(() => ({}))) as {
+      id?: string;
+      name?: string;
+      email?: string | null;
+      photoUrl?: string | null;
+      role?: "OWNER" | "MANAGER" | "CASHIER" | "DELIVERY";
+      userTypeId?: string | null;
+      userTypeName?: string | null;
+      permissions?: Record<string, boolean>;
+      error?: string;
+    };
+    if (!res.ok || !data.id || !data.name || !data.role) {
+      throw new Error(data.error || "Email ou senha inválidos.");
+    }
+    addUser({
+      id: data.id,
+      name: data.name,
+      email: data.email ?? null,
+      photoUrl: data.photoUrl ?? null,
+      role: data.role,
+      userTypeId: data.userTypeId ?? null,
+      userTypeName: data.userTypeName ?? null,
+      permissions: data.permissions ?? {},
+      kind: "staff",
+    });
+  }
 
   async function handleEmailSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -159,11 +170,20 @@ export function NewLoginModal({ onClose, onSuccess }: NewLoginModalProps) {
     }
   }
 
-  function handleStaffPasswordSubmit(e: React.FormEvent) {
+  async function handleStaffPasswordSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setLoading(true);
-    loginStaff.mutate({ email, password });
+    try {
+      await loginStaffViaApi(email, password);
+      setLoading(false);
+      onSuccess();
+    } catch (err: unknown) {
+      setError(
+        err instanceof Error ? err.message : "Email ou senha inválidos."
+      );
+      setLoading(false);
+    }
   }
 
   function backToEmail() {
