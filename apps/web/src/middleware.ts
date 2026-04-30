@@ -38,17 +38,52 @@ function redirectToRestauranteLogin(request: NextRequest) {
 }
 
 /**
- * Há um caminho alternativo de autenticação para staff via cookie HMAC
- * (`mf-staff-session`, criado em /api/staff/login). Se ele estiver presente,
- * deixamos a request seguir — a validação real acontece no createContext
- * do tRPC. Não verificamos a assinatura aqui porque o middleware roda em
- * edge runtime e o verify usa node:crypto.
+ * Caminho alternativo de autenticação para staff via cookie HMAC
+ * (`mf-staff-session`, criado em /api/staff/login). Não verificamos a
+ * assinatura aqui porque o middleware roda em edge runtime e o verify
+ * usa node:crypto. Validação real acontece no createContext do tRPC.
  */
 function hasStaffSessionCookie(request: NextRequest): boolean {
   return Boolean(request.cookies.get(STAFF_COOKIE_NAME)?.value);
 }
 
+/**
+ * `next-firebase-auth-edge` 1.12 usa múltiplos cookies com prefixo
+ * `cookieName` (`.id`, `.refresh`, `.sig`, etc). Quem está logado sempre
+ * tem o `.id`. Verificamos só presença — a assinatura é validada pelo
+ * próprio auth-edge dentro do authMiddleware.
+ */
+function hasFirebaseAuthCookie(request: NextRequest): boolean {
+  return Boolean(request.cookies.get(`${authConfig.cookieName}.id`)?.value);
+}
+
+/**
+ * Em dev local, o tRPC createContext tem atalhos hardcoded que dão
+ * usuário fake quando `DEV_TENANT_ID` está setado. Nesse caso não
+ * redirecionamos — preserva o fluxo de desenvolvimento sem precisar
+ * de Firebase real.
+ */
+function shouldEnforceRestauranteAuth(): boolean {
+  return !process.env.DEV_TENANT_ID;
+}
+
 export async function middleware(request: NextRequest) {
+  const pathname = request.nextUrl.pathname;
+
+  // Fast-path: usuário sem nenhum cookie de auth tentando acessar
+  // /restaurante/admin ou /restaurante/pos é redirecionado para login.
+  // Roda ANTES do authMiddleware do auth-edge para garantir que sempre
+  // dispara, independente de quirks do flow interno (timing de
+  // handleInvalidToken, validação de service account, etc).
+  if (
+    needsRestauranteAuth(pathname) &&
+    shouldEnforceRestauranteAuth() &&
+    !hasFirebaseAuthCookie(request) &&
+    !hasStaffSessionCookie(request)
+  ) {
+    return redirectToRestauranteLogin(request);
+  }
+
   return authMiddleware(request, {
     loginPath: "/api/login",
     logoutPath: "/api/logout",
@@ -58,9 +93,9 @@ export async function middleware(request: NextRequest) {
     cookieSerializeOptions: authConfig.cookieSerializeOptions,
     serviceAccount: authConfig.serviceAccount,
     handleValidToken: async ({ decodedToken }, headers) => {
-      const pathname = request.nextUrl.pathname;
+      const path = request.nextUrl.pathname;
 
-      if (needsSuperadmin(pathname)) {
+      if (needsSuperadmin(path)) {
         const email = (decodedToken.email ?? "").toLowerCase();
         try {
           const allowed = getSuperadminAllowlist();
@@ -77,34 +112,19 @@ export async function middleware(request: NextRequest) {
       return NextResponse.next({ request: { headers } });
     },
     handleInvalidToken: async () => {
-      const pathname = request.nextUrl.pathname;
-      if (needsSuperadmin(pathname)) {
+      const path = request.nextUrl.pathname;
+      if (needsSuperadmin(path)) {
         return redirectToLoginPage(request);
       }
-      // Em produção, painel/POS exigem identidade real. Em dev mantemos o
-      // atalho hardcoded do tRPC createContext, então não redirecionamos.
-      if (
-        process.env.NODE_ENV === "production" &&
-        needsRestauranteAuth(pathname) &&
-        !hasStaffSessionCookie(request)
-      ) {
-        return redirectToRestauranteLogin(request);
-      }
+      // Restaurante já tratado pelo fast-path acima — aqui só passamos.
       return NextResponse.next();
     },
     handleError: async (error) => {
       const msg = error instanceof Error ? error.message : "unknown";
       console.error("middleware auth error:", msg);
-      const pathname = request.nextUrl.pathname;
-      if (needsSuperadmin(pathname)) {
+      const path = request.nextUrl.pathname;
+      if (needsSuperadmin(path)) {
         return redirectToLoginPage(request);
-      }
-      if (
-        process.env.NODE_ENV === "production" &&
-        needsRestauranteAuth(pathname) &&
-        !hasStaffSessionCookie(request)
-      ) {
-        return redirectToRestauranteLogin(request);
       }
       return NextResponse.next();
     },
@@ -113,8 +133,11 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
+    "/admin",
     "/admin/:path*",
+    "/restaurante/admin",
     "/restaurante/admin/:path*",
+    "/restaurante/pos",
     "/restaurante/pos/:path*",
     "/api/login",
     "/api/logout",
