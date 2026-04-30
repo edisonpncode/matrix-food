@@ -5,6 +5,7 @@ import { Gift, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
 import { useCustomerAuth } from "@/lib/customer-auth-context";
+import { usePointsAvailable } from "@/lib/use-points-available";
 import { QuantitySelector } from "./quantity-selector";
 import { formatCurrency } from "@matrix-food/utils";
 
@@ -21,20 +22,12 @@ export function ProductDetailModal({
 }: ProductDetailModalProps) {
   const addItem = useCartStore((s) => s.addItem);
   const { customer } = useCustomerAuth();
+  const points = usePointsAvailable(tenantId);
 
   const { data: product, isLoading } = trpc.product.getPublic.useQuery({
     id: productId,
     tenantId,
   });
-
-  const { data: loyaltyCfg } = trpc.loyalty.getPublicConfig.useQuery(
-    { tenantId },
-    { enabled: !!tenantId }
-  );
-  const { data: balanceData } = trpc.loyalty.getBalance.useQuery(
-    { tenantId, customerPhone: customer?.phone ?? "" },
-    { enabled: !!loyaltyCfg && !!customer?.phone }
-  );
 
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
     null
@@ -79,8 +72,7 @@ export function ProductDetailModal({
   const pointsPriceForActive = activeVariant
     ? activeVariant.pointsPrice
     : product.pointsPrice;
-  const acceptsPoints = !!loyaltyCfg && pointsPriceForActive != null && pointsPriceForActive > 0;
-  const pointsUnitCost = acceptsPoints && payWithPoints ? pointsPriceForActive! : 0;
+  const acceptsPoints = points.enabled && pointsPriceForActive != null && pointsPriceForActive > 0;
   const isPointsOnly = acceptsPoints && basePrice <= 0;
 
   // Se o item é só-pontos, força payWithPoints
@@ -103,13 +95,14 @@ export function ProductDetailModal({
     ? (pointsPriceForActive ?? 0) * quantity
     : 0;
 
-  const balance = balanceData?.balance ?? 0;
-  const pointsName = loyaltyCfg?.pointsName ?? "Pontos";
+  const balance = points.balance;
+  const available = points.available;
+  const pointsName = points.pointsName;
   const insufficientPoints =
-    effectivePayWithPoints && customer?.phone
-      ? balance < totalPointsCost
+    effectivePayWithPoints && points.hasCustomer
+      ? available < totalPointsCost
       : false;
-  const needsLoginForPoints = effectivePayWithPoints && !customer?.phone;
+  const needsLoginForPoints = effectivePayWithPoints && !points.hasCustomer;
 
   function toggleOption(groupId: string, optionId: string, maxSelections: number) {
     setSelectedOptions((prev) => {
@@ -352,11 +345,19 @@ export function ProductDetailModal({
                   </label>
                 )}
               </div>
-              {effectivePayWithPoints && customer?.phone && (
+              {effectivePayWithPoints && points.hasCustomer && (
                 <p className="mt-2 text-xs text-amber-700">
-                  Saldo atual: <span className="font-semibold">{balance} {pointsName}</span>
+                  Saldo: <span className="font-semibold">{balance} {pointsName}</span>
+                  {points.reserved > 0 && (
+                    <>
+                      {" "}· Disponível (após reservas no carrinho):{" "}
+                      <span className="font-semibold">
+                        {available} {pointsName}
+                      </span>
+                    </>
+                  )}
                   {totalPointsCost > 0 &&
-                    ` · Após este pedido: ${Math.max(0, balance - totalPointsCost)} ${pointsName}`}
+                    ` · Após este pedido: ${Math.max(0, available - totalPointsCost)} ${pointsName}`}
                 </p>
               )}
               {needsLoginForPoints && (
@@ -396,7 +397,7 @@ export function ProductDetailModal({
             >
               {effectivePayWithPoints
                 ? insufficientPoints
-                  ? `Faltam ${totalPointsCost - balance} ${pointsName}`
+                  ? `Faltam ${totalPointsCost - available} ${pointsName}`
                   : needsLoginForPoints
                     ? "Faça login para resgatar"
                     : `Resgatar ${totalPointsCost} ${pointsName}${customizationsPrice > 0 ? ` + ${formatCurrency(totalPrice)}` : ""}`

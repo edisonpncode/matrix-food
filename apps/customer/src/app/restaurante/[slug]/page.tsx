@@ -109,6 +109,7 @@ export default function RestaurantPage({ params }: PageProps) {
               <ProductCard
                 key={product.id}
                 product={product}
+                tenantId={tenant?.id ?? ""}
                 onClick={() => setSelectedProductId(product.id)}
               />
             ))}

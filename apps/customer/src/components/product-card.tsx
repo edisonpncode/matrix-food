@@ -2,6 +2,7 @@
 
 import { Gift } from "lucide-react";
 import { formatCurrency } from "@matrix-food/utils";
+import { usePointsAvailable } from "@/lib/use-points-available";
 
 interface ProductVariant {
   id: string;
@@ -25,10 +26,13 @@ interface Product {
 
 interface ProductCardProps {
   product: Product;
+  tenantId: string;
   onClick: () => void;
 }
 
-export function ProductCard({ product, onClick }: ProductCardProps) {
+export function ProductCard({ product, tenantId, onClick }: ProductCardProps) {
+  const points = usePointsAvailable(tenantId);
+
   // Determinar preço a exibir
   const displayPrice = product.hasVariants && product.variants.length > 0
     ? parseFloat(product.variants[0]!.price)
@@ -36,11 +40,26 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
 
   const hasFromPrice = product.hasVariants && product.variants.length > 1;
 
-  // Detectar se produto aceita resgate por pontos
-  const hasPointsPrice =
-    (product.pointsPrice != null && product.pointsPrice > 0) ||
-    product.variants.some((v) => v.pointsPrice != null && v.pointsPrice > 0);
+  // Detectar se produto aceita resgate por pontos e qual o menor pointsPrice (a partir de)
+  const variantPoints = product.variants
+    .map((v) => v.pointsPrice)
+    .filter((p): p is number => p != null && p > 0);
+
+  const minPointsPrice =
+    variantPoints.length > 0
+      ? Math.min(...variantPoints)
+      : product.pointsPrice ?? null;
+
+  const hasPointsPrice = minPointsPrice != null && minPointsPrice > 0;
   const isPointsOnly = hasPointsPrice && displayPrice <= 0;
+  const hasFromPoints = variantPoints.length > 1;
+
+  // Saldo insuficiente para o menor custo (só aplica se cliente está identificado)
+  const insufficient =
+    points.enabled &&
+    points.hasCustomer &&
+    hasPointsPrice &&
+    minPointsPrice! > points.available;
 
   return (
     <button
@@ -71,7 +90,7 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
           )}
         </div>
 
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
           {product.originalPrice && (
             <span className="text-xs text-gray-400 line-through">
               {formatCurrency(parseFloat(product.originalPrice))}
@@ -83,12 +102,30 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
               {formatCurrency(displayPrice)}
             </span>
           )}
-          {isPointsOnly && (
-            <span className="text-sm font-semibold text-amber-600">
-              Apenas resgate
+          {hasPointsPrice && (
+            <span
+              className={`inline-flex items-center gap-1 text-sm font-semibold ${
+                insufficient
+                  ? "text-gray-400 line-through decoration-1"
+                  : "text-amber-600"
+              }`}
+              title={
+                insufficient
+                  ? `Saldo insuficiente (você tem ${points.available} ${points.pointsName})`
+                  : undefined
+              }
+            >
+              <Gift className="h-3.5 w-3.5" />
+              {hasFromPoints && "a partir de "}
+              {minPointsPrice} Pts
             </span>
           )}
         </div>
+        {isPointsOnly && insufficient && (
+          <p className="mt-1 text-xs text-gray-500">
+            Faltam {minPointsPrice! - points.available} {points.pointsName} para resgatar
+          </p>
+        )}
       </div>
 
       {/* Image */}
