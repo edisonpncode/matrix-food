@@ -1,10 +1,14 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "@matrix-food/api";
 import type { TRPCContext } from "@matrix-food/api";
+import type { UserRole } from "@matrix-food/auth";
 import { getTokens } from "next-firebase-auth-edge";
 import { cookies } from "next/headers";
 import { authConfig } from "@matrix-food/auth";
 import { parseCustomerSessionCookie } from "@/lib/customer-session";
+import { getDb, tenantUsers, eq, and } from "@matrix-food/database";
+
+const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 /** Extrai o IP do cliente de headers de proxy (best-effort). */
 function extractIp(req: Request): string | null {
@@ -14,6 +18,26 @@ function extractIp(req: Request): string | null {
     if (first) return first;
   }
   return req.headers.get("x-real-ip");
+}
+
+/**
+ * Resolve o vínculo tenant/role do usuário Firebase via `tenant_users`.
+ * Filtra por uid e por isActive=true para impedir acesso de funcionário desligado.
+ */
+async function resolveTenantUser(
+  uid: string
+): Promise<{ tenantId: string; role: UserRole } | null> {
+  const rows = await getDb()
+    .select({
+      tenantId: tenantUsers.tenantId,
+      role: tenantUsers.role,
+    })
+    .from(tenantUsers)
+    .where(
+      and(eq(tenantUsers.firebaseUid, uid), eq(tenantUsers.isActive, true))
+    )
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 async function createContext(req: Request): Promise<TRPCContext> {
@@ -59,24 +83,61 @@ async function createContext(req: Request): Promise<TRPCContext> {
     return { user: null, tenantId: null, customer, ip };
   }
 
-  // Admin routes - role OWNER
-  if (pathname.startsWith("/restaurante/admin")) {
-    return {
-      user: {
-        uid: "dev-admin",
-        email: "admin@dev.local",
-        name: "Dev Admin",
-        tenantId: process.env.DEV_TENANT_ID ?? null,
-        role: "OWNER",
-      },
-      tenantId: process.env.DEV_TENANT_ID ?? null,
-      customer,
-      ip,
-    };
-  }
+  // Painel restaurante / POS — em produção exigem cookie Firebase válido E
+  // vínculo ativo em tenant_users. Em dev o atalho hardcoded é mantido para
+  // não quebrar o fluxo local (sem Firebase real).
+  const isRestauranteAdmin = pathname.startsWith("/restaurante/admin");
+  const isRestaurantePos = pathname.startsWith("/restaurante/pos");
+  if (isRestauranteAdmin || isRestaurantePos) {
+    if (IS_PRODUCTION) {
+      try {
+        const tokens = await getTokens(await cookies(), {
+          apiKey: authConfig.apiKey,
+          cookieName: authConfig.cookieName,
+          cookieSignatureKeys: authConfig.cookieSignatureKeys,
+          serviceAccount: authConfig.serviceAccount,
+        });
+        const decoded = tokens?.decodedToken;
+        if (!decoded?.uid) {
+          return { user: null, tenantId: null, customer, ip };
+        }
+        const link = await resolveTenantUser(decoded.uid);
+        if (!link) {
+          return { user: null, tenantId: null, customer, ip };
+        }
+        return {
+          user: {
+            uid: decoded.uid,
+            email: decoded.email ?? null,
+            name: decoded.name ?? null,
+            tenantId: link.tenantId,
+            role: link.role,
+          },
+          tenantId: link.tenantId,
+          customer,
+          ip,
+        };
+      } catch (err) {
+        console.error("Falha ao validar sessão de restaurante:", err);
+        return { user: null, tenantId: null, customer, ip };
+      }
+    }
 
-  // POS/Employee routes - role CASHIER
-  if (pathname.startsWith("/restaurante/pos")) {
+    // Dev only — atalho para desenvolvimento local sem Firebase.
+    if (isRestauranteAdmin) {
+      return {
+        user: {
+          uid: "dev-admin",
+          email: "admin@dev.local",
+          name: "Dev Admin",
+          tenantId: process.env.DEV_TENANT_ID ?? null,
+          role: "OWNER",
+        },
+        tenantId: process.env.DEV_TENANT_ID ?? null,
+        customer,
+        ip,
+      };
+    }
     return {
       user: {
         uid: "dev-employee",

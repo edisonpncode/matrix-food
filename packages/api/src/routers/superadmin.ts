@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "../trpc";
+import { createTRPCRouter, superadminProcedure } from "../trpc";
 import {
   getDb,
   tenants,
@@ -12,7 +12,7 @@ import {
 
 export const superadminRouter = createTRPCRouter({
   /** Listar todos os restaurantes */
-  listTenants: protectedProcedure.query(async () => {
+  listTenants: superadminProcedure.query(async () => {
     const db = getDb();
 
     const tenantList = await db
@@ -60,7 +60,7 @@ export const superadminRouter = createTRPCRouter({
   }),
 
   /** Toggle ativar/desativar restaurante */
-  toggleTenant: protectedProcedure
+  toggleTenant: superadminProcedure
     .input(
       z.object({
         tenantId: z.string().uuid(),
@@ -77,7 +77,7 @@ export const superadminRouter = createTRPCRouter({
     }),
 
   /** Dashboard geral da Matrix Food */
-  globalStats: protectedProcedure.query(async () => {
+  globalStats: superadminProcedure.query(async () => {
     const db = getDb();
 
     // Total de restaurantes

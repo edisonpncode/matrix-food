@@ -150,12 +150,26 @@ const enforceSuperAdmin = t.middleware(({ ctx, next }) => {
     });
   }
 
-  const allowlist = (process.env.SUPERADMIN_EMAILS ?? "")
+  const rawAllowlist = process.env.SUPERADMIN_EMAILS ?? "";
+  const allowlist = rawAllowlist
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
 
-  const isDevSuperadmin = user.uid === "dev-superadmin";
+  // Fail-closed em produção: se a env não está configurada, recusa qualquer
+  // acesso em vez de cair em allowlist vazia silenciosa.
+  if (allowlist.length === 0 && process.env.NODE_ENV === "production") {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Painel superadmin indisponível: SUPERADMIN_EMAILS não configurada.",
+    });
+  }
+
+  // Atalho dev-only: o uid sintético "dev-superadmin" usado pelo apps/superadmin
+  // local NUNCA pode ser aceito em produção.
+  const isDevSuperadmin =
+    user.uid === "dev-superadmin" && process.env.NODE_ENV !== "production";
   const isAllowlisted =
     !!user.email && allowlist.includes(user.email.toLowerCase());
 

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import {
   createTRPCRouter,
-  protectedProcedure,
+  superadminProcedure,
   tenantProcedure,
 } from "../trpc";
 import {
@@ -23,7 +23,7 @@ export const billingRouter = createTRPCRouter({
   // ================================
 
   /** Listar todos os planos */
-  listPlans: protectedProcedure.query(async () => {
+  listPlans: superadminProcedure.query(async () => {
     return getDb()
       .select()
       .from(billingPlans)
@@ -31,7 +31,7 @@ export const billingRouter = createTRPCRouter({
   }),
 
   /** Criar plano */
-  createPlan: protectedProcedure
+  createPlan: superadminProcedure
     .input(
       z.object({
         name: z.string().min(1),
@@ -71,7 +71,7 @@ export const billingRouter = createTRPCRouter({
     }),
 
   /** Atualizar plano */
-  updatePlan: protectedProcedure
+  updatePlan: superadminProcedure
     .input(
       z.object({
         id: z.string().uuid(),
@@ -123,7 +123,7 @@ export const billingRouter = createTRPCRouter({
   // ================================
 
   /** Atribuir plano a um restaurante */
-  assignPlan: protectedProcedure
+  assignPlan: superadminProcedure
     .input(
       z.object({
         tenantId: z.string().uuid(),
@@ -167,7 +167,7 @@ export const billingRouter = createTRPCRouter({
   // ================================
 
   /** Gerar cobranças do mês anterior para todos os tenants */
-  generateMonthly: protectedProcedure.mutation(async () => {
+  generateMonthly: superadminProcedure.mutation(async () => {
     const db = getDb();
 
     // Mês anterior
@@ -251,7 +251,7 @@ export const billingRouter = createTRPCRouter({
   }),
 
   /** Listar cobranças (com filtros) */
-  listRecords: protectedProcedure
+  listRecords: superadminProcedure
     .input(
       z.object({
         tenantId: z.string().uuid().optional(),
@@ -284,7 +284,7 @@ export const billingRouter = createTRPCRouter({
     }),
 
   /** Marcar cobrança como paga */
-  markAsPaid: protectedProcedure
+  markAsPaid: superadminProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ input }) => {
       const [updated] = await getDb()

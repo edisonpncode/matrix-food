@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { authMiddleware } from "next-firebase-auth-edge";
 import { authConfig } from "@matrix-food/auth";
+import { getSuperadminAllowlist } from "@/lib/superadmin-allowlist";
 
 const SUPERADMIN_LOGIN = "/admin/login";
-
-function getAllowedEmails(): string[] {
-  return (process.env.SUPERADMIN_EMAILS ?? "")
-    .split(",")
-    .map((e) => e.trim().toLowerCase())
-    .filter(Boolean);
-}
 
 function needsSuperadmin(pathname: string): boolean {
   return pathname.startsWith("/admin") && pathname !== SUPERADMIN_LOGIN;
@@ -39,8 +33,14 @@ export async function middleware(request: NextRequest) {
 
       if (needsSuperadmin(pathname)) {
         const email = (decodedToken.email ?? "").toLowerCase();
-        const allowed = getAllowedEmails();
-        if (!email || !allowed.includes(email)) {
+        try {
+          const allowed = getSuperadminAllowlist();
+          if (!email || !allowed.includes(email)) {
+            return redirectToLoginPage(request, { forbidden: true });
+          }
+        } catch (err) {
+          // SUPERADMIN_EMAILS não configurada em produção → fail-closed.
+          console.error("middleware superadmin allowlist:", err);
           return redirectToLoginPage(request, { forbidden: true });
         }
       }
