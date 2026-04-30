@@ -1211,35 +1211,6 @@ export const loyaltyConfig = pgTable("loyalty_config", {
 });
 
 // ============================================
-// LOYALTY REWARDS (Recompensas resgatáveis)
-// ============================================
-
-export const loyaltyRewards = pgTable("loyalty_rewards", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  /** Nome da recompensa (ex: "Desconto de R$10", "Refrigerante grátis") */
-  name: varchar("name", { length: 255 }).notNull(),
-  description: varchar("description", { length: 500 }),
-  /** Custo em pontos para resgatar */
-  pointsCost: integer("points_cost").notNull(),
-  /** Valor do desconto em R$ que a recompensa dá */
-  discountValue: decimal("discount_value", { precision: 10, scale: 2 }).notNull(),
-  /** Limite total de resgates (null = ilimitado) */
-  maxRedemptions: integer("max_redemptions"),
-  /** Quantas vezes já foi resgatada */
-  totalRedemptions: integer("total_redemptions").notNull().default(0),
-  sortOrder: integer("sort_order").notNull().default(0),
-  isActive: boolean("is_active").notNull().default(true),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-  updatedAt: timestamp("updated_at")
-    .notNull()
-    .defaultNow()
-    .$onUpdate(() => new Date()),
-});
-
-// ============================================
 // LOYALTY TRANSACTIONS (Histórico de pontos)
 // ============================================
 
@@ -1259,10 +1230,6 @@ export const loyaltyTransactions = pgTable(
     description: varchar("description", { length: 500 }),
     /** Referência ao pedido (se ganho por pedido) */
     orderId: uuid("order_id").references(() => orders.id, {
-      onDelete: "set null",
-    }),
-    /** Referência à recompensa (se resgate) */
-    rewardId: uuid("reward_id").references(() => loyaltyRewards.id, {
       onDelete: "set null",
     }),
     createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -1926,16 +1893,6 @@ export const loyaltyConfigRelations = relations(loyaltyConfig, ({ one }) => ({
   }),
 }));
 
-export const loyaltyRewardsRelations = relations(
-  loyaltyRewards,
-  ({ one }) => ({
-    tenant: one(tenants, {
-      fields: [loyaltyRewards.tenantId],
-      references: [tenants.id],
-    }),
-  })
-);
-
 export const loyaltyTransactionsRelations = relations(
   loyaltyTransactions,
   ({ one }) => ({
@@ -1946,10 +1903,6 @@ export const loyaltyTransactionsRelations = relations(
     order: one(orders, {
       fields: [loyaltyTransactions.orderId],
       references: [orders.id],
-    }),
-    reward: one(loyaltyRewards, {
-      fields: [loyaltyTransactions.rewardId],
-      references: [loyaltyRewards.id],
     }),
   })
 );

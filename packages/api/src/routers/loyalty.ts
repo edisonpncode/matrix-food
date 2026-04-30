@@ -1,10 +1,8 @@
 import { z } from "zod";
-import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, publicProcedure, tenantProcedure } from "../trpc";
 import {
   getDb,
   loyaltyConfig,
-  loyaltyRewards,
   loyaltyTransactions,
   customers,
   customerTenants,
@@ -13,7 +11,6 @@ import {
   desc,
   sql,
 } from "@matrix-food/database";
-import { rateLimit } from "../lib/rate-limit";
 
 export const loyaltyRouter = createTRPCRouter({
   // ============================================
@@ -83,114 +80,6 @@ export const loyaltyRouter = createTRPCRouter({
     }),
 
   // ============================================
-  // REWARDS (Admin CRUD)
-  // ============================================
-
-  /** Listar recompensas do restaurante */
-  listRewards: tenantProcedure.query(async ({ ctx }) => {
-    const db = getDb();
-    return db
-      .select()
-      .from(loyaltyRewards)
-      .where(eq(loyaltyRewards.tenantId, ctx.tenantId))
-      .orderBy(loyaltyRewards.sortOrder);
-  }),
-
-  /** Criar recompensa */
-  createReward: tenantProcedure
-    .input(
-      z.object({
-        name: z.string().min(1).max(255),
-        description: z.string().max(500).optional(),
-        pointsCost: z.number().int().min(1),
-        discountValue: z.string(),
-        maxRedemptions: z.number().int().min(1).nullable().optional(),
-        sortOrder: z.number().int().default(0),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const [reward] = await getDb()
-        .insert(loyaltyRewards)
-        .values({
-          tenantId: ctx.tenantId,
-          name: input.name,
-          description: input.description,
-          pointsCost: input.pointsCost,
-          discountValue: input.discountValue,
-          maxRedemptions: input.maxRedemptions ?? null,
-          sortOrder: input.sortOrder,
-        })
-        .returning();
-      return reward;
-    }),
-
-  /** Atualizar recompensa */
-  updateReward: tenantProcedure
-    .input(
-      z.object({
-        id: z.string().uuid(),
-        name: z.string().min(1).max(255),
-        description: z.string().max(500).optional(),
-        pointsCost: z.number().int().min(1),
-        discountValue: z.string(),
-        maxRedemptions: z.number().int().min(1).nullable().optional(),
-        sortOrder: z.number().int().default(0),
-        isActive: z.boolean().default(true),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      const [updated] = await getDb()
-        .update(loyaltyRewards)
-        .set({
-          name: input.name,
-          description: input.description,
-          pointsCost: input.pointsCost,
-          discountValue: input.discountValue,
-          maxRedemptions: input.maxRedemptions ?? null,
-          sortOrder: input.sortOrder,
-          isActive: input.isActive,
-        })
-        .where(
-          and(
-            eq(loyaltyRewards.id, input.id),
-            eq(loyaltyRewards.tenantId, ctx.tenantId)
-          )
-        )
-        .returning();
-
-      if (!updated) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Recompensa não encontrada",
-        });
-      }
-      return updated;
-    }),
-
-  /** Excluir recompensa */
-  deleteReward: tenantProcedure
-    .input(z.object({ id: z.string().uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const [deleted] = await getDb()
-        .delete(loyaltyRewards)
-        .where(
-          and(
-            eq(loyaltyRewards.id, input.id),
-            eq(loyaltyRewards.tenantId, ctx.tenantId)
-          )
-        )
-        .returning();
-
-      if (!deleted) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Recompensa não encontrada",
-        });
-      }
-      return { success: true };
-    }),
-
-  // ============================================
   // CUSTOMER-FACING (Público)
   // ============================================
 
@@ -217,44 +106,6 @@ export const loyaltyRouter = createTRPCRouter({
         pointsName: config.pointsName,
         minOrderForPoints: config.minOrderForPoints,
       };
-    }),
-
-  /** Listar recompensas ativas do tenant (para o cliente ver) */
-  listPublicRewards: publicProcedure
-    .input(z.object({ tenantId: z.string().uuid() }))
-    .query(async ({ input }) => {
-      const db = getDb();
-
-      // Verificar se fidelidade está ativa
-      const [config] = await db
-        .select()
-        .from(loyaltyConfig)
-        .where(
-          and(
-            eq(loyaltyConfig.tenantId, input.tenantId),
-            eq(loyaltyConfig.isActive, true)
-          )
-        )
-        .limit(1);
-
-      if (!config) return [];
-
-      return db
-        .select({
-          id: loyaltyRewards.id,
-          name: loyaltyRewards.name,
-          description: loyaltyRewards.description,
-          pointsCost: loyaltyRewards.pointsCost,
-          discountValue: loyaltyRewards.discountValue,
-        })
-        .from(loyaltyRewards)
-        .where(
-          and(
-            eq(loyaltyRewards.tenantId, input.tenantId),
-            eq(loyaltyRewards.isActive, true)
-          )
-        )
-        .orderBy(loyaltyRewards.sortOrder);
     }),
 
   /** Consultar saldo de pontos do cliente (por telefone) */
@@ -331,150 +182,6 @@ export const loyaltyRouter = createTRPCRouter({
         balance,
         pointsName: config.pointsName,
         history,
-      };
-    }),
-
-  /** Resgatar recompensa (retorna desconto a ser aplicado no pedido) */
-  redeemReward: publicProcedure
-    .input(
-      z.object({
-        tenantId: z.string().uuid(),
-        customerPhone: z.string().min(1),
-        rewardId: z.string().uuid(),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      rateLimit(
-        "loyalty.redeemReward",
-        `${ctx.ip ?? ""}:${input.tenantId}:${input.customerPhone}`,
-        { limit: 10, windowMs: 60_000 }
-      );
-      const db = getDb();
-
-      // Verificar se fidelidade está ativa
-      const [config] = await db
-        .select()
-        .from(loyaltyConfig)
-        .where(
-          and(
-            eq(loyaltyConfig.tenantId, input.tenantId),
-            eq(loyaltyConfig.isActive, true)
-          )
-        )
-        .limit(1);
-
-      if (!config) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Sistema de fidelidade não está ativo",
-        });
-      }
-
-      // Buscar recompensa
-      const [reward] = await db
-        .select()
-        .from(loyaltyRewards)
-        .where(
-          and(
-            eq(loyaltyRewards.id, input.rewardId),
-            eq(loyaltyRewards.tenantId, input.tenantId),
-            eq(loyaltyRewards.isActive, true)
-          )
-        )
-        .limit(1);
-
-      if (!reward) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Recompensa não encontrada",
-        });
-      }
-
-      // Verificar limite de resgates
-      if (
-        reward.maxRedemptions &&
-        reward.totalRedemptions >= reward.maxRedemptions
-      ) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: "Recompensa esgotada",
-        });
-      }
-
-      // Localizar customer_tenant pelo telefone (se cliente registrado)
-      const [customerLink] = await db
-        .select({
-          ctId: customerTenants.id,
-          balance: customerTenants.loyaltyPointsBalance,
-        })
-        .from(customerTenants)
-        .innerJoin(customers, eq(customers.id, customerTenants.customerId))
-        .where(
-          and(
-            eq(customers.phone, input.customerPhone),
-            eq(customerTenants.tenantId, input.tenantId)
-          )
-        )
-        .limit(1);
-
-      // Verificar saldo (usa coluna materializada se cliente registrado, senão SUM)
-      let balance: number;
-      if (customerLink) {
-        balance = customerLink.balance;
-      } else {
-        const [result] = await db
-          .select({
-            totalPoints: sql<number>`COALESCE(SUM(${loyaltyTransactions.points}), 0)::int`,
-          })
-          .from(loyaltyTransactions)
-          .where(
-            and(
-              eq(loyaltyTransactions.tenantId, input.tenantId),
-              eq(loyaltyTransactions.customerPhone, input.customerPhone)
-            )
-          );
-        balance = result?.totalPoints ?? 0;
-      }
-
-      if (balance < reward.pointsCost) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message: `Saldo insuficiente. Você tem ${balance} ${config.pointsName}, mas precisa de ${reward.pointsCost}`,
-        });
-      }
-
-      // Registrar resgate (pontos negativos)
-      await db.insert(loyaltyTransactions).values({
-        tenantId: input.tenantId,
-        customerPhone: input.customerPhone,
-        type: "REDEEMED",
-        points: -reward.pointsCost,
-        description: `Resgate: ${reward.name}`,
-        rewardId: reward.id,
-      });
-
-      // Decrementar saldo materializado se cliente registrado
-      if (customerLink) {
-        await db
-          .update(customerTenants)
-          .set({
-            loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} - ${reward.pointsCost}`,
-          })
-          .where(eq(customerTenants.id, customerLink.ctId));
-      }
-
-      // Incrementar contador de resgates
-      await db
-        .update(loyaltyRewards)
-        .set({
-          totalRedemptions: sql`${loyaltyRewards.totalRedemptions} + 1`,
-        })
-        .where(eq(loyaltyRewards.id, reward.id));
-
-      return {
-        discountValue: reward.discountValue,
-        rewardName: reward.name,
-        newBalance: balance - reward.pointsCost,
       };
     }),
 

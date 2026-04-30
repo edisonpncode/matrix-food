@@ -15,6 +15,7 @@ import {
   and,
   asc,
   inArray,
+  sql,
 } from "@matrix-food/database";
 
 // --- Schemas de validação reutilizáveis ---
@@ -263,13 +264,15 @@ export const productRouter = createTRPCRouter({
    */
   listForPOS: tenantProcedure.query(async ({ ctx }) => {
     const db = getDb();
+    // Filtra produtos só-pontos (price = 0). POS só vende em R$.
     const items = await db
       .select()
       .from(products)
       .where(
         and(
           eq(products.tenantId, ctx.tenantId),
-          eq(products.isActivePOS, true)
+          eq(products.isActivePOS, true),
+          sql`${products.price}::numeric > 0`
         )
       )
       .orderBy(asc(products.sortOrder));

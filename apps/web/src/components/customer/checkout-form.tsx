@@ -84,10 +84,6 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
     discountAmount: number;
     description: string | null;
   } | null>(null);
-  const [appliedReward, setAppliedReward] = useState<{
-    name: string;
-    discount: number;
-  } | null>(null);
 
   // --- CEP auto-fill states ---
   const [cepLoading, setCepLoading] = useState(false);
@@ -211,8 +207,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
         : (tenant.deliverySettings?.deliveryFee ?? 0)
       : 0;
   const discount = appliedPromo?.discountAmount ?? 0;
-  const loyaltyDiscount = appliedReward?.discount ?? 0;
-  const total = subtotal + deliveryFee - discount - loyaltyDiscount;
+  const total = subtotal + deliveryFee - discount;
 
   const minOrder = tenant.deliverySettings?.minOrder ?? 0;
   const isBelowMinimum = minOrder > 0 && subtotal < minOrder;
@@ -296,8 +291,6 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
         changeFor: paymentMethod === "CASH" && changeFor ? changeFor : null,
         notes: notes || undefined,
         promoCode: appliedPromo?.code || undefined,
-        loyaltyRewardDiscount:
-          loyaltyDiscount > 0 ? loyaltyDiscount : undefined,
         items: items.map((item) => ({
           productId: item.productId,
           productVariantId: item.variantId,
@@ -705,11 +698,6 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
         <LoyaltySection
           tenantId={tenant.id}
           customerPhone={stripPhone(customerPhone)}
-          appliedReward={appliedReward}
-          onRewardApplied={(discount, rewardName) =>
-            setAppliedReward({ name: rewardName, discount })
-          }
-          onRewardRemoved={() => setAppliedReward(null)}
         />
 
         {/* Observacoes */}
@@ -760,12 +748,6 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
                 <div className="flex justify-between text-green-600">
                   <span>Desconto ({appliedPromo?.code})</span>
                   <span>-{formatCurrency(discount)}</span>
-                </div>
-              )}
-              {loyaltyDiscount > 0 && (
-                <div className="flex justify-between text-yellow-600">
-                  <span>Fidelidade ({appliedReward?.name})</span>
-                  <span>-{formatCurrency(loyaltyDiscount)}</span>
                 </div>
               )}
               <div className="mt-1 flex justify-between text-lg font-bold">

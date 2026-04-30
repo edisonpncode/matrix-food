@@ -309,7 +309,6 @@ export const orderRouter = createTRPCRouter({
         changeFor: z.string().nullable().optional(),
         notes: z.string().optional(),
         promoCode: z.string().optional(),
-        loyaltyRewardDiscount: z.number().optional(),
         items: z.array(orderItemInput).min(1),
       })
     )
@@ -605,19 +604,14 @@ export const orderRouter = createTRPCRouter({
         }
       }
 
-      // 5. Desconto de fidelidade (modelo antigo — recompensa)
-      const loyaltyDiscount = input.loyaltyRewardDiscount
-        ? Math.min(input.loyaltyRewardDiscount, subtotal - discount)
-        : 0;
-
       // Total de pontos a gastar (itens pagos com pontos)
       const pointsSpent = itemsWithPrices.reduce(
         (sum, item) => sum + item.pointsTotalCost,
         0
       );
 
-      // 6. Total em R$ (itens pagos com pontos têm unitPrice zero, então não entram aqui)
-      const total = subtotal + deliveryFee - discount - loyaltyDiscount;
+      // 5. Total em R$ (itens pagos com pontos têm unitPrice zero, então não entram aqui)
+      const total = subtotal + deliveryFee - discount;
 
       // 7. Calcular pontos de fidelidade a ganhar
       let loyaltyPointsEarned = 0;
@@ -795,7 +789,6 @@ export const orderRouter = createTRPCRouter({
           notes: input.notes,
           promotionId,
           loyaltyPointsEarned,
-          loyaltyDiscount: loyaltyDiscount.toFixed(2),
           pointsSpent,
         })
         .returning();
@@ -1158,6 +1151,45 @@ export const orderRouter = createTRPCRouter({
           return existing;
         }
 
+        // Estornar pontos de fidelidade gastos no pedido (idempotente)
+        if (existing.pointsSpent > 0) {
+          const [alreadyRefunded] = await db
+            .select({ id: loyaltyTransactions.id })
+            .from(loyaltyTransactions)
+            .where(
+              and(
+                eq(loyaltyTransactions.orderId, existing.id),
+                eq(loyaltyTransactions.type, "ADJUSTMENT")
+              )
+            )
+            .limit(1);
+
+          if (!alreadyRefunded) {
+            await db.insert(loyaltyTransactions).values({
+              tenantId: ctx.tenantId,
+              customerPhone: existing.customerPhone,
+              type: "ADJUSTMENT",
+              points: existing.pointsSpent,
+              description: `Estorno pedido ${existing.displayNumber} (cancelado)`,
+              orderId: existing.id,
+            });
+
+            if (existing.customerId) {
+              await db
+                .update(customerTenants)
+                .set({
+                  loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} + ${existing.pointsSpent}`,
+                })
+                .where(
+                  and(
+                    eq(customerTenants.customerId, existing.customerId),
+                    eq(customerTenants.tenantId, ctx.tenantId)
+                  )
+                );
+            }
+          }
+        }
+
         const wasPaid = existing.paymentStatus === "PAID";
 
         if (wasPaid) {
@@ -1253,22 +1285,27 @@ export const orderRouter = createTRPCRouter({
    */
   createFromPOS: tenantProcedure
     .input(
-      z.object({
-        type: z.enum(["DELIVERY", "PICKUP", "DINE_IN", "COUNTER", "TABLE"]),
-        tableNumber: z.number().int().min(1).optional(),
-        customerId: z.string().uuid().optional(),
-        customerName: z.string().default("Balcão"),
-        customerPhone: z.string().default(""),
-        cpf: z.string().max(14).optional(),
-        deliveryAddress: deliveryAddressInput.nullable().optional(),
-        deliveryAreaId: z.string().uuid().optional(),
-        manualDeliveryFee: z.string().optional(),
-        paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]).optional().default("CASH"),
-        changeFor: z.string().nullable().optional(),
-        notes: z.string().optional(),
-        promoCode: z.string().optional(),
-        items: z.array(orderItemInput).min(1),
-      })
+      z
+        .object({
+          type: z.enum(["DELIVERY", "PICKUP", "DINE_IN", "COUNTER", "TABLE"]),
+          tableNumber: z.number().int().min(1).optional(),
+          customerId: z.string().uuid().optional(),
+          customerName: z.string().default("Balcão"),
+          customerPhone: z.string().default(""),
+          cpf: z.string().max(14).optional(),
+          deliveryAddress: deliveryAddressInput.nullable().optional(),
+          deliveryAreaId: z.string().uuid().optional(),
+          manualDeliveryFee: z.string().optional(),
+          paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]).optional().default("CASH"),
+          changeFor: z.string().nullable().optional(),
+          notes: z.string().optional(),
+          promoCode: z.string().optional(),
+          items: z.array(orderItemInput).min(1),
+        })
+        .refine((d) => d.items.every((i) => !i.paidWithPoints), {
+          message: "POS não aceita resgate com pontos. Resgates só pelo link público.",
+          path: ["items"],
+        })
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
