@@ -44,9 +44,26 @@ export default function LoginPage() {
         getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
 
       const auth = getAuth(app);
-      await signInWithEmailAndPassword(auth, email, password);
+      const credential = await signInWithEmailAndPassword(
+        auth,
+        email.trim(),
+        password
+      );
 
-      // Redirecionar para o admin (o middleware vai verificar a sessão)
+      // Troca o ID token Firebase por um cookie de sessão server-side
+      // (sem isso o middleware /restaurante/admin não enxerga a auth e
+      // joga de volta para esta página em loop).
+      const idToken = await credential.user.getIdToken();
+      const response = await fetch("/api/login", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!response.ok) {
+        setError("Falha ao abrir sessão. Tente novamente.");
+        setLoading(false);
+        return;
+      }
+
       router.push("/restaurante/admin");
     } catch (err: unknown) {
       if (err instanceof Error) {
