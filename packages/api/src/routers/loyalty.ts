@@ -6,6 +6,8 @@ import {
   loyaltyConfig,
   loyaltyRewards,
   loyaltyTransactions,
+  customers,
+  customerTenants,
   eq,
   and,
   desc,
@@ -280,18 +282,37 @@ export const loyaltyRouter = createTRPCRouter({
 
       if (!config) return null;
 
-      // Somar todos os pontos do cliente
-      const [result] = await db
-        .select({
-          totalPoints: sql<number>`COALESCE(SUM(${loyaltyTransactions.points}), 0)::int`,
-        })
-        .from(loyaltyTransactions)
+      // Tentar saldo materializado (cliente registrado em customer_tenants)
+      const [materialized] = await db
+        .select({ balance: customerTenants.loyaltyPointsBalance })
+        .from(customerTenants)
+        .innerJoin(customers, eq(customers.id, customerTenants.customerId))
         .where(
           and(
-            eq(loyaltyTransactions.tenantId, input.tenantId),
-            eq(loyaltyTransactions.customerPhone, input.customerPhone)
+            eq(customers.phone, input.customerPhone),
+            eq(customerTenants.tenantId, input.tenantId)
           )
-        );
+        )
+        .limit(1);
+
+      let balance: number;
+      if (materialized) {
+        balance = materialized.balance;
+      } else {
+        // Fallback para clientes legados (transações sem customer registrado)
+        const [result] = await db
+          .select({
+            totalPoints: sql<number>`COALESCE(SUM(${loyaltyTransactions.points}), 0)::int`,
+          })
+          .from(loyaltyTransactions)
+          .where(
+            and(
+              eq(loyaltyTransactions.tenantId, input.tenantId),
+              eq(loyaltyTransactions.customerPhone, input.customerPhone)
+            )
+          );
+        balance = result?.totalPoints ?? 0;
+      }
 
       // Buscar últimas transações
       const history = await db
@@ -307,7 +328,7 @@ export const loyaltyRouter = createTRPCRouter({
         .limit(20);
 
       return {
-        balance: result?.totalPoints ?? 0,
+        balance,
         pointsName: config.pointsName,
         history,
       };
@@ -380,20 +401,40 @@ export const loyaltyRouter = createTRPCRouter({
         });
       }
 
-      // Verificar saldo
-      const [result] = await db
+      // Localizar customer_tenant pelo telefone (se cliente registrado)
+      const [customerLink] = await db
         .select({
-          totalPoints: sql<number>`COALESCE(SUM(${loyaltyTransactions.points}), 0)::int`,
+          ctId: customerTenants.id,
+          balance: customerTenants.loyaltyPointsBalance,
         })
-        .from(loyaltyTransactions)
+        .from(customerTenants)
+        .innerJoin(customers, eq(customers.id, customerTenants.customerId))
         .where(
           and(
-            eq(loyaltyTransactions.tenantId, input.tenantId),
-            eq(loyaltyTransactions.customerPhone, input.customerPhone)
+            eq(customers.phone, input.customerPhone),
+            eq(customerTenants.tenantId, input.tenantId)
           )
-        );
+        )
+        .limit(1);
 
-      const balance = result?.totalPoints ?? 0;
+      // Verificar saldo (usa coluna materializada se cliente registrado, senão SUM)
+      let balance: number;
+      if (customerLink) {
+        balance = customerLink.balance;
+      } else {
+        const [result] = await db
+          .select({
+            totalPoints: sql<number>`COALESCE(SUM(${loyaltyTransactions.points}), 0)::int`,
+          })
+          .from(loyaltyTransactions)
+          .where(
+            and(
+              eq(loyaltyTransactions.tenantId, input.tenantId),
+              eq(loyaltyTransactions.customerPhone, input.customerPhone)
+            )
+          );
+        balance = result?.totalPoints ?? 0;
+      }
 
       if (balance < reward.pointsCost) {
         throw new TRPCError({
@@ -411,6 +452,16 @@ export const loyaltyRouter = createTRPCRouter({
         description: `Resgate: ${reward.name}`,
         rewardId: reward.id,
       });
+
+      // Decrementar saldo materializado se cliente registrado
+      if (customerLink) {
+        await db
+          .update(customerTenants)
+          .set({
+            loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} - ${reward.pointsCost}`,
+          })
+          .where(eq(customerTenants.id, customerLink.ctId));
+      }
 
       // Incrementar contador de resgates
       await db

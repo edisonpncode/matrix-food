@@ -812,6 +812,11 @@ export const orderRouter = createTRPCRouter({
               totalSpent: sql`${customerTenants.totalSpent} + ${total.toFixed(2)}::decimal`,
               lastOrderAt: new Date(),
               ...(existingCt.firstOrderAt ? {} : { firstOrderAt: new Date() }),
+              ...(loyaltyPointsEarned > 0
+                ? {
+                    loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} + ${loyaltyPointsEarned}`,
+                  }
+                : {}),
             })
             .where(eq(customerTenants.id, existingCt.id));
         }
@@ -1609,6 +1614,11 @@ export const orderRouter = createTRPCRouter({
               totalSpent: sql`${customerTenants.totalSpent} + ${total.toFixed(2)}::decimal`,
               lastOrderAt: new Date(),
               ...(existingCt.firstOrderAt ? {} : { firstOrderAt: new Date() }),
+              ...(loyaltyPointsEarned > 0
+                ? {
+                    loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} + ${loyaltyPointsEarned}`,
+                  }
+                : {}),
             })
             .where(eq(customerTenants.id, existingCt.id));
         }
