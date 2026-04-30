@@ -573,6 +573,8 @@ export const products = pgTable(
     price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
     /** Preço riscado (para mostrar desconto visual) */
     originalPrice: decimal("original_price", { precision: 10, scale: 2 }),
+    /** Custo em pontos para resgate (null = não aceita pontos) */
+    pointsPrice: integer("points_price"),
     imageUrl: text("image_url"),
     /** Tag "Novo" para destacar produto */
     isNew: boolean("is_new").notNull().default(false),
@@ -593,6 +595,9 @@ export const products = pgTable(
   (table) => [
     index("products_tenant_category_idx").on(table.tenantId, table.categoryId),
     index("products_tenant_active_idx").on(table.tenantId, table.isActive),
+    index("products_tenant_points_idx")
+      .on(table.tenantId)
+      .where(sql`${table.pointsPrice} IS NOT NULL`),
   ]
 );
 
@@ -610,6 +615,8 @@ export const productVariants = pgTable("product_variants", {
   price: decimal("price", { precision: 10, scale: 2 }).notNull(),
   /** Preço riscado para a variante */
   originalPrice: decimal("original_price", { precision: 10, scale: 2 }),
+  /** Custo em pontos para resgate (null = não aceita pontos) */
+  pointsPrice: integer("points_price"),
   sortOrder: integer("sort_order").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
 });
@@ -630,6 +637,8 @@ export const productSizePrices = pgTable(
       .notNull()
       .references(() => categorySizes.id, { onDelete: "cascade" }),
     price: decimal("price", { precision: 10, scale: 2 }).notNull(),
+    /** Custo em pontos para resgate desse tamanho (null = não aceita pontos) */
+    pointsPrice: integer("points_price"),
   },
   (table) => [
     uniqueIndex("product_size_price_unique_idx").on(table.productId, table.sizeId),
@@ -862,6 +871,8 @@ export const orders = pgTable(
     loyaltyPointsEarned: integer("loyalty_points_earned").notNull().default(0),
     /** Desconto de recompensa aplicado */
     loyaltyDiscount: decimal("loyalty_discount", { precision: 10, scale: 2 }).notNull().default("0"),
+    /** Total de pontos gastos no pedido (soma dos pointsTotalCost dos itens) */
+    pointsSpent: integer("points_spent").notNull().default(0),
     total: decimal("total", { precision: 10, scale: 2 }).notNull(),
     paymentMethod: paymentMethodEnum("payment_method").notNull(),
     paymentStatus: paymentStatusEnum("payment_status")
@@ -914,6 +925,12 @@ export const orderItems = pgTable(
     unitPrice: decimal("unit_price", { precision: 10, scale: 2 }).notNull(),
     quantity: integer("quantity").notNull().default(1),
     totalPrice: decimal("total_price", { precision: 10, scale: 2 }).notNull(),
+    /** Item pago com pontos (true zera unitPrice) */
+    paidWithPoints: boolean("paid_with_points").notNull().default(false),
+    /** Custo em pontos por unidade (snapshot no momento do pedido) */
+    pointsUnitCost: integer("points_unit_cost").notNull().default(0),
+    /** Custo total em pontos do item (pointsUnitCost × quantity) */
+    pointsTotalCost: integer("points_total_cost").notNull().default(0),
     notes: text("notes"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
