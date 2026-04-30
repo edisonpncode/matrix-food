@@ -11,6 +11,7 @@
     "migrate": "drizzle-kit migrate",
     "push": "drizzle-kit push",
     "studio": "drizzle-kit studio",
+    "backfill:loyalty": "tsx --env-file=../../.env.local src/backfill-loyalty-balance.ts",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
@@ -21,6 +22,7 @@
   "devDependencies": {
     "@matrix-food/tsconfig": "workspace:*",
     "drizzle-kit": "^0.31.1",
+    "tsx": "^4.19.2",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }

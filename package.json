@@ -13,6 +13,7 @@
     "db:migrate": "pnpm --filter @matrix-food/database migrate",
     "db:push": "pnpm --filter @matrix-food/database push",
     "db:studio": "pnpm --filter @matrix-food/database studio",
+    "db:backfill-loyalty": "pnpm --filter @matrix-food/database backfill:loyalty",
     "clean": "turbo clean"
   },
   "packageManager": "pnpm@10.31.0",
