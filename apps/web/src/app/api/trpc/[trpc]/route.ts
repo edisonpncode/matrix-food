@@ -7,9 +7,24 @@ import { cookies } from "next/headers";
 import { authConfig } from "@matrix-food/auth";
 import { parseCustomerSessionCookie } from "@/lib/customer-session";
 import { parseStaffSessionCookie } from "@/lib/staff-session";
-import { getDb, tenantUsers, eq, and } from "@matrix-food/database";
+import {
+  getDb,
+  tenantUsers,
+  eq,
+  and,
+  or,
+  isNull,
+  inArray,
+} from "@matrix-food/database";
 
 const IS_PRODUCTION = process.env.NODE_ENV === "production";
+
+/**
+ * Sentinels que historicamente foram gravados em `firebase_uid` por
+ * rotinas internas. São tratados como "não vinculado" e podem ser
+ * sobrescritos por um uid Firebase real durante o backfill.
+ */
+const STALE_FIREBASE_UIDS = ["dev-admin", "dev-superadmin", "dev-employee"];
 
 /** Extrai o IP do cliente de headers de proxy (best-effort). */
 function extractIp(req: Request): string | null {
@@ -22,23 +37,69 @@ function extractIp(req: Request): string | null {
 }
 
 /**
- * Resolve o vínculo tenant/role do usuário Firebase via `tenant_users`.
- * Filtra por uid e por isActive=true para impedir acesso de funcionário desligado.
+ * Resolve o vínculo tenant/role de um usuário Firebase via `tenant_users`.
+ *
+ * Estratégia:
+ *  1) Match exato por `firebase_uid`.
+ *  2) Fallback de backfill: se nada bate, mas há **exatamente um**
+ *     `tenant_user` ativo com o mesmo email Firebase, role OWNER/MANAGER
+ *     e `firebase_uid` "stale" (NULL ou um dos sentinels antigos), grava
+ *     o uid real ali e devolve o vínculo.
+ *
+ *  O backfill só corre quando `emailVerified=true` para evitar que um
+ *  atacante crie uma conta Firebase com o mesmo email do dono e ganhe
+ *  acesso. Esse caminho é uma migração one-shot: depois que o uid real
+ *  é gravado, o passo (1) passa a bastar e (2) fica inerte.
  */
-async function resolveTenantUser(
-  uid: string
-): Promise<{ tenantId: string; role: UserRole } | null> {
-  const rows = await getDb()
+async function resolveTenantUser(args: {
+  uid: string;
+  email: string | null;
+  emailVerified: boolean;
+}): Promise<{ tenantId: string; role: UserRole } | null> {
+  const db = getDb();
+
+  const byUid = await db
+    .select({ tenantId: tenantUsers.tenantId, role: tenantUsers.role })
+    .from(tenantUsers)
+    .where(
+      and(eq(tenantUsers.firebaseUid, args.uid), eq(tenantUsers.isActive, true))
+    )
+    .limit(1);
+  if (byUid[0]) return byUid[0];
+
+  if (!args.email || !args.emailVerified) return null;
+
+  const candidates = await db
     .select({
+      id: tenantUsers.id,
       tenantId: tenantUsers.tenantId,
       role: tenantUsers.role,
+      firebaseUid: tenantUsers.firebaseUid,
     })
     .from(tenantUsers)
     .where(
-      and(eq(tenantUsers.firebaseUid, uid), eq(tenantUsers.isActive, true))
-    )
-    .limit(1);
-  return rows[0] ?? null;
+      and(
+        eq(tenantUsers.email, args.email),
+        eq(tenantUsers.isActive, true),
+        inArray(tenantUsers.role, ["OWNER", "MANAGER"]),
+        or(
+          isNull(tenantUsers.firebaseUid),
+          eq(tenantUsers.firebaseUid, ""),
+          inArray(tenantUsers.firebaseUid, STALE_FIREBASE_UIDS)
+        )
+      )
+    );
+  if (candidates.length !== 1) return null;
+
+  const match = candidates[0]!;
+  await db
+    .update(tenantUsers)
+    .set({ firebaseUid: args.uid })
+    .where(eq(tenantUsers.id, match.id));
+  console.info(
+    `tenant_user backfill: linked firebase_uid=${args.uid} to tenant_user=${match.id} (email=${args.email})`
+  );
+  return { tenantId: match.tenantId, role: match.role };
 }
 
 async function createContext(req: Request): Promise<TRPCContext> {
@@ -103,7 +164,11 @@ async function createContext(req: Request): Promise<TRPCContext> {
         });
         const decoded = tokens?.decodedToken;
         if (decoded?.uid) {
-          const link = await resolveTenantUser(decoded.uid);
+          const link = await resolveTenantUser({
+            uid: decoded.uid,
+            email: decoded.email ?? null,
+            emailVerified: decoded.email_verified === true,
+          });
           if (link) {
             return {
               user: {
