@@ -102,6 +102,9 @@ export function ProductCard({ product, tenantId, onClick }: ProductCardProps) {
               {formatCurrency(displayPrice)}
             </span>
           )}
+          {!isPointsOnly && hasPointsPrice && (
+            <span className="text-sm text-gray-500">ou</span>
+          )}
           {hasPointsPrice && (
             <span
               className={`inline-flex items-center gap-1 text-sm font-semibold ${
