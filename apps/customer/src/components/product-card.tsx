@@ -1,11 +1,13 @@
 "use client";
 
+import { Gift } from "lucide-react";
 import { formatCurrency } from "@matrix-food/utils";
 
 interface ProductVariant {
   id: string;
   name: string;
   price: string;
+  pointsPrice: number | null;
 }
 
 interface Product {
@@ -14,6 +16,7 @@ interface Product {
   description: string | null;
   price: string;
   originalPrice: string | null;
+  pointsPrice: number | null;
   imageUrl: string | null;
   isNew: boolean;
   hasVariants: boolean;
@@ -33,6 +36,12 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
 
   const hasFromPrice = product.hasVariants && product.variants.length > 1;
 
+  // Detectar se produto aceita resgate por pontos
+  const hasPointsPrice =
+    (product.pointsPrice != null && product.pointsPrice > 0) ||
+    product.variants.some((v) => v.pointsPrice != null && v.pointsPrice > 0);
+  const isPointsOnly = hasPointsPrice && displayPrice <= 0;
+
   return (
     <button
       onClick={onClick}
@@ -41,11 +50,17 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
       {/* Info */}
       <div className="flex flex-1 flex-col justify-between">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-semibold text-gray-900">{product.name}</h3>
             {product.isNew && (
               <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-bold text-green-700">
                 NOVO
+              </span>
+            )}
+            {hasPointsPrice && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">
+                <Gift className="h-3 w-3" />
+                RESGATE
               </span>
             )}
           </div>
@@ -62,10 +77,17 @@ export function ProductCard({ product, onClick }: ProductCardProps) {
               {formatCurrency(parseFloat(product.originalPrice))}
             </span>
           )}
-          <span className="font-semibold text-primary">
-            {hasFromPrice && "A partir de "}
-            {formatCurrency(displayPrice)}
-          </span>
+          {!isPointsOnly && (
+            <span className="font-semibold text-primary">
+              {hasFromPrice && "A partir de "}
+              {formatCurrency(displayPrice)}
+            </span>
+          )}
+          {isPointsOnly && (
+            <span className="text-sm font-semibold text-amber-600">
+              Apenas resgate
+            </span>
+          )}
         </div>
       </div>
 

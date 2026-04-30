@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { X } from "lucide-react";
+import { Gift, X } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
+import { useCustomerAuth } from "@/lib/customer-auth-context";
 import { QuantitySelector } from "./quantity-selector";
 import { formatCurrency } from "@matrix-food/utils";
 
@@ -19,11 +20,21 @@ export function ProductDetailModal({
   onClose,
 }: ProductDetailModalProps) {
   const addItem = useCartStore((s) => s.addItem);
+  const { customer } = useCustomerAuth();
 
   const { data: product, isLoading } = trpc.product.getPublic.useQuery({
     id: productId,
     tenantId,
   });
+
+  const { data: loyaltyCfg } = trpc.loyalty.getPublicConfig.useQuery(
+    { tenantId },
+    { enabled: !!tenantId }
+  );
+  const { data: balanceData } = trpc.loyalty.getBalance.useQuery(
+    { tenantId, customerPhone: customer?.phone ?? "" },
+    { enabled: !!loyaltyCfg && !!customer?.phone }
+  );
 
   const [selectedVariantId, setSelectedVariantId] = useState<string | null>(
     null
@@ -33,6 +44,7 @@ export function ProductDetailModal({
   >(new Map());
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
+  const [payWithPoints, setPayWithPoints] = useState(false);
 
   if (isLoading) {
     return (
@@ -64,6 +76,16 @@ export function ProductDetailModal({
     ? parseFloat(activeVariant.price)
     : parseFloat(product.price);
 
+  const pointsPriceForActive = activeVariant
+    ? activeVariant.pointsPrice
+    : product.pointsPrice;
+  const acceptsPoints = !!loyaltyCfg && pointsPriceForActive != null && pointsPriceForActive > 0;
+  const pointsUnitCost = acceptsPoints && payWithPoints ? pointsPriceForActive! : 0;
+  const isPointsOnly = acceptsPoints && basePrice <= 0;
+
+  // Se o item é só-pontos, força payWithPoints
+  const effectivePayWithPoints = isPointsOnly || payWithPoints;
+
   let customizationsPrice = 0;
   selectedOptions.forEach((optionIds, groupId) => {
     const group = groups.find((g) => g.id === groupId);
@@ -75,7 +97,19 @@ export function ProductDetailModal({
     }
   });
 
-  const totalPrice = (basePrice + customizationsPrice) * quantity;
+  const baseForTotal = effectivePayWithPoints ? 0 : basePrice;
+  const totalPrice = (baseForTotal + customizationsPrice) * quantity;
+  const totalPointsCost = effectivePayWithPoints
+    ? (pointsPriceForActive ?? 0) * quantity
+    : 0;
+
+  const balance = balanceData?.balance ?? 0;
+  const pointsName = loyaltyCfg?.pointsName ?? "Pontos";
+  const insufficientPoints =
+    effectivePayWithPoints && customer?.phone
+      ? balance < totalPointsCost
+      : false;
+  const needsLoginForPoints = effectivePayWithPoints && !customer?.phone;
 
   function toggleOption(groupId: string, optionId: string, maxSelections: number) {
     setSelectedOptions((prev) => {
@@ -125,6 +159,8 @@ export function ProductDetailModal({
       customizations,
       quantity,
       notes,
+      paidWithPoints: effectivePayWithPoints,
+      pointsUnitCost: effectivePayWithPoints ? pointsPriceForActive ?? 0 : 0,
     });
 
     onClose();
@@ -284,6 +320,58 @@ export function ProductDetailModal({
             </div>
           ))}
 
+          {/* Resgate por pontos */}
+          {acceptsPoints && (
+            <div className="mt-5 rounded-lg border-2 border-amber-200 bg-amber-50/60 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <Gift className="h-5 w-5 text-amber-600" />
+                  <div>
+                    <p className="text-sm font-semibold text-amber-800">
+                      {isPointsOnly
+                        ? "Disponível só por resgate"
+                        : "Resgate por pontos"}
+                    </p>
+                    <p className="text-xs text-amber-700">
+                      {pointsPriceForActive} {pointsName}
+                      {!isPointsOnly && " ou pague em R$"}
+                    </p>
+                  </div>
+                </div>
+                {!isPointsOnly && (
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <input
+                      type="checkbox"
+                      checked={payWithPoints}
+                      onChange={(e) => setPayWithPoints(e.target.checked)}
+                      className="h-4 w-4 accent-amber-500"
+                    />
+                    <span className="text-sm font-medium text-amber-800">
+                      Trocar por pontos
+                    </span>
+                  </label>
+                )}
+              </div>
+              {effectivePayWithPoints && customer?.phone && (
+                <p className="mt-2 text-xs text-amber-700">
+                  Saldo atual: <span className="font-semibold">{balance} {pointsName}</span>
+                  {totalPointsCost > 0 &&
+                    ` · Após este pedido: ${Math.max(0, balance - totalPointsCost)} ${pointsName}`}
+                </p>
+              )}
+              {needsLoginForPoints && (
+                <p className="mt-2 text-xs text-amber-700">
+                  Faça login para usar seus pontos.
+                </p>
+              )}
+              {customizationsPrice > 0 && effectivePayWithPoints && (
+                <p className="mt-2 text-xs text-amber-700">
+                  Adicionais escolhidos serão cobrados em R$ ({formatCurrency(customizationsPrice * quantity)}).
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Observações */}
           <div className="mt-5">
             <h3 className="text-sm font-semibold text-gray-700">
@@ -303,10 +391,16 @@ export function ProductDetailModal({
             <QuantitySelector value={quantity} onChange={setQuantity} />
             <button
               onClick={handleAddToCart}
-              disabled={!requiredGroupsMet}
+              disabled={!requiredGroupsMet || insufficientPoints || needsLoginForPoints}
               className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
             >
-              Adicionar {formatCurrency(totalPrice)}
+              {effectivePayWithPoints
+                ? insufficientPoints
+                  ? `Faltam ${totalPointsCost - balance} ${pointsName}`
+                  : needsLoginForPoints
+                    ? "Faça login para resgatar"
+                    : `Resgatar ${totalPointsCost} ${pointsName}${customizationsPrice > 0 ? ` + ${formatCurrency(totalPrice)}` : ""}`
+                : `Adicionar ${formatCurrency(totalPrice)}`}
             </button>
           </div>
         </div>

@@ -88,6 +88,8 @@ const orderItemInput = z.object({
   notes: z.string().optional(),
   customizations: z.array(orderItemCustomizationInput).default([]),
   ingredients: z.array(orderItemIngredientInput).default([]),
+  /** Item pago com pontos do programa de fidelidade */
+  paidWithPoints: z.boolean().default(false),
 });
 
 const deliveryAddressInput = z.object({
@@ -318,6 +320,27 @@ export const orderRouter = createTRPCRouter({
       });
       const db = getDb();
 
+      // Pré-carrega config de fidelidade (usado em validações de paidWithPoints)
+      const [orderLoyaltyConfig] = await db
+        .select()
+        .from(loyaltyConfig)
+        .where(eq(loyaltyConfig.tenantId, input.tenantId))
+        .limit(1);
+
+      const anyPaidWithPoints = input.items.some((i) => i.paidWithPoints);
+      if (anyPaidWithPoints && (!orderLoyaltyConfig || !orderLoyaltyConfig.isActive)) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Programa de fidelidade não está ativo neste restaurante",
+        });
+      }
+      if (anyPaidWithPoints && !input.customerPhone) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "É necessário informar telefone para resgatar com pontos",
+        });
+      }
+
       // 1. Calcular preços server-side para cada item
       const itemsWithPrices = await Promise.all(
         input.items.map(async (item) => {
@@ -341,9 +364,10 @@ export const orderRouter = createTRPCRouter({
             });
           }
 
-          // Determinar preço unitário
+          // Determinar preço unitário e valor em pontos (se aplicável)
           let unitPrice = product.price;
           let variantName: string | null = null;
+          let pointsPriceForItem: number | null = product.pointsPrice;
 
           if (item.productVariantId) {
             const [variant] = await db
@@ -367,6 +391,19 @@ export const orderRouter = createTRPCRouter({
 
             unitPrice = variant.price;
             variantName = variant.name;
+            pointsPriceForItem = variant.pointsPrice;
+          }
+
+          // Se cliente quer pagar com pontos, item precisa ter pointsPrice configurado
+          if (item.paidWithPoints) {
+            if (!pointsPriceForItem || pointsPriceForItem <= 0) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message: `Produto "${product.name}" não está disponível para resgate com pontos`,
+              });
+            }
+            // Item base zerado — só adicionais e ingredientes entram no R$
+            unitPrice = "0";
           }
 
           // Calcular preço das personalizações
@@ -448,6 +485,8 @@ export const orderRouter = createTRPCRouter({
           const itemUnitPrice =
             parseFloat(unitPrice) + customizationsTotal + ingredientsTotal;
           const totalPrice = itemUnitPrice * item.quantity;
+          const pointsUnitCost = item.paidWithPoints ? pointsPriceForItem ?? 0 : 0;
+          const pointsTotalCost = pointsUnitCost * item.quantity;
 
           return {
             productId: product.id,
@@ -460,6 +499,9 @@ export const orderRouter = createTRPCRouter({
             notes: item.notes,
             customizations: resolvedCustomizations,
             ingredientModifications: resolvedIngredients,
+            paidWithPoints: item.paidWithPoints,
+            pointsUnitCost,
+            pointsTotalCost,
           };
         })
       );
@@ -563,12 +605,18 @@ export const orderRouter = createTRPCRouter({
         }
       }
 
-      // 5. Desconto de fidelidade
+      // 5. Desconto de fidelidade (modelo antigo — recompensa)
       const loyaltyDiscount = input.loyaltyRewardDiscount
         ? Math.min(input.loyaltyRewardDiscount, subtotal - discount)
         : 0;
 
-      // 6. Total
+      // Total de pontos a gastar (itens pagos com pontos)
+      const pointsSpent = itemsWithPrices.reduce(
+        (sum, item) => sum + item.pointsTotalCost,
+        0
+      );
+
+      // 6. Total em R$ (itens pagos com pontos têm unitPrice zero, então não entram aqui)
       const total = subtotal + deliveryFee - discount - loyaltyDiscount;
 
       // 7. Calcular pontos de fidelidade a ganhar
@@ -695,6 +743,36 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
+      // 8b. Se há itens pagos com pontos, validar e debitar saldo de forma atômica
+      if (pointsSpent > 0) {
+        if (!resolvedCustomerId) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Cliente não identificado para resgate de pontos",
+          });
+        }
+        const debit = await db
+          .update(customerTenants)
+          .set({
+            loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} - ${pointsSpent}`,
+          })
+          .where(
+            and(
+              eq(customerTenants.customerId, resolvedCustomerId),
+              eq(customerTenants.tenantId, input.tenantId),
+              gte(customerTenants.loyaltyPointsBalance, pointsSpent)
+            )
+          )
+          .returning({ balance: customerTenants.loyaltyPointsBalance });
+
+        if (debit.length === 0) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Saldo de pontos insuficiente para finalizar o pedido",
+          });
+        }
+      }
+
       // 9. Criar pedido + itens em transação
       const [order] = await db
         .insert(orders)
@@ -718,6 +796,7 @@ export const orderRouter = createTRPCRouter({
           promotionId,
           loyaltyPointsEarned,
           loyaltyDiscount: loyaltyDiscount.toFixed(2),
+          pointsSpent,
         })
         .returning();
 
@@ -742,6 +821,9 @@ export const orderRouter = createTRPCRouter({
             quantity: item.quantity,
             totalPrice: item.totalPrice,
             notes: item.notes,
+            paidWithPoints: item.paidWithPoints,
+            pointsUnitCost: item.pointsUnitCost,
+            pointsTotalCost: item.pointsTotalCost,
           })
           .returning();
 
@@ -776,6 +858,18 @@ export const orderRouter = createTRPCRouter({
           tenantId: input.tenantId,
           customerPhone: input.customerPhone || null,
           discountAmount: discount.toFixed(2),
+        });
+      }
+
+      // 10b. Registrar resgate de pontos (saldo já debitado em customer_tenants)
+      if (pointsSpent > 0 && input.customerPhone && order) {
+        await db.insert(loyaltyTransactions).values({
+          tenantId: input.tenantId,
+          customerPhone: input.customerPhone,
+          type: "REDEEMED",
+          points: -pointsSpent,
+          description: `Pedido ${displayNumber} — resgate de produto(s)`,
+          orderId: order.id,
         });
       }
 
