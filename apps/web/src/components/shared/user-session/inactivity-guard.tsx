@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useInactivityTimeout } from "@/lib/use-inactivity-timeout";
 import { useActiveUser, useLoggedUsersStore } from "@/lib/logged-users-store";
 import { RequirePinModal } from "./require-pin-modal";
@@ -19,14 +20,54 @@ export function InactivityGuard({
   timeoutMinutes = 15,
   children,
 }: InactivityGuardProps) {
+  const router = useRouter();
   const activeUser = useActiveUser();
   const setActive = useLoggedUsersStore((s) => s.setActive);
+  const logoutAll = useLoggedUsersStore((s) => s.logoutAll);
   const users = useLoggedUsersStore((s) => s.users);
 
   const { locked, unlock } = useInactivityTimeout({
     timeoutMs: timeoutMinutes * 60 * 1000,
     disabled: !activeUser, // só ativa se houver usuário logado
   });
+
+  /**
+   * Logout completo a partir do modal de inatividade:
+   *  1. Limpa cookies de sessão no servidor (`/api/logout`).
+   *  2. Sai do Firebase (caso o usuário ativo seja o dono/OWNER).
+   *  3. Limpa o store local (`logoutAll`) — todos os usuários da máquina.
+   *  4. Redireciona para `/restaurante/login`.
+   */
+  async function handleLogout() {
+    // 1) cookies de servidor — não bloqueia se falhar
+    try {
+      await fetch("/api/logout", { method: "GET" });
+    } catch {
+      /* ignore */
+    }
+
+    // 2) Firebase — best-effort, não bloqueia se já estiver deslogado
+    try {
+      const { initializeApp, getApps } = await import("firebase/app");
+      const { getAuth, signOut } = await import("firebase/auth");
+      const firebaseConfig = {
+        apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
+        authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
+        projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
+      };
+      const app =
+        getApps().length > 0 ? getApps()[0]! : initializeApp(firebaseConfig);
+      await signOut(getAuth(app));
+    } catch {
+      /* ignore */
+    }
+
+    // 3) limpa o store local
+    logoutAll();
+
+    // 4) leva para o login
+    router.push("/restaurante/login");
+  }
 
   return (
     <>
@@ -48,6 +89,7 @@ export function InactivityGuard({
             if (exists) setActive(user.id);
             unlock();
           }}
+          onLogout={handleLogout}
         />
       )}
     </>
