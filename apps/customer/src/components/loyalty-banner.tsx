@@ -27,6 +27,18 @@ export function LoyaltyBanner({ tenantId }: LoyaltyBannerProps) {
   const pointsName = balanceData?.pointsName ?? config.pointsName;
   const isLoggedWithBalance = !!customer && balance > 0;
 
+  // Constrói descrição da regra de pontos (ex: "1 ponto a cada R$20 gastos")
+  const pointsPerBase = parseFloat(config.pointsPerReal);
+  const spendingBase = parseFloat(config.spendingBase ?? "1");
+  const formattedPoints = Number.isInteger(pointsPerBase)
+    ? pointsPerBase.toString()
+    : pointsPerBase.toFixed(2).replace(".", ",");
+  const formattedBase = Number.isInteger(spendingBase)
+    ? spendingBase.toString()
+    : spendingBase.toFixed(2).replace(".", ",");
+  const pointsLabel = pointsPerBase === 1 ? pointsName.toLowerCase().replace(/s$/, "") : pointsName.toLowerCase();
+  const earnRule = `Ganhe ${formattedPoints} ${pointsLabel} a cada R$ ${formattedBase} gasto`;
+
   return (
     <div className="mx-auto max-w-2xl px-4 pt-3">
       <div className="flex items-center gap-3 rounded-xl bg-gradient-to-r from-yellow-50 to-orange-50 border border-yellow-200 p-3">
@@ -42,7 +54,7 @@ export function LoyaltyBanner({ tenantId }: LoyaltyBannerProps) {
           <p className="text-xs text-yellow-700">
             {isLoggedWithBalance
               ? `Procure produtos com 🎁 e troque por ${pointsName.toLowerCase()}.`
-              : `Ganhe ${config.pointsPerReal} ${config.pointsName.toLowerCase()} a cada R$1 gasto e troque por produtos!`}
+              : `${earnRule} e troque por produtos!`}
           </p>
         </div>
       </div>
