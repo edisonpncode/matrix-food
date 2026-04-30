@@ -14,6 +14,7 @@ import {
   Printer,
 } from "lucide-react";
 import { useCan } from "@/lib/permissions";
+import { useActiveUser } from "@/lib/logged-users-store";
 
 type TransactionModalType = "WITHDRAWAL" | "DEPOSIT" | null;
 
@@ -46,6 +47,7 @@ export function CaixaContent() {
   const [closeResult, setCloseResult] = useState<CloseResult | null>(null);
 
   const canViewTotals = useCan("cashRegister.viewTotals");
+  const activeUser = useActiveUser();
 
   const utils = trpc.useUtils();
 
@@ -96,7 +98,10 @@ export function CaixaContent() {
 
   function handleOpenSession(e: React.FormEvent) {
     e.preventDefault();
-    openSession.mutate({ openingBalance: openingBalance || "0" });
+    openSession.mutate({
+      openingBalance: openingBalance || "0",
+      openedByName: activeUser?.name,
+    });
   }
 
   function handleSubmitCount(e: React.FormEvent) {
@@ -110,6 +115,8 @@ export function CaixaContent() {
         debitCard: counted.debitCard || "0",
         pix: counted.pix || "0",
       },
+      closedByName: activeUser?.name,
+      closedByRole: activeUser?.role,
     });
     // Step muda pra "review" no onSuccess, só depois do servidor responder.
   }
@@ -202,11 +209,29 @@ export function CaixaContent() {
   const summary = sessionSummary?.summary;
   const transactions = sessionSummary?.transactions ?? [];
 
+  // Quem pode fechar o caixa: dono, gerente ou a própria pessoa que abriu.
+  // Quando não há usuário staff selecionado (activeUser null), assumimos que
+  // quem está operando é o admin Firebase logado — ele sempre pode fechar.
+  const canCloseCaixa =
+    !activeUser ||
+    activeUser.kind === "admin" ||
+    activeUser.role === "OWNER" ||
+    activeUser.role === "MANAGER" ||
+    activeUser.name === activeSession.openedBy;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Caixa</h1>
-        <span className="flex items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold">Caixa</h1>
+          <p className="text-sm text-muted-foreground">
+            Aberto por{" "}
+            <span className="font-medium text-foreground">
+              {activeSession.openedBy}
+            </span>
+          </p>
+        </div>
+        <span className="flex shrink-0 items-center gap-2 rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-700">
           <Unlock className="h-4 w-4" />
           Aberto
         </span>
@@ -292,7 +317,13 @@ export function CaixaContent() {
             setCounted(EMPTY_BREAKDOWN);
             setCloseStep("count");
           }}
-          className="flex flex-col items-center gap-2 rounded-xl border-2 border-border p-4 text-muted-foreground hover:bg-accent"
+          disabled={!canCloseCaixa}
+          title={
+            canCloseCaixa
+              ? undefined
+              : `Apenas ${activeSession.openedBy}, o gerente ou o proprietário podem fechar este caixa.`
+          }
+          className="flex flex-col items-center gap-2 rounded-xl border-2 border-border p-4 text-muted-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
         >
           <Lock className="h-8 w-8" />
           <span className="text-sm font-medium">Fechar Caixa</span>

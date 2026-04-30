@@ -63,6 +63,10 @@ export const cashRegisterRouter = createTRPCRouter({
       z.object({
         openingBalance: z.string().default("0"),
         notes: z.string().optional(),
+        /** Nome do operador (staff) que está abrindo o caixa, vindo do
+         *  selector de usuário ativo no frontend. Se ausente, cai no
+         *  usuário Firebase autenticado (normalmente o dono). */
+        openedByName: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -86,11 +90,17 @@ export const cashRegisterRouter = createTRPCRouter({
         });
       }
 
+      const openerName =
+        input.openedByName?.trim() ||
+        ctx.user.name ||
+        ctx.user.email ||
+        "Funcionário";
+
       const [session] = await db
         .insert(cashRegisterSessions)
         .values({
           tenantId: ctx.tenantId,
-          openedBy: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          openedBy: openerName,
           openingBalance: input.openingBalance,
           notes: input.notes,
         })
@@ -101,8 +111,7 @@ export const cashRegisterRouter = createTRPCRouter({
         const tenantName = await getTenantName(ctx.tenantId);
         await emitMorpheuEvent(ctx.tenantId, "CASH_OPEN", {
           tenantName,
-          cashierName:
-            ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          cashierName: openerName,
           initialAmount: brl(input.openingBalance),
         });
       })().catch(() => {});
@@ -120,6 +129,14 @@ export const cashRegisterRouter = createTRPCRouter({
         sessionId: z.string().uuid(),
         counted: countedSchema,
         notes: z.string().optional(),
+        /** Nome do operador (staff) que está fechando — usado para validar
+         *  se ele é a mesma pessoa que abriu o caixa. */
+        closedByName: z.string().optional(),
+        /** Papel do operador ativo. OWNER e MANAGER podem fechar qualquer
+         *  caixa; outros papéis só podem fechar o caixa que eles abriram. */
+        closedByRole: z
+          .enum(["OWNER", "MANAGER", "CASHIER", "DELIVERY"])
+          .optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -141,6 +158,22 @@ export const cashRegisterRouter = createTRPCRouter({
         throw new TRPCError({
           code: "NOT_FOUND",
           message: "Sessão de caixa não encontrada ou já fechada.",
+        });
+      }
+
+      const closerName =
+        input.closedByName?.trim() ||
+        ctx.user.name ||
+        ctx.user.email ||
+        "Funcionário";
+      const closerRole = input.closedByRole ?? ctx.user.role ?? null;
+      const isPrivileged = closerRole === "OWNER" || closerRole === "MANAGER";
+      const isOpener = closerName === session.openedBy;
+      if (!isPrivileged && !isOpener) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message:
+            "Apenas quem abriu o caixa, o gerente ou o proprietário podem fechá-lo.",
         });
       }
 
@@ -245,7 +278,7 @@ export const cashRegisterRouter = createTRPCRouter({
         .update(cashRegisterSessions)
         .set({
           status: "CLOSED",
-          closedBy: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          closedBy: closerName,
           closingBalance: closingBalance.toFixed(2),
           expectedBalance: expectedBalanceTotal.toFixed(2),
           countedBreakdown,
@@ -296,9 +329,7 @@ export const cashRegisterRouter = createTRPCRouter({
 
         const lines: string[] = [];
         lines.push(`🧾 *Fechamento de caixa — ${tenantName}*`);
-        lines.push(
-          `Fechado por: ${ctx.user.name ?? ctx.user.email ?? "Funcionário"}`
-        );
+        lines.push(`Fechado por: ${closerName}`);
         lines.push("");
         lines.push(`*Vendas por forma de pagamento:*`);
         lines.push(`• Dinheiro: R$ ${brl(salesByMethod.cash)}`);
@@ -330,7 +361,7 @@ export const cashRegisterRouter = createTRPCRouter({
 
         await emitMorpheuEvent(ctx.tenantId, "CASH_CLOSE", {
           tenantName,
-          cashierName: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          cashierName: closerName,
           totalSold: brl(salesNet),
           totalInCash: brl(closingBalance),
           cashRegisterId: updated.id,
