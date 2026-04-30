@@ -225,7 +225,7 @@ export function CaixaContent() {
         <div>
           <h1 className="text-2xl font-bold">Caixa</h1>
           <p className="text-sm text-muted-foreground">
-            Aberto por{" "}
+            Responsável{" "}
             <span className="font-medium text-foreground">
               {activeSession.openedBy}
             </span>
