@@ -19,13 +19,30 @@ import {
 
 // --- Schemas de validação reutilizáveis ---
 
-const variantInput = z.object({
-  name: z.string().min(1).max(100),
-  price: z.string(), // decimal como string
-  originalPrice: z.string().nullable().optional(),
-  sortOrder: z.number().int().min(0).default(0),
-  isActive: z.boolean().default(true),
-});
+const variantInput = z
+  .object({
+    name: z.string().min(1).max(100),
+    price: z.string(), // decimal como string
+    originalPrice: z.string().nullable().optional(),
+    pointsPrice: z.number().int().positive().nullable().optional(),
+    sortOrder: z.number().int().min(0).default(0),
+    isActive: z.boolean().default(true),
+  })
+  .refine(
+    (v) => Number(v.price) > 0 || (v.pointsPrice ?? 0) > 0,
+    "Variante precisa ter preço em R$ ou valor em pontos"
+  );
+
+const sizePriceInput = z
+  .object({
+    sizeId: z.string().uuid(),
+    price: z.string(),
+    pointsPrice: z.number().int().positive().nullable().optional(),
+  })
+  .refine(
+    (v) => Number(v.price) > 0 || (v.pointsPrice ?? 0) > 0,
+    "Tamanho precisa ter preço em R$ ou valor em pontos"
+  );
 
 const customizationOptionInput = z.object({
   name: z.string().min(1).max(255),
@@ -300,6 +317,7 @@ export const productRouter = createTRPCRouter({
             id: productSizePrices.id,
             sizeId: productSizePrices.sizeId,
             price: productSizePrices.price,
+            pointsPrice: productSizePrices.pointsPrice,
             sizeName: categorySizes.name,
             maxFlavors: categorySizes.maxFlavors,
           })
@@ -379,6 +397,7 @@ export const productRouter = createTRPCRouter({
           id: productSizePrices.id,
           sizeId: productSizePrices.sizeId,
           price: productSizePrices.price,
+          pointsPrice: productSizePrices.pointsPrice,
           sizeName: categorySizes.name,
         })
         .from(productSizePrices)
@@ -534,29 +553,33 @@ export const productRouter = createTRPCRouter({
    */
   create: tenantProcedure
     .input(
-      z.object({
-        categoryId: z.string().uuid(),
-        name: z.string().min(1).max(255),
-        description: z.string().optional(),
-        price: z.string().default("0"),
-        originalPrice: z.string().nullable().optional(),
-        imageUrl: z.string().url().optional(),
-        isNew: z.boolean().default(false),
-        hasVariants: z.boolean().default(false),
-        sortOrder: z.number().int().min(0).default(0),
-        isActive: z.boolean().default(true),
-        variants: z.array(variantInput).default([]),
-        sizePrices: z
-          .array(
-            z.object({
-              sizeId: z.string().uuid(),
-              price: z.string(),
-            })
-          )
-          .default([]),
-        customizationGroups: z.array(customizationGroupInput).default([]),
-        ingredients: z.array(productIngredientInput).default([]),
-      })
+      z
+        .object({
+          categoryId: z.string().uuid(),
+          name: z.string().min(1).max(255),
+          description: z.string().optional(),
+          price: z.string().default("0"),
+          originalPrice: z.string().nullable().optional(),
+          pointsPrice: z.number().int().positive().nullable().optional(),
+          imageUrl: z.string().url().optional(),
+          isNew: z.boolean().default(false),
+          hasVariants: z.boolean().default(false),
+          sortOrder: z.number().int().min(0).default(0),
+          isActive: z.boolean().default(true),
+          variants: z.array(variantInput).default([]),
+          sizePrices: z.array(sizePriceInput).default([]),
+          customizationGroups: z.array(customizationGroupInput).default([]),
+          ingredients: z.array(productIngredientInput).default([]),
+        })
+        .refine(
+          (d) =>
+            d.hasVariants ||
+            d.variants.length > 0 ||
+            d.sizePrices.length > 0 ||
+            Number(d.price) > 0 ||
+            (d.pointsPrice ?? 0) > 0,
+          "Produto sem variantes precisa ter preço em R$ ou valor em pontos"
+        )
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
@@ -590,6 +613,7 @@ export const productRouter = createTRPCRouter({
             productId: product.id,
             sizeId: sp.sizeId,
             price: sp.price,
+            pointsPrice: sp.pointsPrice ?? null,
           }))
         );
       }
@@ -647,6 +671,7 @@ export const productRouter = createTRPCRouter({
         description: z.string().nullable().optional(),
         price: z.string().optional(),
         originalPrice: z.string().nullable().optional(),
+        pointsPrice: z.number().int().positive().nullable().optional(),
         imageUrl: z.string().url().nullable().optional(),
         isNew: z.boolean().optional(),
         hasVariants: z.boolean().optional(),
@@ -794,12 +819,7 @@ export const productRouter = createTRPCRouter({
     .input(
       z.object({
         productId: z.string().uuid(),
-        sizePrices: z.array(
-          z.object({
-            sizeId: z.string().uuid(),
-            price: z.string(),
-          })
-        ),
+        sizePrices: z.array(sizePriceInput),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -830,6 +850,7 @@ export const productRouter = createTRPCRouter({
             productId: input.productId,
             sizeId: sp.sizeId,
             price: sp.price,
+            pointsPrice: sp.pointsPrice ?? null,
           }))
         );
       }

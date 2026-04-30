@@ -10,6 +10,7 @@ interface Variant {
   name: string;
   price: string;
   originalPrice: string | null;
+  pointsPrice: number | null;
   sortOrder: number;
   isActive: boolean;
 }
@@ -18,6 +19,7 @@ interface SizePriceInput {
   sizeId: string;
   sizeName: string;
   price: string;
+  pointsPrice: number | null;
 }
 
 
@@ -38,13 +40,14 @@ interface ProductData {
   description: string | null;
   price: string;
   originalPrice: string | null;
+  pointsPrice: number | null;
   categoryId: string;
   imageUrl: string | null;
   isNew: boolean;
   hasVariants: boolean;
   isActive: boolean;
   variants: Variant[];
-  sizePrices?: { sizeId: string; sizeName?: string; price: string }[];
+  sizePrices?: { sizeId: string; sizeName?: string; price: string; pointsPrice: number | null }[];
   ingredients?: Array<{
     ingredientId: string;
     ingredientName: string;
@@ -71,6 +74,11 @@ export function ProductForm({ product }: { product?: ProductData }) {
 
   const isEditing = !!product;
 
+  // Buscar config de fidelidade pra decidir se mostra campos de pontos
+  const loyaltyConfigQuery = trpc.loyalty.getConfig.useQuery();
+  const loyaltyEnabled = loyaltyConfigQuery.data?.isActive ?? false;
+  const pointsLabel = loyaltyConfigQuery.data?.pointsName ?? "Pontos";
+
   // Form state
   const [name, setName] = useState(product?.name ?? "");
   const [description, setDescription] = useState(product?.description ?? "");
@@ -78,6 +86,9 @@ export function ProductForm({ product }: { product?: ProductData }) {
   const [price, setPrice] = useState(product?.price ?? "0");
   const [originalPrice, setOriginalPrice] = useState(
     product?.originalPrice ?? ""
+  );
+  const [pointsPrice, setPointsPrice] = useState<string>(
+    product?.pointsPrice != null ? String(product.pointsPrice) : ""
   );
   const [imageUrl, setImageUrl] = useState<string | null>(
     product?.imageUrl ?? null
@@ -130,6 +141,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
             sizeId: s.id,
             sizeName: s.name,
             price: existing?.price ?? "0",
+            pointsPrice: existing?.pointsPrice ?? null,
           };
         })
       );
@@ -174,6 +186,9 @@ export function ProductForm({ product }: { product?: ProductData }) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
+    const pointsPriceParsed = pointsPrice ? parseInt(pointsPrice, 10) : null;
+    const cleanPoints = pointsPriceParsed && pointsPriceParsed > 0 ? pointsPriceParsed : null;
+
     if (isEditing) {
       // Atualizar produto base
       updateMutation.mutate({
@@ -183,6 +198,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
         categoryId,
         price,
         originalPrice: originalPrice || null,
+        pointsPrice: loyaltyEnabled ? cleanPoints : null,
         imageUrl,
         isNew,
         hasVariants: categoryHasSizes ? false : hasVariants,
@@ -195,13 +211,17 @@ export function ProductForm({ product }: { product?: ProductData }) {
           sizePrices: sizePrices.map((sp) => ({
             sizeId: sp.sizeId,
             price: sp.price,
+            pointsPrice: loyaltyEnabled ? sp.pointsPrice : null,
           })),
         });
       } else if (hasVariants) {
         // Sincronizar variantes
         syncVariantsMutation.mutate({
           productId: product.id,
-          variants,
+          variants: variants.map((v) => ({
+            ...v,
+            pointsPrice: loyaltyEnabled ? v.pointsPrice : null,
+          })),
         });
       }
 
@@ -224,12 +244,22 @@ export function ProductForm({ product }: { product?: ProductData }) {
         categoryId,
         price,
         originalPrice: originalPrice || undefined,
+        pointsPrice: loyaltyEnabled ? cleanPoints : null,
         imageUrl: imageUrl ?? undefined,
         isNew,
         hasVariants: categoryHasSizes ? false : hasVariants,
-        variants: categoryHasSizes ? [] : variants,
+        variants: categoryHasSizes
+          ? []
+          : variants.map((v) => ({
+              ...v,
+              pointsPrice: loyaltyEnabled ? v.pointsPrice : null,
+            })),
         sizePrices: categoryHasSizes
-          ? sizePrices.map((sp) => ({ sizeId: sp.sizeId, price: sp.price }))
+          ? sizePrices.map((sp) => ({
+              sizeId: sp.sizeId,
+              price: sp.price,
+              pointsPrice: loyaltyEnabled ? sp.pointsPrice : null,
+            }))
           : [],
         ingredients: productIngredientsList.map((ing, i) => ({
           ingredientId: ing.ingredientId,
@@ -251,6 +281,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
         name: "",
         price: "0",
         originalPrice: null,
+        pointsPrice: null,
         sortOrder: variants.length,
         isActive: true,
       },
@@ -260,7 +291,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
   function updateVariant(
     index: number,
     field: keyof Variant,
-    value: string | number | boolean
+    value: string | number | boolean | null
   ) {
     setVariants(
       variants.map((v, i) => (i === index ? { ...v, [field]: value } : v))
@@ -400,9 +431,9 @@ export function ProductForm({ product }: { product?: ProductData }) {
               return (
                 <div
                   key={sp.sizeId}
-                  className="flex items-center gap-4 rounded-md border border-amber-200 bg-amber-50/30 p-3"
+                  className="flex flex-wrap items-center gap-4 rounded-md border border-amber-200 bg-amber-50/30 p-3"
                 >
-                  <div className="flex-1">
+                  <div className="min-w-[140px] flex-1">
                     <span className="text-sm font-medium text-foreground">
                       {sp.sizeName}
                     </span>
@@ -427,6 +458,29 @@ export function ProductForm({ product }: { product?: ProductData }) {
                       className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                     />
                   </div>
+                  {loyaltyEnabled && (
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-sm text-muted-foreground">{pointsLabel}</span>
+                      <input
+                        type="number"
+                        min="1"
+                        step="1"
+                        value={sp.pointsPrice ?? ""}
+                        onChange={(e) => {
+                          const updated = [...sizePrices];
+                          updated[i] = {
+                            ...sp,
+                            pointsPrice: e.target.value
+                              ? parseInt(e.target.value, 10)
+                              : null,
+                          };
+                          setSizePrices(updated);
+                        }}
+                        placeholder="Opcional"
+                        className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                      />
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -434,6 +488,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
           <p className="mt-3 text-xs text-muted-foreground">
             Quando o cliente pedir uma pizza com vários sabores, o preço será o
             do sabor mais caro selecionado.
+            {loyaltyEnabled && ` Preencha "${pointsLabel}" para permitir resgate por fidelidade.`}
           </p>
         </section>
       )}
@@ -445,7 +500,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
           <div className="grid gap-4 sm:grid-cols-2">
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
-                Preço (R$) *
+                Preço (R$) {loyaltyEnabled && pointsPrice ? "" : "*"}
               </label>
               <input
                 type="number"
@@ -455,6 +510,11 @@ export function ProductForm({ product }: { product?: ProductData }) {
                 onChange={(e) => setPrice(e.target.value)}
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
               />
+              {loyaltyEnabled && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Deixe 0 se o produto só pode ser comprado com pontos
+                </p>
+              )}
             </div>
             <div>
               <label className="mb-1 block text-sm font-medium text-foreground">
@@ -473,6 +533,25 @@ export function ProductForm({ product }: { product?: ProductData }) {
                 Se preenchido, aparece riscado ao lado do preço atual
               </p>
             </div>
+            {loyaltyEnabled && (
+              <div className="sm:col-span-2 mt-2 border-t border-border pt-4">
+                <label className="mb-1 block text-sm font-medium text-foreground">
+                  Valor em {pointsLabel.toLowerCase()} (opcional)
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={pointsPrice}
+                  onChange={(e) => setPointsPrice(e.target.value)}
+                  placeholder={`Ex: 500 ${pointsLabel.toLowerCase()}`}
+                  className="w-40 rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Se preenchido, cliente pode trocar este produto pelo seu saldo de fidelidade.
+                </p>
+              </div>
+            )}
           </div>
         </section>
       )}
@@ -501,24 +580,47 @@ export function ProductForm({ product }: { product?: ProductData }) {
             {variants.map((v, i) => (
               <div
                 key={i}
-                className="flex items-center gap-3 rounded-md border border-input p-3"
+                className="flex flex-wrap items-center gap-3 rounded-md border border-input p-3"
               >
                 <input
                   type="text"
                   value={v.name}
                   onChange={(e) => updateVariant(i, "name", e.target.value)}
                   placeholder="Ex: Grande (8 fatias)"
-                  className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                  className="min-w-[140px] flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
                 />
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={v.price}
-                  onChange={(e) => updateVariant(i, "price", e.target.value)}
-                  placeholder="Preço"
-                  className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-                />
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    value={v.price}
+                    onChange={(e) => updateVariant(i, "price", e.target.value)}
+                    placeholder="Preço"
+                    className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                  />
+                </div>
+                {loyaltyEnabled && (
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground">{pointsLabel}</span>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={v.pointsPrice ?? ""}
+                      onChange={(e) =>
+                        updateVariant(
+                          i,
+                          "pointsPrice",
+                          e.target.value ? parseInt(e.target.value, 10) : null
+                        )
+                      }
+                      placeholder="Opcional"
+                      className="w-24 rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+                    />
+                  </div>
+                )}
                 <button
                   type="button"
                   onClick={() => removeVariant(i)}
@@ -529,6 +631,12 @@ export function ProductForm({ product }: { product?: ProductData }) {
               </div>
             ))}
           </div>
+          {loyaltyEnabled && variants.length > 0 && (
+            <p className="mt-3 text-xs text-muted-foreground">
+              Variante com {pointsLabel.toLowerCase()} preenchidos pode ser resgatada pelo cliente.
+              Deixe R$ 0 se a variante só aceita {pointsLabel.toLowerCase()}.
+            </p>
+          )}
         </section>
       )}
 
