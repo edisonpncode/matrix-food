@@ -180,6 +180,7 @@ export default function RestaurantPage({ params }: PageProps) {
               key={category.id}
               id={category.id}
               name={category.name}
+              tenantId={tenant?.id ?? ""}
               products={category.products}
               onProductClick={setSelectedProductId}
             />

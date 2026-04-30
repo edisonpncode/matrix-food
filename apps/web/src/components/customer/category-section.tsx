@@ -8,6 +8,7 @@ interface Product {
   description: string | null;
   price: string;
   originalPrice: string | null;
+  pointsPrice: number | null;
   imageUrl: string | null;
   isNew: boolean;
   hasVariants: boolean;
@@ -16,12 +17,14 @@ interface Product {
     name: string;
     price: string;
     originalPrice: string | null;
+    pointsPrice: number | null;
   }[];
 }
 
 interface CategorySectionProps {
   id: string;
   name: string;
+  tenantId: string;
   products: Product[];
   onProductClick: (productId: string) => void;
 }
@@ -29,6 +32,7 @@ interface CategorySectionProps {
 export function CategorySection({
   id,
   name,
+  tenantId,
   products,
   onProductClick,
 }: CategorySectionProps) {
@@ -42,6 +46,7 @@ export function CategorySection({
           <ProductCard
             key={product.id}
             product={product}
+            tenantId={tenantId}
             onClick={() => onProductClick(product.id)}
           />
         ))}

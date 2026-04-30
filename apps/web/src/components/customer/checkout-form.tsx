@@ -51,6 +51,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   const router = useRouter();
   const items = useCartStore((s) => s.items);
   const subtotal = useCartStore((s) => s.getSubtotal());
+  const pointsToSpend = useCartStore((s) => s.getPointsToSpend());
   const clearCart = useCartStore((s) => s.clearCart);
   const { customer } = useCustomerAuth();
 
@@ -296,6 +297,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
           productVariantId: item.variantId,
           quantity: item.quantity,
           notes: item.notes || undefined,
+          paidWithPoints: item.paidWithPoints,
           customizations: item.customizations.map((c) => ({
             customizationGroupName: c.groupName,
             customizationOptionName: c.optionName,
@@ -721,8 +723,17 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
                 <span className="text-gray-600">
                   {item.quantity}x {item.productName}
                   {item.variantName && ` (${item.variantName})`}
+                  {item.paidWithPoints && (
+                    <span className="ml-1 text-xs font-medium text-amber-600">
+                      (resgate)
+                    </span>
+                  )}
                 </span>
-                <span>{formatCurrency(item.itemTotal)}</span>
+                <span>
+                  {item.paidWithPoints
+                    ? `${item.pointsUnitCost * item.quantity} pts${item.itemTotal > 0 ? ` + ${formatCurrency(item.itemTotal)}` : ""}`
+                    : formatCurrency(item.itemTotal)}
+                </span>
               </div>
             ))}
             <div className="border-t pt-2">
@@ -754,6 +765,12 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
                 <span>Total</span>
                 <span className="text-primary">{formatCurrency(total)}</span>
               </div>
+              {pointsToSpend > 0 && (
+                <div className="mt-1 flex justify-between text-sm font-semibold text-amber-700">
+                  <span>Pontos a gastar</span>
+                  <span>{pointsToSpend} pts</span>
+                </div>
+              )}
             </div>
           </div>
         </section>

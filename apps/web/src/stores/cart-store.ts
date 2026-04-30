@@ -23,12 +23,16 @@ export interface CartItem {
   productName: string;
   variantId: string | null;
   variantName: string | null;
-  unitPrice: number; // preço base (produto ou variante)
+  unitPrice: number; // preço base (produto ou variante) — zero se paidWithPoints
   customizations: CartCustomization[];
   ingredientModifications: CartIngredientModification[];
   quantity: number;
   notes: string;
-  itemTotal: number; // (unitPrice + customizations + ingredients) * quantity
+  itemTotal: number; // R$ pago no item (customizations + ingredientes; só inclui unitPrice se NÃO for pontos)
+  /** Item resgatado com pontos do programa de fidelidade */
+  paidWithPoints: boolean;
+  /** Custo em pontos por unidade (snapshot na hora de adicionar ao carrinho) */
+  pointsUnitCost: number;
 }
 
 interface CartState {
@@ -42,6 +46,7 @@ interface CartState {
   setTenant: (tenantId: string, tenantSlug: string) => void;
   getSubtotal: () => number;
   getItemCount: () => number;
+  getPointsToSpend: () => number;
 }
 
 function calculateItemTotal(item: Omit<CartItem, "id" | "itemTotal">): number {
@@ -53,7 +58,9 @@ function calculateItemTotal(item: Omit<CartItem, "id" | "itemTotal">): number {
     (sum, m) => sum + m.price,
     0
   );
-  return (item.unitPrice + customizationsPrice + ingredientsPrice) * item.quantity;
+  // Item pago com pontos: só adicionais entram no R$. Caso contrário, soma o preço base.
+  const baseUnit = item.paidWithPoints ? 0 : item.unitPrice;
+  return (baseUnit + customizationsPrice + ingredientsPrice) * item.quantity;
 }
 
 function generateItemId(): string {
@@ -118,6 +125,13 @@ export const useCartStore = create<CartState>()(
 
       getItemCount: () =>
         get().items.reduce((sum, item) => sum + item.quantity, 0),
+
+      getPointsToSpend: () =>
+        get().items.reduce(
+          (sum, item) =>
+            sum + (item.paidWithPoints ? item.pointsUnitCost * item.quantity : 0),
+          0
+        ),
     }),
     {
       name: "matrix-food-cart",
