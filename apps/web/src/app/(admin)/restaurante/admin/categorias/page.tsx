@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Plus,
@@ -50,6 +50,12 @@ export default function CategoriasPage() {
       utils.category.listAllWithSizes.invalidate();
     },
   });
+  const reorderMutation = trpc.category.reorder.useMutation({
+    onSuccess: () => {
+      utils.category.listAllWithSizes.invalidate();
+      utils.category.listAll.invalidate();
+    },
+  });
 
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -58,6 +64,60 @@ export default function CategoriasPage() {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [hasSizes, setHasSizes] = useState(false);
   const [sizes, setSizes] = useState<SizeInput[]>([]);
+
+  type CategoryItem = NonNullable<typeof categories.data>[number];
+  const [orderedCategories, setOrderedCategories] = useState<CategoryItem[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (categories.data) {
+      setOrderedCategories(categories.data);
+    }
+  }, [categories.data]);
+
+  function handleDragStart(id: string) {
+    setDraggingId(id);
+  }
+
+  function handleDragOver(e: React.DragEvent, id: string) {
+    e.preventDefault();
+    if (id !== draggingId) setDragOverId(id);
+  }
+
+  function handleDragEnd() {
+    setDraggingId(null);
+    setDragOverId(null);
+  }
+
+  function handleDrop(e: React.DragEvent, targetId: string) {
+    e.preventDefault();
+    if (!draggingId || draggingId === targetId) {
+      handleDragEnd();
+      return;
+    }
+
+    const fromIndex = orderedCategories.findIndex((c) => c.id === draggingId);
+    const toIndex = orderedCategories.findIndex((c) => c.id === targetId);
+    if (fromIndex === -1 || toIndex === -1) {
+      handleDragEnd();
+      return;
+    }
+
+    const newOrder = [...orderedCategories];
+    const [moved] = newOrder.splice(fromIndex, 1);
+    if (!moved) {
+      handleDragEnd();
+      return;
+    }
+    newOrder.splice(toIndex, 0, moved);
+    setOrderedCategories(newOrder);
+    handleDragEnd();
+
+    reorderMutation.mutate({
+      items: newOrder.map((c, idx) => ({ id: c.id, sortOrder: idx })),
+    });
+  }
 
   function resetForm() {
     setName("");
@@ -354,7 +414,7 @@ export default function CategoriasPage() {
           </div>
         )}
 
-        {categories.data?.length === 0 && (
+        {orderedCategories.length === 0 && !categories.isLoading && (
           <div className="rounded-lg border border-dashed border-border py-12 text-center">
             <p className="text-muted-foreground">
               Nenhuma categoria criada ainda.
@@ -365,14 +425,24 @@ export default function CategoriasPage() {
           </div>
         )}
 
-        {categories.data?.map((cat) => (
+        {orderedCategories.map((cat) => (
           <div
             key={cat.id}
-            className={`flex items-center gap-3 rounded-lg border border-border bg-card p-4 ${
+            draggable
+            onDragStart={() => handleDragStart(cat.id)}
+            onDragOver={(e) => handleDragOver(e, cat.id)}
+            onDragLeave={() => setDragOverId(null)}
+            onDrop={(e) => handleDrop(e, cat.id)}
+            onDragEnd={handleDragEnd}
+            className={`flex items-center gap-3 rounded-lg border bg-card p-4 transition-all ${
               !cat.isActivePublic && !cat.isActivePOS ? "opacity-60" : ""
+            } ${draggingId === cat.id ? "opacity-40" : ""} ${
+              dragOverId === cat.id
+                ? "border-primary border-2"
+                : "border-border"
             }`}
           >
-            <GripVertical className="h-5 w-5 shrink-0 cursor-grab text-muted-foreground" />
+            <GripVertical className="h-5 w-5 shrink-0 cursor-grab text-muted-foreground active:cursor-grabbing" />
 
             <div className="flex-1">
               <div className="flex items-center gap-2">
