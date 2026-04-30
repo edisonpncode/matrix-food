@@ -202,9 +202,8 @@ export default function CadastroPage() {
     try {
       // 1. Criar usuário no Firebase Auth
       const { initializeApp, getApps } = await import("firebase/app");
-      const { getAuth, createUserWithEmailAndPassword } = await import(
-        "firebase/auth"
-      );
+      const { getAuth, createUserWithEmailAndPassword, sendEmailVerification } =
+        await import("firebase/auth");
 
       // Inicializar Firebase se ainda não foi
       const firebaseConfig = {
@@ -221,11 +220,19 @@ export default function CadastroPage() {
       const auth = getAuth(app);
       const userCredential = await createUserWithEmailAndPassword(
         auth,
-        email,
+        email.trim(),
         password
       );
 
-      // 2. Registrar no backend
+      // 2. Disparar email de verificação (fire-and-forget — não bloqueia o
+      // cadastro se o envio falhar; o dono pode reenviar depois). Sem isso,
+      // o backfill futuro de firebase_uid no resolveTenantUser fica
+      // bloqueado por exigir email_verified=true.
+      sendEmailVerification(userCredential.user).catch((err) => {
+        console.warn("Falha ao enviar email de verificação:", err);
+      });
+
+      // 3. Registrar no backend
       await registerMutation.mutateAsync({
         ownerName,
         ownerPhone: ownerPhone || undefined,
@@ -233,11 +240,27 @@ export default function CadastroPage() {
         foodTypes: selectedFoodTypes,
         state,
         city,
-        email,
+        email: email.trim(),
         firebaseUid: userCredential.user.uid,
       });
 
-      // 3. Redirecionar para o admin
+      // 4. Trocar o ID token Firebase por um cookie de sessão server-side.
+      // Sem isso o middleware /restaurante/admin não enxerga a auth e joga
+      // o usuário recém-criado de volta para a tela de login.
+      const idToken = await userCredential.user.getIdToken();
+      const response = await fetch("/api/login", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${idToken}` },
+      });
+      if (!response.ok) {
+        setError(
+          "Conta criada mas não foi possível abrir a sessão. Tente fazer login."
+        );
+        setLoading(false);
+        return;
+      }
+
+      // 5. Redirecionar para o admin
       router.push("/restaurante/admin");
     } catch (err: unknown) {
       if (err instanceof Error) {

@@ -154,20 +154,6 @@ async function createContext(req: Request): Promise<TRPCContext> {
   const isRestaurantePos = pathname.startsWith("/restaurante/pos");
   if (isRestauranteAdmin || isRestaurantePos) {
     if (IS_PRODUCTION) {
-      // Diagnóstico de auth: cookies presentes + decisão final. Logado em
-      // toda requisição que falha — útil pra debugar via Railway runtime
-      // logs quando o admin volta a 401. TODO(remover): após validar que
-      // o login está estável em prod.
-      const cookieHeader = req.headers.get("cookie") ?? "";
-      const cookieNames = cookieHeader
-        .split(";")
-        .map((c) => c.trim().split("=")[0])
-        .filter(Boolean);
-      const hasFirebaseIdCookie = cookieNames.includes(
-        `${authConfig.cookieName}.id`
-      );
-      const hasStaffCookie = cookieNames.includes("mf-staff-session");
-
       // 1) Firebase tem precedência (dono autenticado).
       try {
         const tokens = await getTokens(await cookies(), {
@@ -197,19 +183,9 @@ async function createContext(req: Request): Promise<TRPCContext> {
               ip,
             };
           }
-          console.warn(
-            `[auth-debug] Firebase OK mas resolveTenantUser=null. uid=${decoded.uid} email=${decoded.email ?? "<sem>"} verified=${decoded.email_verified === true} path=${pathname}`
-          );
-        } else {
-          console.warn(
-            `[auth-debug] getTokens não retornou uid. cookies=[${cookieNames.join(",")}] hasFirebaseId=${hasFirebaseIdCookie} hasStaff=${hasStaffCookie} path=${pathname}`
-          );
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[auth-debug] getTokens lançou: ${msg}. cookies=[${cookieNames.join(",")}] hasFirebaseId=${hasFirebaseIdCookie} hasStaff=${hasStaffCookie} path=${pathname}`
-        );
+        console.error("Falha ao validar sessão Firebase de restaurante:", err);
       }
 
       // 2) Fallback: sessão HMAC de funcionário.
@@ -229,9 +205,6 @@ async function createContext(req: Request): Promise<TRPCContext> {
         };
       }
 
-      console.warn(
-        `[auth-debug] Auth falhou — sem Firebase nem HMAC válido. cookies=[${cookieNames.join(",")}] path=${pathname}`
-      );
       return { user: null, tenantId: null, customer, ip };
     }
 
