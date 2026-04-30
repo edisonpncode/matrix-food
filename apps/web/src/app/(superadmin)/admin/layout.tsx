@@ -12,8 +12,19 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
+// Painel /admin nunca pode ser pre-renderizado: a verificação de sessão
+// depende de cookies e da env SUPERADMIN_EMAILS, que só existem em runtime.
+export const dynamic = "force-dynamic";
+
 async function assertSuperadminOrRedirect() {
   const allowlist = getSuperadminAllowlist();
+  if (allowlist.length === 0) {
+    // Fail-closed: sem allowlist configurada, ninguém entra.
+    console.error(
+      "superadmin layout: SUPERADMIN_EMAILS não configurada — recusando acesso"
+    );
+    redirect("/admin/login?error=forbidden");
+  }
   let email: string | null = null;
   try {
     const tokens = await getTokens(await cookies(), {
