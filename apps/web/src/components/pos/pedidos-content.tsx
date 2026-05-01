@@ -25,6 +25,7 @@ import { usePrinterSettings } from "@/hooks/use-printer-settings";
 import { DeliveryPersonSelector } from "@/components/admin/delivery-person-selector";
 import { FinalizeDeliveryModal } from "@/components/admin/finalize-delivery-modal";
 import { RequirePinModal } from "@/components/shared/user-session/require-pin-modal";
+import { OrderEditModal } from "@/components/pos/order-edit-modal";
 
 type OrderStatus =
   | "PENDING"
@@ -192,6 +193,8 @@ export function PedidosContent() {
   );
   // PIN authorization state for cancellation
   const [pendingCancelOrderId, setPendingCancelOrderId] = useState<string | null>(null);
+  // Modal de detalhes/edição
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
 
   // Busca todos os pedidos do tenant (sem filtrar server-side — filtros são locais
   // para permitir trocar de aba sem refetch).
@@ -537,7 +540,16 @@ export function PedidosContent() {
             return (
               <div
                 key={order.id}
-                className={`rounded-xl border-2 bg-card p-5 shadow-sm ${
+                role="button"
+                tabIndex={0}
+                onClick={() => setEditingOrderId(order.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setEditingOrderId(order.id);
+                  }
+                }}
+                className={`cursor-pointer rounded-xl border-2 bg-card p-5 shadow-sm transition-shadow hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary ${
                   order.status === "PENDING" && order.source === "ONLINE"
                     ? "border-yellow-300"
                     : order.status === "OUT_FOR_DELIVERY"
@@ -626,7 +638,11 @@ export function PedidosContent() {
                 )}
 
                 {/* Actions */}
-                <div className="mt-4 flex gap-2">
+                <div
+                  className="mt-4 flex gap-2"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
                   {/* Botão de impressão */}
                   {getEnabledReceiptTypes().length > 0 && (
                     <div className="group relative">
@@ -771,6 +787,14 @@ export function PedidosContent() {
               cancelOrder.mutate({ id, status: "CANCELLED" });
             }
           }}
+        />
+      )}
+
+      {editingOrderId && (
+        <OrderEditModal
+          orderId={editingOrderId}
+          onClose={() => setEditingOrderId(null)}
+          onChanged={() => refetch()}
         />
       )}
     </div>

@@ -2604,4 +2604,524 @@ export const orderRouter = createTRPCRouter({
 
       return { ok: true };
     }),
+
+  /**
+   * Busca pedido completo (admin) — itens + personalizações + ingredientes.
+   * Usado pelo modal de detalhes/edição na tela de Pedidos.
+   */
+  getDetails: tenantProcedure
+    .input(z.object({ orderId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [order] = await db
+        .select()
+        .from(orders)
+        .where(
+          and(eq(orders.id, input.orderId), eq(orders.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!order) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não encontrado",
+        });
+      }
+
+      const items = await db
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      const itemsWithDetails = await Promise.all(
+        items.map(async (item) => {
+          const customizations = await db
+            .select()
+            .from(orderItemCustomizations)
+            .where(eq(orderItemCustomizations.orderItemId, item.id));
+          const ingredientModifications = await db
+            .select()
+            .from(orderItemIngredients)
+            .where(eq(orderItemIngredients.orderItemId, item.id));
+          return { ...item, customizations, ingredientModifications };
+        })
+      );
+
+      return { ...order, items: itemsWithDetails };
+    }),
+
+  /**
+   * Adiciona um item a um pedido existente (admin).
+   * Recalcula subtotal/total do pedido. Bloqueia se pedido já finalizado/cancelado.
+   */
+  addItem: tenantProcedure
+    .input(
+      z.object({
+        orderId: z.string().uuid(),
+        item: orderItemInput,
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [order] = await db
+        .select()
+        .from(orders)
+        .where(
+          and(eq(orders.id, input.orderId), eq(orders.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!order) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não encontrado",
+        });
+      }
+
+      if (
+        order.status === "DELIVERED" ||
+        order.status === "PICKED_UP" ||
+        order.status === "CANCELLED"
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Não é possível editar um pedido finalizado ou cancelado.",
+        });
+      }
+
+      // Buscar produto para calcular preço (espelha lógica de create)
+      const [product] = await db
+        .select()
+        .from(products)
+        .where(
+          and(
+            eq(products.id, input.item.productId),
+            eq(products.tenantId, ctx.tenantId),
+            eq(products.isActive, true)
+          )
+        )
+        .limit(1);
+
+      if (!product) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Produto não encontrado",
+        });
+      }
+
+      let unitPrice = product.price;
+      let variantName: string | null = null;
+
+      if (input.item.productVariantId) {
+        const [variant] = await db
+          .select()
+          .from(productVariants)
+          .where(
+            and(
+              eq(productVariants.id, input.item.productVariantId),
+              eq(productVariants.productId, product.id),
+              eq(productVariants.isActive, true)
+            )
+          )
+          .limit(1);
+
+        if (!variant) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: "Variante não encontrada",
+          });
+        }
+
+        unitPrice = variant.price;
+        variantName = variant.name;
+      }
+
+      // Personalizações
+      let customizationsTotal = 0;
+      const resolvedCustomizations = await Promise.all(
+        input.item.customizations.map(async (c) => {
+          const [option] = await db
+            .select()
+            .from(customizationOptions)
+            .where(eq(customizationOptions.id, c.optionId))
+            .limit(1);
+          const optionPrice = option ? parseFloat(option.price) : 0;
+          customizationsTotal += optionPrice;
+          return {
+            customizationGroupName: c.customizationGroupName,
+            customizationOptionName: c.customizationOptionName,
+            price: option?.price ?? "0",
+          };
+        })
+      );
+
+      // Ingredientes
+      let ingredientsTotal = 0;
+      const resolvedIngredients: Array<{
+        ingredientName: string;
+        modification: string;
+        quantity: number;
+        price: string;
+      }> = [];
+
+      if (input.item.ingredients.length > 0) {
+        const prodIngs = await db
+          .select({
+            ingredientId: productIngredients.ingredientId,
+            defaultQuantity: productIngredients.defaultQuantity,
+            defaultState: productIngredients.defaultState,
+            additionalPrice: productIngredients.additionalPrice,
+            ingredientName: ingredients.name,
+            ingredientType: ingredients.type,
+          })
+          .from(productIngredients)
+          .innerJoin(
+            ingredients,
+            eq(productIngredients.ingredientId, ingredients.id)
+          )
+          .where(eq(productIngredients.productId, product.id));
+
+        const ingMap = new Map(prodIngs.map((pi) => [pi.ingredientId, pi]));
+        for (const ingInput of input.item.ingredients) {
+          const config = ingMap.get(ingInput.ingredientId);
+          if (!config) continue;
+          const mod = computeIngredientModification({
+            ingredientType: config.ingredientType,
+            ingredientName: config.ingredientName,
+            defaultQuantity: config.defaultQuantity,
+            defaultState: config.defaultState,
+            additionalPrice: parseFloat(config.additionalPrice),
+            chosenQuantity: ingInput.quantity,
+            chosenState: ingInput.state,
+          });
+          if (mod) {
+            ingredientsTotal += mod.price;
+            resolvedIngredients.push({
+              ingredientName: config.ingredientName,
+              modification: mod.modification,
+              quantity: mod.quantity,
+              price: mod.price.toFixed(2),
+            });
+          }
+        }
+      }
+
+      const itemUnitPrice =
+        parseFloat(unitPrice) + customizationsTotal + ingredientsTotal;
+      const totalPrice = itemUnitPrice * input.item.quantity;
+
+      // Inserir o item
+      const [newItem] = await db
+        .insert(orderItems)
+        .values({
+          orderId: order.id,
+          productId: product.id,
+          productVariantId: input.item.productVariantId,
+          productName: product.name,
+          variantName,
+          unitPrice: itemUnitPrice.toFixed(2),
+          quantity: input.item.quantity,
+          totalPrice: totalPrice.toFixed(2),
+          notes: input.item.notes,
+          paidWithPoints: false,
+          pointsUnitCost: 0,
+          pointsTotalCost: 0,
+        })
+        .returning();
+
+      if (!newItem) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Falha ao adicionar item",
+        });
+      }
+
+      if (resolvedCustomizations.length > 0) {
+        await db.insert(orderItemCustomizations).values(
+          resolvedCustomizations.map((c) => ({
+            orderItemId: newItem.id,
+            ...c,
+          }))
+        );
+      }
+
+      if (resolvedIngredients.length > 0) {
+        await db.insert(orderItemIngredients).values(
+          resolvedIngredients.map((ing) => ({
+            orderItemId: newItem.id,
+            ...ing,
+          }))
+        );
+      }
+
+      // Recalcular subtotal/total do pedido
+      const allItems = await db
+        .select({ totalPrice: orderItems.totalPrice })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      const newSubtotal = allItems.reduce(
+        (sum, it) => sum + parseFloat(it.totalPrice),
+        0
+      );
+      const deliveryFee = parseFloat(order.deliveryFee);
+      const discount = parseFloat(order.discount);
+      const newTotal = newSubtotal + deliveryFee - discount;
+
+      await db
+        .update(orders)
+        .set({
+          subtotal: newSubtotal.toFixed(2),
+          total: newTotal.toFixed(2),
+        })
+        .where(eq(orders.id, order.id));
+
+      // Auditoria
+      await db.insert(activityLogs).values({
+        tenantId: ctx.tenantId,
+        userName: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+        action: "ORDER_STATUS_CHANGED",
+        description: `Item adicionado ao pedido #${order.displayNumber}: ${product.name}${variantName ? ` (${variantName})` : ""} x${input.item.quantity}`,
+        metadata: {
+          orderId: order.id,
+          itemId: newItem.id,
+          changeType: "ITEM_ADDED",
+        },
+      });
+
+      return { ok: true, itemId: newItem.id };
+    }),
+
+  /**
+   * Remove um item do pedido (admin). Recalcula subtotal/total.
+   * Bloqueia se pedido já finalizado/cancelado.
+   */
+  removeItem: tenantProcedure
+    .input(
+      z.object({
+        orderId: z.string().uuid(),
+        itemId: z.string().uuid(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [order] = await db
+        .select()
+        .from(orders)
+        .where(
+          and(eq(orders.id, input.orderId), eq(orders.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!order) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não encontrado",
+        });
+      }
+
+      if (
+        order.status === "DELIVERED" ||
+        order.status === "PICKED_UP" ||
+        order.status === "CANCELLED"
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Não é possível editar um pedido finalizado ou cancelado.",
+        });
+      }
+
+      const [item] = await db
+        .select()
+        .from(orderItems)
+        .where(
+          and(eq(orderItems.id, input.itemId), eq(orderItems.orderId, order.id))
+        )
+        .limit(1);
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Item não encontrado neste pedido",
+        });
+      }
+
+      // Não permitir remover se for o último item (pedido vazio)
+      const totalItems = await db
+        .select({ id: orderItems.id })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      if (totalItems.length <= 1) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Não é possível remover o único item do pedido. Cancele o pedido se necessário.",
+        });
+      }
+
+      // Itens pagos com pontos não podem ser removidos por aqui (precisaria estornar)
+      if (item.paidWithPoints) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Item pago com pontos não pode ser removido — cancele o pedido para estornar pontos.",
+        });
+      }
+
+      await db.delete(orderItems).where(eq(orderItems.id, item.id));
+
+      // Recalcular totais
+      const allItems = await db
+        .select({ totalPrice: orderItems.totalPrice })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      const newSubtotal = allItems.reduce(
+        (sum, it) => sum + parseFloat(it.totalPrice),
+        0
+      );
+      const deliveryFee = parseFloat(order.deliveryFee);
+      const discount = parseFloat(order.discount);
+      const newTotal = newSubtotal + deliveryFee - discount;
+
+      await db
+        .update(orders)
+        .set({
+          subtotal: newSubtotal.toFixed(2),
+          total: newTotal.toFixed(2),
+        })
+        .where(eq(orders.id, order.id));
+
+      await db.insert(activityLogs).values({
+        tenantId: ctx.tenantId,
+        userName: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+        action: "ORDER_STATUS_CHANGED",
+        description: `Item removido do pedido #${order.displayNumber}: ${item.productName}${item.variantName ? ` (${item.variantName})` : ""} x${item.quantity}`,
+        metadata: {
+          orderId: order.id,
+          itemId: item.id,
+          changeType: "ITEM_REMOVED",
+          productName: item.productName,
+          quantity: item.quantity,
+        },
+      });
+
+      return { ok: true };
+    }),
+
+  /**
+   * Atualiza a quantidade de um item do pedido (admin). Recalcula subtotal/total.
+   */
+  updateItemQuantity: tenantProcedure
+    .input(
+      z.object({
+        orderId: z.string().uuid(),
+        itemId: z.string().uuid(),
+        quantity: z.number().int().min(1),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [order] = await db
+        .select()
+        .from(orders)
+        .where(
+          and(eq(orders.id, input.orderId), eq(orders.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!order) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não encontrado",
+        });
+      }
+
+      if (
+        order.status === "DELIVERED" ||
+        order.status === "PICKED_UP" ||
+        order.status === "CANCELLED"
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Não é possível editar um pedido finalizado ou cancelado.",
+        });
+      }
+
+      const [item] = await db
+        .select()
+        .from(orderItems)
+        .where(
+          and(eq(orderItems.id, input.itemId), eq(orderItems.orderId, order.id))
+        )
+        .limit(1);
+
+      if (!item) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Item não encontrado neste pedido",
+        });
+      }
+
+      if (item.paidWithPoints) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Item pago com pontos não pode ter quantidade alterada por aqui.",
+        });
+      }
+
+      const oldQuantity = item.quantity;
+      const newTotalPrice = parseFloat(item.unitPrice) * input.quantity;
+
+      await db
+        .update(orderItems)
+        .set({
+          quantity: input.quantity,
+          totalPrice: newTotalPrice.toFixed(2),
+        })
+        .where(eq(orderItems.id, item.id));
+
+      const allItems = await db
+        .select({ totalPrice: orderItems.totalPrice })
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      const newSubtotal = allItems.reduce(
+        (sum, it) => sum + parseFloat(it.totalPrice),
+        0
+      );
+      const deliveryFee = parseFloat(order.deliveryFee);
+      const discount = parseFloat(order.discount);
+      const newTotal = newSubtotal + deliveryFee - discount;
+
+      await db
+        .update(orders)
+        .set({
+          subtotal: newSubtotal.toFixed(2),
+          total: newTotal.toFixed(2),
+        })
+        .where(eq(orders.id, order.id));
+
+      await db.insert(activityLogs).values({
+        tenantId: ctx.tenantId,
+        userName: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+        action: "ORDER_STATUS_CHANGED",
+        description: `Quantidade alterada no pedido #${order.displayNumber}: ${item.productName} ${oldQuantity}→${input.quantity}`,
+        metadata: {
+          orderId: order.id,
+          itemId: item.id,
+          changeType: "ITEM_QUANTITY_CHANGED",
+          oldQuantity,
+          newQuantity: input.quantity,
+        },
+      });
+
+      return { ok: true };
+    }),
 });
