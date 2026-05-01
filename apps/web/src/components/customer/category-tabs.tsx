@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect, useCallback } from "react";
+import { useRef, useEffect } from "react";
 
 interface Category {
   id: string;
@@ -24,48 +24,87 @@ export function CategoryBar({
   const activeRef = useRef<HTMLButtonElement>(null);
   const isUserClick = useRef(false);
 
-  // Auto-scroll a barra ao tab ativo
+  // Mantem refs sempre com os callbacks mais recentes para nao recriar
+  // o listener de scroll a cada render do pai.
+  const onScrollspyRef = useRef(onScrollspy);
+  const onSelectRef = useRef(onSelect);
   useEffect(() => {
-    if (activeRef.current && scrollRef.current) {
-      const container = scrollRef.current;
-      const tab = activeRef.current;
-      const scrollLeft =
-        tab.offsetLeft - container.offsetWidth / 2 + tab.offsetWidth / 2;
-      container.scrollTo({ left: scrollLeft, behavior: "smooth" });
-    }
+    onScrollspyRef.current = onScrollspy;
+    onSelectRef.current = onSelect;
+  });
+
+  // Centraliza horizontalmente o tab ativo na barra.
+  // Usa getBoundingClientRect porque tab.offsetLeft eh relativo ao
+  // offsetParent (a div sticky) e nao ao container de scroll, que tem
+  // mx-auto e ganha margem automatica em telas largas.
+  useEffect(() => {
+    if (!activeRef.current || !scrollRef.current) return;
+
+    const container = scrollRef.current;
+    const tab = activeRef.current;
+    const containerRect = container.getBoundingClientRect();
+    const tabRect = tab.getBoundingClientRect();
+
+    const tabOffsetInContent =
+      tabRect.left - containerRect.left + container.scrollLeft;
+    const target =
+      tabOffsetInContent + tab.offsetWidth / 2 - container.offsetWidth / 2;
+
+    container.scrollTo({
+      left: Math.max(0, target),
+      behavior: "smooth",
+    });
   }, [activeCategoryId]);
 
-  // IntersectionObserver para scrollspy
-  const handleIntersection = useCallback(
-    (entries: IntersectionObserverEntry[]) => {
+  // Scrollspy baseado em scroll: a categoria ativa eh a ULTIMA cuja
+  // secao tem o topo acima da linha de gatilho (logo abaixo da barra
+  // sticky). Mais previsivel que o IntersectionObserver com faixa larga.
+  useEffect(() => {
+    let frameId: number | null = null;
+
+    const update = () => {
+      frameId = null;
       if (isUserClick.current) return;
 
-      for (const entry of entries) {
-        if (entry.isIntersecting) {
-          const categoryId = entry.target.getAttribute("data-category-id");
-          if (categoryId) {
-            (onScrollspy ?? onSelect)(categoryId);
-          }
+      const sections = Array.from(
+        document.querySelectorAll<HTMLElement>("[data-category-id]")
+      );
+      if (sections.length === 0) return;
+
+      const triggerY = 100;
+      let activeId = sections[0].getAttribute("data-category-id");
+
+      for (const section of sections) {
+        const rect = section.getBoundingClientRect();
+        if (rect.top <= triggerY) {
+          activeId = section.getAttribute("data-category-id");
+        } else {
           break;
         }
       }
-    },
-    [onSelect, onScrollspy]
-  );
 
-  useEffect(() => {
-    const observer = new IntersectionObserver(handleIntersection, {
-      rootMargin: "-120px 0px -60% 0px",
-      threshold: 0,
-    });
+      if (activeId) {
+        const cb = onScrollspyRef.current ?? onSelectRef.current;
+        cb(activeId);
+      }
+    };
 
-    const sections = document.querySelectorAll("[data-category-id]");
-    sections.forEach((section) => observer.observe(section));
+    const onScroll = () => {
+      if (frameId !== null) return;
+      frameId = requestAnimationFrame(update);
+    };
 
-    return () => observer.disconnect();
-  }, [handleIntersection]);
+    window.addEventListener("scroll", onScroll, { passive: true });
+    update();
 
-  // Quando o usuario clica, desabilita scrollspy por 1s
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      if (frameId !== null) cancelAnimationFrame(frameId);
+    };
+  }, []);
+
+  // Quando o usuario clica, desabilita scrollspy por 1s para nao
+  // brigar com o scroll suave acionado pelo onSelect.
   function handleClick(id: string) {
     isUserClick.current = true;
     onSelect(id);
