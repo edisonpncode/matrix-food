@@ -26,6 +26,7 @@ import {
   type PaymentMethodConfig,
 } from "@matrix-food/utils";
 import { LoyaltySection } from "./loyalty-section";
+import { LoyaltyProgressModal } from "./loyalty-progress-modal";
 import { formatBrazilianPhone, stripPhone } from "@/lib/format-phone";
 import { fetchAddressByCep, formatCep } from "@/lib/viacep";
 import { useCustomerAuth } from "@/lib/customer-auth-context";
@@ -126,6 +127,17 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   // coords direto pro fetch.)
   const utils = trpc.useUtils();
   const [isCheckingArea, setIsCheckingArea] = useState(false);
+
+  // --- Popup de progresso de fidelidade ---
+  const { data: loyaltyConfig } = trpc.loyalty.getPublicConfig.useQuery(
+    { tenantId: tenant.id },
+    { enabled: !!tenant.id }
+  );
+  const [showLoyaltyModal, setShowLoyaltyModal] = useState(false);
+  const [loyaltyModalData, setLoyaltyModalData] = useState<{
+    amountNeeded: number;
+    reason: "next-point" | "min-order";
+  } | null>(null);
 
   const canCheckArea =
     address.street.trim() &&
@@ -303,6 +315,61 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
 
   const minOrder = tenant.deliverySettings?.minOrder ?? 0;
   const isBelowMinimum = minOrder > 0 && subtotal < minOrder;
+
+  // Mostra popup de progresso de fidelidade quando o cliente está perto
+  // (≤50% do passo) de ganhar mais 1 ponto, ou de atingir o mínimo para
+  // começar a ganhar pontos. Só aparece uma vez por sessão por tenant.
+  useEffect(() => {
+    if (!loyaltyConfig) return;
+    if (showLoyaltyModal) return;
+    if (orderType === "DELIVERY" && (!areaChecked || isCheckingArea)) return;
+
+    if (typeof window !== "undefined") {
+      const key = `mf:loyalty-progress-shown:${tenant.id}`;
+      if (window.sessionStorage.getItem(key)) return;
+    }
+
+    const ratePerReal = parseFloat(loyaltyConfig.pointsPerReal);
+    if (!ratePerReal || ratePerReal <= 0) return;
+
+    const realPerPoint = 1 / ratePerReal;
+    const halfStep = realPerPoint / 2;
+    const minOrderForPoints = parseFloat(
+      loyaltyConfig.minOrderForPoints ?? "0"
+    );
+
+    let amountNeeded: number;
+    let reason: "next-point" | "min-order";
+
+    if (total < minOrderForPoints) {
+      amountNeeded = minOrderForPoints - total;
+      reason = "min-order";
+    } else {
+      const earned = Math.floor(total / realPerPoint);
+      const nextThreshold = (earned + 1) * realPerPoint;
+      amountNeeded = nextThreshold - total;
+      reason = "next-point";
+    }
+
+    if (amountNeeded > 0 && amountNeeded <= halfStep) {
+      setLoyaltyModalData({ amountNeeded, reason });
+      setShowLoyaltyModal(true);
+      if (typeof window !== "undefined") {
+        window.sessionStorage.setItem(
+          `mf:loyalty-progress-shown:${tenant.id}`,
+          "1"
+        );
+      }
+    }
+  }, [
+    loyaltyConfig,
+    total,
+    orderType,
+    areaChecked,
+    isCheckingArea,
+    showLoyaltyModal,
+    tenant.id,
+  ]);
 
   const paymentMethods = getEnabledPaymentMethods(
     tenant.paymentMethodsAccepted ?? DEFAULT_PAYMENT_METHODS
@@ -1072,6 +1139,19 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
               : `Confirmar pedido - ${formatCurrency(total)}`}
         </button>
       </form>
+
+      {showLoyaltyModal && loyaltyModalData && (
+        <LoyaltyProgressModal
+          amountNeeded={loyaltyModalData.amountNeeded}
+          pointsName={loyaltyConfig?.pointsName ?? "Pontos"}
+          reason={loyaltyModalData.reason}
+          onAddMore={() => {
+            setShowLoyaltyModal(false);
+            onBack();
+          }}
+          onClose={() => setShowLoyaltyModal(false)}
+        />
+      )}
     </div>
   );
 }
