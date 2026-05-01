@@ -726,6 +726,8 @@ export const productIngredients = pgTable(
       .references(() => ingredients.id, { onDelete: "cascade" }),
     /** Para QUANTITY: quantidade padrão (ex: 1 queijo). Para DESCRIPTION: ignorado */
     defaultQuantity: integer("default_quantity").notNull().default(1),
+    /** Para QUANTITY: quantidade máxima permitida ao cliente (null = sem limite). Para DESCRIPTION: ignorado */
+    maxQuantity: integer("max_quantity"),
     /** Para DESCRIPTION: estado padrão "COM" ou "SEM". Para QUANTITY: ignorado */
     defaultState: varchar("default_state", { length: 10 }).notNull().default("COM"),
     /** Preço por unidade adicional (QUANTITY) ou por upgrade (DESCRIPTION) */

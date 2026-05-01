@@ -250,13 +250,18 @@ function computeIngredientModification(params: {
   ingredientType: "QUANTITY" | "DESCRIPTION";
   ingredientName: string;
   defaultQuantity: number;
+  maxQuantity?: number | null;
   defaultState: string;
   additionalPrice: number;
   chosenQuantity?: number;
   chosenState?: string;
 }): { modification: string; price: number; quantity: number } | null {
   if (params.ingredientType === "QUANTITY") {
-    const chosen = params.chosenQuantity ?? params.defaultQuantity;
+    let chosen = params.chosenQuantity ?? params.defaultQuantity;
+    // Clamp pelo limite definido no produto (se houver)
+    if (params.maxQuantity != null && chosen > params.maxQuantity) {
+      chosen = params.maxQuantity;
+    }
     if (chosen === params.defaultQuantity) return null;
     if (chosen === 0) {
       return { modification: `SEM ${params.ingredientName}`, price: 0, quantity: 0 };
@@ -441,6 +446,7 @@ export const orderRouter = createTRPCRouter({
               .select({
                 ingredientId: productIngredients.ingredientId,
                 defaultQuantity: productIngredients.defaultQuantity,
+                maxQuantity: productIngredients.maxQuantity,
                 defaultState: productIngredients.defaultState,
                 additionalPrice: productIngredients.additionalPrice,
                 ingredientName: ingredients.name,
@@ -463,6 +469,7 @@ export const orderRouter = createTRPCRouter({
                 ingredientType: config.ingredientType,
                 ingredientName: config.ingredientName,
                 defaultQuantity: config.defaultQuantity,
+                maxQuantity: config.maxQuantity,
                 defaultState: config.defaultState,
                 additionalPrice: parseFloat(config.additionalPrice),
                 chosenQuantity: ingInput.quantity,
@@ -1479,6 +1486,7 @@ export const orderRouter = createTRPCRouter({
               .select({
                 ingredientId: productIngredients.ingredientId,
                 defaultQuantity: productIngredients.defaultQuantity,
+                maxQuantity: productIngredients.maxQuantity,
                 defaultState: productIngredients.defaultState,
                 additionalPrice: productIngredients.additionalPrice,
                 ingredientName: ingredients.name,
@@ -1501,6 +1509,7 @@ export const orderRouter = createTRPCRouter({
                 ingredientType: config.ingredientType,
                 ingredientName: config.ingredientName,
                 defaultQuantity: config.defaultQuantity,
+                maxQuantity: config.maxQuantity,
                 defaultState: config.defaultState,
                 additionalPrice: parseFloat(config.additionalPrice),
                 chosenQuantity: ingInput.quantity,
@@ -2771,6 +2780,7 @@ export const orderRouter = createTRPCRouter({
           .select({
             ingredientId: productIngredients.ingredientId,
             defaultQuantity: productIngredients.defaultQuantity,
+            maxQuantity: productIngredients.maxQuantity,
             defaultState: productIngredients.defaultState,
             additionalPrice: productIngredients.additionalPrice,
             ingredientName: ingredients.name,
@@ -2791,6 +2801,7 @@ export const orderRouter = createTRPCRouter({
             ingredientType: config.ingredientType,
             ingredientName: config.ingredientName,
             defaultQuantity: config.defaultQuantity,
+            maxQuantity: config.maxQuantity,
             defaultState: config.defaultState,
             additionalPrice: parseFloat(config.additionalPrice),
             chosenQuantity: ingInput.quantity,

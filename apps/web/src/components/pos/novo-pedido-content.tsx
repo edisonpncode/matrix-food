@@ -46,6 +46,7 @@ interface ProductIngredient {
   ingredientName: string;
   ingredientType: "QUANTITY" | "DESCRIPTION";
   defaultQuantity: number;
+  maxQuantity: number | null;
   defaultState: string;
   additionalPrice: string;
 }
@@ -1212,6 +1213,8 @@ export function NovoPedidoContent() {
                   if (ing.ingredientType === "QUANTITY") {
                     const currentQty = selection?.quantity ?? ing.defaultQuantity;
                     const extraQty = Math.max(0, currentQty - ing.defaultQuantity);
+                    const maxReached =
+                      ing.maxQuantity != null && currentQty >= ing.maxQuantity;
                     return (
                       <div
                         key={ing.ingredientId}
@@ -1222,6 +1225,11 @@ export function NovoPedidoContent() {
                           {addPrice > 0 && (
                             <span className="ml-1 text-xs text-muted-foreground">
                               ({formatCurrency(addPrice)}/un)
+                            </span>
+                          )}
+                          {ing.maxQuantity != null && (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              · max {ing.maxQuantity}
                             </span>
                           )}
                           {extraQty > 0 && addPrice > 0 && (
@@ -1247,12 +1255,19 @@ export function NovoPedidoContent() {
                           </span>
                           <button
                             type="button"
+                            disabled={maxReached}
+                            title={
+                              maxReached
+                                ? `Maximo ${ing.maxQuantity} ${ing.ingredientName.toLowerCase()}`
+                                : undefined
+                            }
                             onClick={() => {
+                              if (maxReached) return;
                               const newMap = new Map(ingredientSelections);
                               newMap.set(ing.ingredientId, { quantity: currentQty + 1 });
                               setIngredientSelections(newMap);
                             }}
-                            className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-accent"
+                            className="flex h-8 w-8 items-center justify-center rounded-lg border hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                           >
                             <Plus className="h-3.5 w-3.5" />
                           </button>

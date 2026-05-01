@@ -47,6 +47,7 @@ export function ProductDetailModal({
     ingredientName: string;
     ingredientType: "QUANTITY" | "DESCRIPTION";
     defaultQuantity: number;
+    maxQuantity: number | null;
     defaultState: string;
     additionalPrice: string;
   }> } | undefined)?.ingredients ?? [];
@@ -430,6 +431,8 @@ export function ProductDetailModal({
               if (ing.ingredientType === "QUANTITY") {
                 const currentQty = selection?.quantity ?? ing.defaultQuantity;
                 const extraQty = Math.max(0, currentQty - ing.defaultQuantity);
+                const maxReached =
+                  ing.maxQuantity != null && currentQty >= ing.maxQuantity;
                 return (
                   <div
                     key={ing.ingredientId}
@@ -440,6 +443,11 @@ export function ProductDetailModal({
                       {addPrice > 0 && (
                         <span className="ml-1 text-xs text-gray-400">
                           ({formatCurrency(addPrice)}/un)
+                        </span>
+                      )}
+                      {ing.maxQuantity != null && (
+                        <span className="ml-1 text-xs text-gray-400">
+                          · max {ing.maxQuantity}
                         </span>
                       )}
                     </div>
@@ -472,14 +480,21 @@ export function ProductDetailModal({
                         </span>
                         <button
                           type="button"
+                          disabled={maxReached}
+                          title={
+                            maxReached
+                              ? `Máximo ${ing.maxQuantity} ${ing.ingredientName.toLowerCase()}`
+                              : undefined
+                          }
                           onClick={() => {
+                            if (maxReached) return;
                             const newMap = new Map(ingredientSelections);
                             newMap.set(ing.ingredientId, {
                               quantity: currentQty + 1,
                             });
                             setIngredientSelections(newMap);
                           }}
-                          className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100"
+                          className="flex h-7 w-7 items-center justify-center rounded-full text-gray-500 hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                         >
                           <Plus className="h-3.5 w-3.5" />
                         </button>

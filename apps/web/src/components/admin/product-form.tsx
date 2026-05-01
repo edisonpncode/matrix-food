@@ -28,6 +28,7 @@ interface ProductIngredientItem {
   ingredientName: string;
   ingredientType: "QUANTITY" | "DESCRIPTION";
   defaultQuantity: number;
+  maxQuantity: number | null;
   defaultState: string;
   additionalPrice: string;
   weightGrams: string | null;
@@ -53,6 +54,7 @@ interface ProductData {
     ingredientName: string;
     ingredientType: "QUANTITY" | "DESCRIPTION";
     defaultQuantity: number;
+    maxQuantity: number | null;
     defaultState: string;
     additionalPrice: string;
     weightGrams: string | null;
@@ -108,6 +110,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
       ingredientName: ing.ingredientName,
       ingredientType: ing.ingredientType,
       defaultQuantity: ing.defaultQuantity,
+      maxQuantity: ing.maxQuantity,
       defaultState: ing.defaultState,
       additionalPrice: ing.additionalPrice,
       weightGrams: ing.weightGrams,
@@ -215,6 +218,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
             ingredients: productIngredientsList.map((ing, i) => ({
               ingredientId: ing.ingredientId,
               defaultQuantity: ing.defaultQuantity,
+              maxQuantity: ing.ingredientType === "QUANTITY" ? ing.maxQuantity : null,
               defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
               additionalPrice: ing.additionalPrice,
               weightGrams: ing.weightGrams,
@@ -253,6 +257,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
           ingredients: productIngredientsList.map((ing, i) => ({
             ingredientId: ing.ingredientId,
             defaultQuantity: ing.defaultQuantity,
+            maxQuantity: ing.ingredientType === "QUANTITY" ? ing.maxQuantity : null,
             defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
             additionalPrice: ing.additionalPrice,
             weightGrams: ing.weightGrams,
@@ -684,26 +689,60 @@ export function ProductForm({ product }: { product?: ProductData }) {
 
                 <div className="flex flex-wrap gap-3">
                   {ing.ingredientType === "QUANTITY" ? (
-                    <div className="flex items-center gap-2">
-                      <label className="text-xs text-muted-foreground whitespace-nowrap">
-                        Qtd padrao
-                      </label>
-                      <input
-                        type="number"
-                        min={0}
-                        value={ing.defaultQuantity}
-                        onChange={(e) => {
-                          setProductIngredientsList((prev) =>
-                            prev.map((item, i) =>
-                              i === index
-                                ? { ...item, defaultQuantity: parseInt(e.target.value) || 0 }
-                                : item
-                            )
-                          );
-                        }}
-                        className="w-16 rounded-md border border-input bg-background px-2 py-1 text-sm text-center"
-                      />
-                    </div>
+                    <>
+                      <div className="flex items-center gap-2">
+                        <label className="text-xs text-muted-foreground whitespace-nowrap">
+                          Qtd padrao
+                        </label>
+                        <input
+                          type="number"
+                          min={0}
+                          value={ing.defaultQuantity}
+                          onChange={(e) => {
+                            setProductIngredientsList((prev) =>
+                              prev.map((item, i) =>
+                                i === index
+                                  ? { ...item, defaultQuantity: parseInt(e.target.value) || 0 }
+                                  : item
+                              )
+                            );
+                          }}
+                          className="w-16 rounded-md border border-input bg-background px-2 py-1 text-sm text-center"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <label
+                          className="text-xs text-muted-foreground whitespace-nowrap"
+                          title="Quantidade maxima que o cliente pode pedir (incluindo o que ja vai por padrao). Deixe vazio para nao limitar."
+                        >
+                          Qtd max
+                        </label>
+                        <input
+                          type="number"
+                          min={ing.defaultQuantity || 0}
+                          value={ing.maxQuantity ?? ""}
+                          placeholder="—"
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            const parsed = raw === "" ? null : parseInt(raw);
+                            setProductIngredientsList((prev) =>
+                              prev.map((item, i) =>
+                                i === index
+                                  ? {
+                                      ...item,
+                                      maxQuantity:
+                                        parsed === null || Number.isNaN(parsed)
+                                          ? null
+                                          : parsed,
+                                    }
+                                  : item
+                              )
+                            );
+                          }}
+                          className="w-16 rounded-md border border-input bg-background px-2 py-1 text-sm text-center"
+                        />
+                      </div>
+                    </>
                   ) : (
                     <div className="flex items-center gap-2">
                       <label className="text-xs text-muted-foreground whitespace-nowrap">
@@ -831,6 +870,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
                               ingredientType: ing.type,
                               defaultQuantity:
                                 ing.type === "QUANTITY" ? 1 : 0,
+                              maxQuantity: null,
                               defaultState:
                                 ing.type === "DESCRIPTION" ? "COM" : "COM",
                               additionalPrice: "0",
@@ -951,6 +991,7 @@ export function ProductForm({ product }: { product?: ProductData }) {
                           ingredientType: result.type,
                           defaultQuantity:
                             result.type === "QUANTITY" ? 1 : 0,
+                          maxQuantity: null,
                           defaultState:
                             result.type === "DESCRIPTION" ? "COM" : "COM",
                           additionalPrice: "0",
