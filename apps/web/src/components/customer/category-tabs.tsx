@@ -69,10 +69,11 @@ export function CategoryBar({
       const sections = Array.from(
         document.querySelectorAll<HTMLElement>("[data-category-id]")
       );
-      if (sections.length === 0) return;
+      const first = sections[0];
+      if (!first) return;
 
       const triggerY = 100;
-      let activeId = sections[0].getAttribute("data-category-id");
+      let activeId = first.getAttribute("data-category-id");
 
       for (const section of sections) {
         const rect = section.getBoundingClientRect();
