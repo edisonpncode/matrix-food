@@ -11,11 +11,15 @@ import {
   customerTenants,
   tenants,
   orders,
+  loyaltyTransactions,
   eq,
   and,
   desc,
+  sql,
+  ne,
 } from "@matrix-food/database";
 import { rateLimit } from "../lib/rate-limit";
+import { cleanCpf, isValidCpf } from "@matrix-food/utils";
 
 /**
  * Schema de endereço do cliente.
@@ -164,8 +168,48 @@ export const customerPortalRouter = createTRPCRouter({
       const updates: Record<string, unknown> = {};
       if (input.name !== undefined) updates.name = input.name;
       if (input.email !== undefined) updates.email = input.email;
-      if (input.cpf !== undefined) updates.cpf = input.cpf;
       if (input.addresses !== undefined) updates.addresses = input.addresses;
+
+      const where = ctx.customer.customerId
+        ? eq(customers.id, ctx.customer.customerId)
+        : eq(customers.firebaseUid, ctx.customer.uid!);
+
+      if (input.cpf !== undefined) {
+        if (input.cpf === null || input.cpf === "") {
+          updates.cpf = null;
+        } else {
+          const cleaned = cleanCpf(input.cpf);
+          if (!isValidCpf(cleaned)) {
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "CPF inválido.",
+            });
+          }
+          const [me] = await db
+            .select({ id: customers.id })
+            .from(customers)
+            .where(where)
+            .limit(1);
+          if (!me) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Cliente não encontrado.",
+            });
+          }
+          const [conflict] = await db
+            .select({ id: customers.id })
+            .from(customers)
+            .where(and(eq(customers.cpf, cleaned), ne(customers.id, me.id)))
+            .limit(1);
+          if (conflict) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message: "Este CPF já está cadastrado em outra conta.",
+            });
+          }
+          updates.cpf = cleaned;
+        }
+      }
 
       if (Object.keys(updates).length === 0) {
         throw new TRPCError({
@@ -173,10 +217,6 @@ export const customerPortalRouter = createTRPCRouter({
           message: "Nada para atualizar.",
         });
       }
-
-      const where = ctx.customer.customerId
-        ? eq(customers.id, ctx.customer.customerId)
-        : eq(customers.firebaseUid, ctx.customer.uid!);
 
       const [updated] = await db
         .update(customers)
@@ -278,6 +318,107 @@ export const customerPortalRouter = createTRPCRouter({
       .orderBy(desc(customerTenants.lastOrderAt));
     return rows;
   }),
+
+  /**
+   * Extrato de pontos do cliente em um restaurante específico.
+   * Inclui saldo materializado, totais ganhos/gastos e lista de transações.
+   */
+  getMyLoyaltyTransactions: customerProcedure
+    .input(
+      z.object({
+        tenantId: z.string().uuid(),
+        limit: z.number().min(1).max(200).default(100),
+      })
+    )
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const customerWhere = ctx.customer.customerId
+        ? eq(customers.id, ctx.customer.customerId)
+        : eq(customers.firebaseUid, ctx.customer.uid!);
+      const [customer] = await db
+        .select({ id: customers.id, phone: customers.phone })
+        .from(customers)
+        .where(customerWhere)
+        .limit(1);
+      if (!customer) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Cliente não encontrado.",
+        });
+      }
+
+      const [tenant] = await db
+        .select({
+          id: tenants.id,
+          name: tenants.name,
+          slug: tenants.slug,
+          logoUrl: tenants.logoUrl,
+        })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      if (!tenant) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Restaurante não encontrado.",
+        });
+      }
+
+      const [link] = await db
+        .select({ balance: customerTenants.loyaltyPointsBalance })
+        .from(customerTenants)
+        .where(
+          and(
+            eq(customerTenants.customerId, customer.id),
+            eq(customerTenants.tenantId, input.tenantId)
+          )
+        )
+        .limit(1);
+
+      const phoneFilter = customer.phone ?? "";
+
+      const [aggregates] = await db
+        .select({
+          totalEarned: sql<number>`COALESCE(SUM(CASE WHEN ${loyaltyTransactions.points} > 0 THEN ${loyaltyTransactions.points} ELSE 0 END), 0)::int`,
+          totalRedeemed: sql<number>`COALESCE(SUM(CASE WHEN ${loyaltyTransactions.points} < 0 THEN ABS(${loyaltyTransactions.points}) ELSE 0 END), 0)::int`,
+        })
+        .from(loyaltyTransactions)
+        .where(
+          and(
+            eq(loyaltyTransactions.tenantId, input.tenantId),
+            eq(loyaltyTransactions.customerPhone, phoneFilter)
+          )
+        );
+
+      const transactions = await db
+        .select({
+          id: loyaltyTransactions.id,
+          type: loyaltyTransactions.type,
+          points: loyaltyTransactions.points,
+          description: loyaltyTransactions.description,
+          orderId: loyaltyTransactions.orderId,
+          orderDisplayNumber: orders.displayNumber,
+          createdAt: loyaltyTransactions.createdAt,
+        })
+        .from(loyaltyTransactions)
+        .leftJoin(orders, eq(loyaltyTransactions.orderId, orders.id))
+        .where(
+          and(
+            eq(loyaltyTransactions.tenantId, input.tenantId),
+            eq(loyaltyTransactions.customerPhone, phoneFilter)
+          )
+        )
+        .orderBy(desc(loyaltyTransactions.createdAt))
+        .limit(input.limit);
+
+      return {
+        tenant,
+        balance: link?.balance ?? 0,
+        totalEarned: aggregates?.totalEarned ?? 0,
+        totalRedeemed: aggregates?.totalRedeemed ?? 0,
+        transactions,
+      };
+    }),
 
   /**
    * Garante que o cliente logado tem um vínculo com o tenant informado.

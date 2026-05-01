@@ -1,7 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { LogIn, User, LogOut } from "lucide-react";
+import { Award, LogIn, LogOut, ShoppingBag, User } from "lucide-react";
 import { useCustomerAuth } from "@/lib/customer-auth-context";
 import { CustomerAuthModal } from "./customer-auth-modal";
 
@@ -72,31 +73,47 @@ export function CustomerLoginButton({ onBanner }: CustomerLoginButtonProps) {
             : "bg-primary/10 text-primary hover:bg-primary/20"
         }`}
       >
-        <span
-          className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-bold ${
-            onBanner
-              ? "bg-primary text-primary-foreground"
-              : "bg-primary text-primary-foreground"
-          }`}
-        >
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
           {initials}
         </span>
         {firstName}
       </button>
 
       {menuOpen && (
-        <div className="absolute right-0 top-full z-20 mt-2 w-56 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
-          <div className="border-b border-gray-100 px-4 py-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-gray-900">
-              <User className="h-4 w-4 text-gray-500" />
-              {customer.name}
-            </div>
-            {customer.phone && (
-              <div className="mt-0.5 text-xs text-gray-500">
-                {customer.phone}
+        <div className="absolute right-0 top-full z-20 mt-2 w-60 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+          <Link
+            href="/conta/perfil"
+            onClick={() => setMenuOpen(false)}
+            className="flex items-start gap-2 border-b border-gray-100 px-4 py-3 hover:bg-gray-50"
+          >
+            <User className="mt-0.5 h-4 w-4 text-gray-500" />
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-sm font-semibold text-gray-900">
+                {customer.name}
               </div>
-            )}
-          </div>
+              {customer.phone && (
+                <div className="mt-0.5 truncate text-xs text-gray-500">
+                  {customer.phone}
+                </div>
+              )}
+            </div>
+          </Link>
+          <Link
+            href="/conta/pedidos"
+            onClick={() => setMenuOpen(false)}
+            className="flex w-full items-center gap-2 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <ShoppingBag className="h-4 w-4 text-gray-500" />
+            Pedidos
+          </Link>
+          <Link
+            href="/conta/fidelidade"
+            onClick={() => setMenuOpen(false)}
+            className="flex w-full items-center gap-2 border-b border-gray-100 px-4 py-2.5 text-sm text-gray-700 hover:bg-gray-50"
+          >
+            <Award className="h-4 w-4 text-gray-500" />
+            Fidelidade
+          </Link>
           <button
             onClick={async () => {
               setMenuOpen(false);

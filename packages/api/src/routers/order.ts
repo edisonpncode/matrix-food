@@ -27,13 +27,19 @@ import {
   eq,
   and,
   not,
+  ne,
   inArray,
   desc,
   sql,
   gte,
   lte,
 } from "@matrix-food/database";
-import { generateOrderNumber, pointInPolygon } from "@matrix-food/utils";
+import {
+  generateOrderNumber,
+  pointInPolygon,
+  cleanCpf,
+  isValidCpf,
+} from "@matrix-food/utils";
 import { tryAutoEmitNfce } from "../services/fiscal/auto-emit";
 import { emitMorpheuEvent, getTenantName } from "../services/morpheu";
 import {
@@ -147,8 +153,19 @@ async function ensureCustomerFromOrder(params: {
     if (cleanName && cleanName !== existing.name && cleanName !== "Balcão") {
       updates.name = cleanName;
     }
-    // Atualizar CPF se o existente não tem e novo foi fornecido
+    // Atualizar CPF se o existente não tem e novo foi fornecido (rejeita duplicata).
     if (cpf && !existing.cpf) {
+      const [dup] = await db
+        .select({ id: customers.id })
+        .from(customers)
+        .where(and(eq(customers.cpf, cpf), ne(customers.id, existing.id)))
+        .limit(1);
+      if (dup) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Este CPF já está cadastrado em outra conta.",
+        });
+      }
       updates.cpf = cpf;
     }
 
@@ -203,6 +220,20 @@ async function ensureCustomerFromOrder(params: {
   }
 
   // Criar novo cliente
+  if (cpf) {
+    const [dup] = await db
+      .select({ id: customers.id })
+      .from(customers)
+      .where(eq(customers.cpf, cpf))
+      .limit(1);
+    if (dup) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: "Este CPF já está cadastrado em outra conta.",
+      });
+    }
+  }
+
   const addresses = deliveryAddress && deliveryAddress.street
     ? [
         {
@@ -308,6 +339,10 @@ export const orderRouter = createTRPCRouter({
         customerId: z.string().uuid().optional(),
         customerName: z.string().min(1).max(255),
         customerPhone: z.string().min(1).max(20),
+        customerCpf: z
+          .string()
+          .min(1, "CPF é obrigatório para finalizar o pedido")
+          .refine((v) => isValidCpf(v), "CPF inválido"),
         deliveryAddress: deliveryAddressInput.nullable(),
         deliveryAreaId: z.string().uuid().optional(),
         paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]),
@@ -323,6 +358,7 @@ export const orderRouter = createTRPCRouter({
         windowMs: 60_000,
       });
       const db = getDb();
+      const normalizedCpf = cleanCpf(input.customerCpf);
 
       // Pré-carrega config de fidelidade (usado em validações de paidWithPoints)
       const [orderLoyaltyConfig] = await db
@@ -662,6 +698,7 @@ export const orderRouter = createTRPCRouter({
         const [existing] = await db
           .select({
             id: customers.id,
+            cpf: customers.cpf,
             addresses: customers.addresses,
           })
           .from(customers)
@@ -670,6 +707,27 @@ export const orderRouter = createTRPCRouter({
 
         if (existing) {
           resolvedCustomerId = existing.id;
+
+          // CPF: salvar quando o cliente ainda não tem; rejeitar duplicata.
+          if (!existing.cpf) {
+            const [dup] = await db
+              .select({ id: customers.id })
+              .from(customers)
+              .where(
+                and(eq(customers.cpf, normalizedCpf), ne(customers.id, existing.id))
+              )
+              .limit(1);
+            if (dup) {
+              throw new TRPCError({
+                code: "CONFLICT",
+                message: "Este CPF já está cadastrado em outra conta.",
+              });
+            }
+            await db
+              .update(customers)
+              .set({ cpf: normalizedCpf })
+              .where(eq(customers.id, existing.id));
+          }
 
           // Garante vínculo com o tenant (cross-tenant automático).
           const [existingLink] = await db
@@ -739,6 +797,7 @@ export const orderRouter = createTRPCRouter({
           tenantId: input.tenantId,
           customerName: input.customerName,
           customerPhone: input.customerPhone,
+          cpf: normalizedCpf,
           deliveryAddress: input.deliveryAddress,
           source: "ONLINE",
         });

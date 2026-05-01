@@ -16,7 +16,12 @@ import {
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
-import { formatCurrency } from "@matrix-food/utils";
+import {
+  cleanCpf,
+  formatCpf,
+  formatCurrency,
+  isValidCpf,
+} from "@matrix-food/utils";
 import { LoyaltySection } from "./loyalty-section";
 import { formatBrazilianPhone, stripPhone } from "@/lib/format-phone";
 import { fetchAddressByCep, formatCep } from "@/lib/viacep";
@@ -64,6 +69,10 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   const [customerPhone, setCustomerPhone] = useState(
     customer?.phone ? formatBrazilianPhone(customer.phone) : ""
   );
+  const [customerCpf, setCustomerCpf] = useState(
+    customer?.cpf ? formatCpf(customer.cpf) : ""
+  );
+  const [cpfError, setCpfError] = useState<string | null>(null);
   const [address, setAddress] = useState({
     zipCode: savedAddress?.zipCode ? formatCep(savedAddress.zipCode) : "",
     street: savedAddress?.street ?? "",
@@ -267,6 +276,15 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
     e.preventDefault();
     if (items.length === 0 || isSubmitting || !isOpen || isBelowMinimum) return;
 
+    if (!isValidCpf(customerCpf)) {
+      setCpfError(
+        customerCpf.trim() === ""
+          ? "CPF é obrigatório para finalizar o pedido."
+          : "CPF inválido. Confira os dígitos."
+      );
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -276,6 +294,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
         customerId: customer?.id,
         customerName,
         customerPhone: stripPhone(customerPhone),
+        customerCpf: cleanCpf(customerCpf),
         deliveryAddress:
           orderType === "DELIVERY"
             ? {
@@ -322,8 +341,14 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
           result.accessToken
         )}`
       );
-    } catch {
-      alert("Erro ao criar pedido. Tente novamente.");
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : "Erro ao criar pedido. Tente novamente.";
+      if (/cpf/i.test(message)) {
+        setCpfError(message);
+      } else {
+        alert(message);
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -332,6 +357,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   const isValid =
     customerName.trim() !== "" &&
     stripPhone(customerPhone).length >= 10 &&
+    isValidCpf(customerCpf) &&
     paymentMethod !== "" &&
     acceptedTerms &&
     !isBelowMinimum &&
@@ -415,6 +441,36 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
               required
               className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
+            <div>
+              <input
+                type="text"
+                placeholder="CPF (000.000.000-00)"
+                value={customerCpf}
+                onChange={(e) => {
+                  setCustomerCpf(formatCpf(e.target.value));
+                  if (cpfError) setCpfError(null);
+                }}
+                disabled={Boolean(customer?.cpf)}
+                inputMode="numeric"
+                maxLength={14}
+                required
+                className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-1 ${
+                  cpfError
+                    ? "border-red-400 focus:border-red-500 focus:ring-red-200"
+                    : "border-gray-200 focus:border-primary focus:ring-primary"
+                } ${customer?.cpf ? "bg-gray-50 text-gray-500" : ""}`}
+              />
+              {cpfError && (
+                <p className="mt-1 text-xs text-red-500">{cpfError}</p>
+              )}
+              {!cpfError && (
+                <p className="mt-1 text-xs text-gray-500">
+                  {customer?.cpf
+                    ? "Para alterar o CPF, edite no seu cadastro."
+                    : "CPF é obrigatório para finalizar o pedido."}
+                </p>
+              )}
+            </div>
           </div>
         </section>
 

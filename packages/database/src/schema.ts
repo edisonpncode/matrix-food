@@ -469,7 +469,7 @@ export const customers = pgTable(
   },
   (table) => [
     index("customers_phone_idx").on(table.phone),
-    index("customers_cpf_idx").on(table.cpf),
+    uniqueIndex("customers_cpf_unique_idx").on(table.cpf),
   ]
 );
 

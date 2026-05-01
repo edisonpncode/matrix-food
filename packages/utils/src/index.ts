@@ -22,3 +22,4 @@ export type { SecurityHeaderOptions } from "./security-headers";
 export { createLogger, logger } from "./logger";
 export { fetchAddressByCep, formatCep } from "./cep";
 export type { ViaCepAddress } from "./cep";
+export { cleanCpf, formatCpf, isValidCpf } from "./cpf";
