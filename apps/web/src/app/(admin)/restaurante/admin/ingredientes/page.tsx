@@ -4,6 +4,12 @@ import { useState } from "react";
 import { trpc } from "@/lib/trpc";
 import { Plus, Pencil, Trash2, Loader2 } from "lucide-react";
 
+function scrollToTop() {
+  const main = document.querySelector("main");
+  if (main) main.scrollTop = 0;
+  window.scrollTo(0, 0);
+}
+
 export default function IngredientesPage() {
   const utils = trpc.useUtils();
   const ingredientsList = trpc.ingredient.list.useQuery();
@@ -12,13 +18,16 @@ export default function IngredientesPage() {
       utils.ingredient.list.invalidate();
       setShowForm(false);
       resetForm();
+      scrollToTop();
     },
   });
   const updateMutation = trpc.ingredient.update.useMutation({
     onSuccess: () => {
       utils.ingredient.list.invalidate();
       setEditingId(null);
+      setShowForm(false);
       resetForm();
+      scrollToTop();
     },
   });
   const deleteMutation = trpc.ingredient.delete.useMutation({

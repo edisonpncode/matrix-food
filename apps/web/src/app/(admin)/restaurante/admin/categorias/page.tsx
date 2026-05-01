@@ -20,6 +20,12 @@ interface SizeInput {
   sortOrder: number;
 }
 
+function scrollToTop() {
+  const main = document.querySelector("main");
+  if (main) main.scrollTop = 0;
+  window.scrollTo(0, 0);
+}
+
 export default function CategoriasPage() {
   const utils = trpc.useUtils();
   const categories = trpc.category.listAllWithSizes.useQuery();
@@ -29,6 +35,7 @@ export default function CategoriasPage() {
       utils.category.listAll.invalidate();
       setShowForm(false);
       resetForm();
+      scrollToTop();
     },
   });
   const updateMutation = trpc.category.update.useMutation({
@@ -36,7 +43,9 @@ export default function CategoriasPage() {
       utils.category.listAllWithSizes.invalidate();
       utils.category.listAll.invalidate();
       setEditingId(null);
+      setShowForm(false);
       resetForm();
+      scrollToTop();
     },
   });
   const deleteMutation = trpc.category.delete.useMutation({

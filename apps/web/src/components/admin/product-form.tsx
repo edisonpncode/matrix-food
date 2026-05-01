@@ -150,31 +150,11 @@ export function ProductForm({ product }: { product?: ProductData }) {
     }
   }, [categoryId, categoriesQuery.data]);
 
-  const createMutation = trpc.product.create.useMutation({
-    onSuccess: () => {
-      utils.product.listAll.invalidate();
-      router.push("/restaurante/admin/produtos");
-    },
-  });
-
-  const updateMutation = trpc.product.update.useMutation({
-    onSuccess: () => {
-      utils.product.listAll.invalidate();
-      utils.product.getById.invalidate({ id: product!.id });
-    },
-  });
-
-  const syncVariantsMutation = trpc.product.syncVariants.useMutation({
-    onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
-  });
-
-  const syncSizePricesMutation = trpc.product.syncSizePrices.useMutation({
-    onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
-  });
-
-  const syncIngredientsMutation = trpc.product.syncIngredients.useMutation({
-    onSuccess: () => utils.product.getById.invalidate({ id: product!.id }),
-  });
+  const createMutation = trpc.product.create.useMutation();
+  const updateMutation = trpc.product.update.useMutation();
+  const syncVariantsMutation = trpc.product.syncVariants.useMutation();
+  const syncSizePricesMutation = trpc.product.syncSizePrices.useMutation();
+  const syncIngredientsMutation = trpc.product.syncIngredients.useMutation();
 
   const isPending =
     createMutation.isPending ||
@@ -183,93 +163,108 @@ export function ProductForm({ product }: { product?: ProductData }) {
     syncSizePricesMutation.isPending ||
     syncIngredientsMutation.isPending;
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
     const pointsPriceParsed = pointsPrice ? parseInt(pointsPrice, 10) : null;
     const cleanPoints = pointsPriceParsed && pointsPriceParsed > 0 ? pointsPriceParsed : null;
 
-    if (isEditing) {
-      // Atualizar produto base
-      updateMutation.mutate({
-        id: product.id,
-        name,
-        description: description || null,
-        categoryId,
-        price,
-        originalPrice: originalPrice || null,
-        pointsPrice: loyaltyEnabled ? cleanPoints : null,
-        imageUrl,
-        isNew,
-        hasVariants: categoryHasSizes ? false : hasVariants,
-      });
+    try {
+      if (isEditing) {
+        const promises: Promise<unknown>[] = [
+          updateMutation.mutateAsync({
+            id: product.id,
+            name,
+            description: description || null,
+            categoryId,
+            price,
+            originalPrice: originalPrice || null,
+            pointsPrice: loyaltyEnabled ? cleanPoints : null,
+            imageUrl,
+            isNew,
+            hasVariants: categoryHasSizes ? false : hasVariants,
+          }),
+        ];
 
-      if (categoryHasSizes) {
-        // Sincronizar preços por tamanho
-        syncSizePricesMutation.mutate({
-          productId: product.id,
-          sizePrices: sizePrices.map((sp) => ({
-            sizeId: sp.sizeId,
-            price: sp.price,
-            pointsPrice: loyaltyEnabled ? sp.pointsPrice : null,
+        if (categoryHasSizes) {
+          promises.push(
+            syncSizePricesMutation.mutateAsync({
+              productId: product.id,
+              sizePrices: sizePrices.map((sp) => ({
+                sizeId: sp.sizeId,
+                price: sp.price,
+                pointsPrice: loyaltyEnabled ? sp.pointsPrice : null,
+              })),
+            })
+          );
+        } else if (hasVariants) {
+          promises.push(
+            syncVariantsMutation.mutateAsync({
+              productId: product.id,
+              variants: variants.map((v) => ({
+                ...v,
+                pointsPrice: loyaltyEnabled ? v.pointsPrice : null,
+              })),
+            })
+          );
+        }
+
+        promises.push(
+          syncIngredientsMutation.mutateAsync({
+            productId: product.id,
+            ingredients: productIngredientsList.map((ing, i) => ({
+              ingredientId: ing.ingredientId,
+              defaultQuantity: ing.defaultQuantity,
+              defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
+              additionalPrice: ing.additionalPrice,
+              weightGrams: ing.weightGrams,
+              sortOrder: i,
+            })),
+          })
+        );
+
+        await Promise.all(promises);
+        utils.product.listAll.invalidate();
+        utils.product.getById.invalidate({ id: product.id });
+      } else {
+        await createMutation.mutateAsync({
+          name,
+          description: description || undefined,
+          categoryId,
+          price,
+          originalPrice: originalPrice || undefined,
+          pointsPrice: loyaltyEnabled ? cleanPoints : null,
+          imageUrl: imageUrl ?? undefined,
+          isNew,
+          hasVariants: categoryHasSizes ? false : hasVariants,
+          variants: categoryHasSizes
+            ? []
+            : variants.map((v) => ({
+                ...v,
+                pointsPrice: loyaltyEnabled ? v.pointsPrice : null,
+              })),
+          sizePrices: categoryHasSizes
+            ? sizePrices.map((sp) => ({
+                sizeId: sp.sizeId,
+                price: sp.price,
+                pointsPrice: loyaltyEnabled ? sp.pointsPrice : null,
+              }))
+            : [],
+          ingredients: productIngredientsList.map((ing, i) => ({
+            ingredientId: ing.ingredientId,
+            defaultQuantity: ing.defaultQuantity,
+            defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
+            additionalPrice: ing.additionalPrice,
+            weightGrams: ing.weightGrams,
+            sortOrder: i,
           })),
         });
-      } else if (hasVariants) {
-        // Sincronizar variantes
-        syncVariantsMutation.mutate({
-          productId: product.id,
-          variants: variants.map((v) => ({
-            ...v,
-            pointsPrice: loyaltyEnabled ? v.pointsPrice : null,
-          })),
-        });
+        utils.product.listAll.invalidate();
       }
 
-      // Sincronizar ingredientes
-      syncIngredientsMutation.mutate({
-        productId: product.id,
-        ingredients: productIngredientsList.map((ing, i) => ({
-          ingredientId: ing.ingredientId,
-          defaultQuantity: ing.defaultQuantity,
-          defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
-          additionalPrice: ing.additionalPrice,
-          weightGrams: ing.weightGrams,
-          sortOrder: i,
-        })),
-      });
-    } else {
-      createMutation.mutate({
-        name,
-        description: description || undefined,
-        categoryId,
-        price,
-        originalPrice: originalPrice || undefined,
-        pointsPrice: loyaltyEnabled ? cleanPoints : null,
-        imageUrl: imageUrl ?? undefined,
-        isNew,
-        hasVariants: categoryHasSizes ? false : hasVariants,
-        variants: categoryHasSizes
-          ? []
-          : variants.map((v) => ({
-              ...v,
-              pointsPrice: loyaltyEnabled ? v.pointsPrice : null,
-            })),
-        sizePrices: categoryHasSizes
-          ? sizePrices.map((sp) => ({
-              sizeId: sp.sizeId,
-              price: sp.price,
-              pointsPrice: loyaltyEnabled ? sp.pointsPrice : null,
-            }))
-          : [],
-        ingredients: productIngredientsList.map((ing, i) => ({
-          ingredientId: ing.ingredientId,
-          defaultQuantity: ing.defaultQuantity,
-          defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
-          additionalPrice: ing.additionalPrice,
-          weightGrams: ing.weightGrams,
-          sortOrder: i,
-        })),
-      });
+      router.push("/restaurante/admin/produtos");
+    } catch (err) {
+      console.error("Erro ao salvar produto:", err);
     }
   }
 
