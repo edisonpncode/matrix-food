@@ -132,6 +132,11 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
     address.city.trim() &&
     address.state.trim();
 
+  // Ao abrir a tela de confirmacao, rola para o topo (evita herdar scroll do menu)
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+  }, []);
+
   // --- CEP auto-fill ---
   useEffect(() => {
     const digits = address.zipCode.replace(/\D/g, "");
