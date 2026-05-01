@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -29,6 +29,8 @@ import { LoyaltySection } from "./loyalty-section";
 import { formatBrazilianPhone, stripPhone } from "@/lib/format-phone";
 import { fetchAddressByCep, formatCep } from "@/lib/viacep";
 import { useCustomerAuth } from "@/lib/customer-auth-context";
+import { AddressList } from "@matrix-food/ui/address-list";
+import { AddressForm, type AddressValue } from "@matrix-food/ui/address-form";
 
 interface Tenant {
   id: string;
@@ -55,10 +57,15 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   const subtotal = useCartStore((s) => s.getSubtotal());
   const pointsToSpend = useCartStore((s) => s.getPointsToSpend());
   const clearCart = useCartStore((s) => s.clearCart);
-  const { customer } = useCustomerAuth();
+  const { customer, refetch: refetchCustomer } = useCustomerAuth();
 
-  // Pré-preencher com dados do cliente logado, se houver
-  const savedAddress = customer?.addresses?.[0];
+  // Lista de enderecos salvos do cliente logado
+  const savedAddresses = useMemo<AddressValue[]>(
+    () => (customer?.addresses ?? []) as AddressValue[],
+    [customer]
+  );
+
+  const firstSaved = savedAddresses[0];
   const [orderType, setOrderType] = useState<"DELIVERY" | "PICKUP">(
     "DELIVERY"
   );
@@ -71,14 +78,20 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   );
   const [cpfError, setCpfError] = useState<string | null>(null);
   const [address, setAddress] = useState({
-    zipCode: savedAddress?.zipCode ? formatCep(savedAddress.zipCode) : "",
-    street: savedAddress?.street ?? "",
-    number: savedAddress?.number ?? "",
-    complement: savedAddress?.complement ?? "",
-    neighborhood: savedAddress?.neighborhood ?? "",
-    city: savedAddress?.city ?? "",
-    state: savedAddress?.state ?? "",
+    zipCode: firstSaved?.zipCode ? formatCep(firstSaved.zipCode) : "",
+    street: firstSaved?.street ?? "",
+    number: firstSaved?.number ?? "",
+    complement: firstSaved?.complement ?? "",
+    neighborhood: firstSaved?.neighborhood ?? "",
+    city: firstSaved?.city ?? "",
+    state: firstSaved?.state ?? "",
   });
+  const [selectedAddressIndex, setSelectedAddressIndex] = useState<number | null>(
+    customer && savedAddresses.length > 0 ? 0 : null
+  );
+  const [addressMode, setAddressMode] = useState<"list" | "new" | "edit">("list");
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [savingAddress, setSavingAddress] = useState(false);
   const [paymentMethodId, setPaymentMethodId] = useState<string>("");
   const [changeFor, setChangeFor] = useState("");
   const [notes, setNotes] = useState("");
@@ -150,6 +163,80 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
       }
     });
   }, [address.zipCode]);
+
+  // Mutation para salvar enderecos no perfil do cliente
+  const updateMeMutation = trpc.customerPortal.updateMe.useMutation();
+
+  // Quando o usuario seleciona outro endereco salvo, copia os campos pro
+  // estado `address` (que alimenta a verificacao de area e o submit do pedido).
+  useEffect(() => {
+    if (!customer) return;
+    if (selectedAddressIndex === null) return;
+    const sel = savedAddresses[selectedAddressIndex];
+    if (!sel) return;
+    setAddress({
+      zipCode: sel.zipCode ? formatCep(sel.zipCode) : "",
+      street: sel.street ?? "",
+      number: sel.number ?? "",
+      complement: sel.complement ?? "",
+      neighborhood: sel.neighborhood ?? "",
+      city: sel.city ?? "",
+      state: sel.state ?? "",
+    });
+    setAreaChecked(false);
+    setDeliveryArea(null);
+    setOutsideArea(false);
+  }, [customer, selectedAddressIndex, savedAddresses]);
+
+  async function handleSaveAddress(value: AddressValue) {
+    if (!customer) return;
+    setSavingAddress(true);
+    try {
+      let nextAddresses: AddressValue[];
+      if (addressMode === "edit" && editingIndex !== null) {
+        nextAddresses = savedAddresses.map((a, i) =>
+          i === editingIndex ? value : a
+        );
+      } else {
+        nextAddresses = [...savedAddresses, value];
+      }
+      const normalized = nextAddresses.map((a) => ({
+        ...a,
+        label: (a.label ?? "").trim() || "Endereço",
+      }));
+      await updateMeMutation.mutateAsync({ addresses: normalized });
+      await refetchCustomer();
+      const newIndex =
+        addressMode === "edit" && editingIndex !== null
+          ? editingIndex
+          : nextAddresses.length - 1;
+      setSelectedAddressIndex(newIndex);
+      setAddressMode("list");
+      setEditingIndex(null);
+    } finally {
+      setSavingAddress(false);
+    }
+  }
+
+  async function handleRemoveAddress(index: number) {
+    if (!customer) return;
+    if (!confirm("Remover este endereço?")) return;
+    const nextAddresses = savedAddresses.filter((_, i) => i !== index);
+    const normalized = nextAddresses.map((a) => ({
+      ...a,
+      label: (a.label ?? "").trim() || "Endereço",
+    }));
+    await updateMeMutation.mutateAsync({ addresses: normalized });
+    await refetchCustomer();
+    if (selectedAddressIndex === index) {
+      setSelectedAddressIndex(nextAddresses.length > 0 ? 0 : null);
+    } else if (selectedAddressIndex !== null && selectedAddressIndex > index) {
+      setSelectedAddressIndex(selectedAddressIndex - 1);
+    }
+    setAreaChecked(false);
+    setDeliveryArea(null);
+    setOutsideArea(false);
+  }
 
   async function handleCheckArea() {
     setAreaChecked(false);
@@ -468,187 +555,290 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
         {/* Endereco */}
         {orderType === "DELIVERY" && (
           <section className="rounded-xl bg-white p-4 shadow-sm">
-            <h2 className="mb-3 font-semibold">Endereco de entrega</h2>
-            <div className="space-y-3">
-              {/* CEP primeiro */}
-              <div className="flex items-center gap-3">
-                <div className="relative flex-1">
+            <h2 className="mb-3 font-semibold">Endereço de entrega</h2>
+
+            {customer ? (
+              addressMode === "new" || addressMode === "edit" ? (
+                <AddressForm
+                  value={
+                    addressMode === "edit" && editingIndex !== null
+                      ? savedAddresses[editingIndex]
+                      : null
+                  }
+                  onSave={handleSaveAddress}
+                  onCancel={() => {
+                    setAddressMode("list");
+                    setEditingIndex(null);
+                  }}
+                  saveLabel={
+                    savingAddress
+                      ? "Salvando..."
+                      : addressMode === "edit"
+                        ? "Salvar alterações"
+                        : "Salvar endereço"
+                  }
+                />
+              ) : (
+                <div className="space-y-3">
+                  <AddressList
+                    addresses={savedAddresses}
+                    selectedIndex={selectedAddressIndex}
+                    onSelect={(i) => setSelectedAddressIndex(i)}
+                    onAddNew={() => {
+                      setAddressMode("new");
+                      setEditingIndex(null);
+                    }}
+                    onEdit={(i) => {
+                      setAddressMode("edit");
+                      setEditingIndex(i);
+                    }}
+                    onRemove={handleRemoveAddress}
+                    emptyMessage="Você ainda não tem endereços salvos. Adicione um abaixo."
+                  />
+
+                  {/* Verificar endereco — so aparece com endereco selecionado */}
+                  {selectedAddressIndex !== null && !areaChecked && (
+                    <button
+                      type="button"
+                      onClick={handleCheckArea}
+                      disabled={!canCheckArea || isCheckingArea}
+                      className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/30 py-2.5 text-sm font-medium text-primary hover:border-primary/60 hover:bg-primary/5 disabled:opacity-50"
+                    >
+                      {isCheckingArea ? (
+                        <>
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                          Verificando...
+                        </>
+                      ) : (
+                        <>
+                          <MapPin className="h-4 w-4" />
+                          Verificar endereço
+                        </>
+                      )}
+                    </button>
+                  )}
+
+                  {/* Area result: found */}
+                  {areaChecked && deliveryArea && (
+                    <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                      <div className="flex items-start gap-2">
+                        <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-green-800">
+                            Área: {deliveryArea.name}
+                          </p>
+                          <p className="text-sm text-green-700">
+                            {isFreeDelivery ? (
+                              <span className="font-semibold">Frete grátis!</span>
+                            ) : (
+                              <>
+                                Taxa:{" "}
+                                {formatCurrency(parseFloat(deliveryArea.deliveryFee))}
+                              </>
+                            )}
+                          </p>
+                          {deliveryArea.estimatedMinutes && (
+                            <p className="flex items-center gap-1 text-xs text-green-600">
+                              <Clock className="h-3 w-3" />
+                              Tempo estimado: {deliveryArea.estimatedMinutes} min
+                            </p>
+                          )}
+                          {deliveryArea.freeDeliveryAbove && !isFreeDelivery && (
+                            <p className="mt-1 text-xs text-green-600">
+                              Frete grátis acima de{" "}
+                              {formatCurrency(
+                                parseFloat(deliveryArea.freeDeliveryAbove)
+                              )}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Area result: not found */}
+                  {areaChecked && outsideArea && (
+                    <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                      <div className="flex items-start gap-2">
+                        <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-600" />
+                        <div>
+                          <p className="text-sm font-semibold text-yellow-800">
+                            Endereço fora da área de entrega
+                          </p>
+                          <p className="text-xs text-yellow-600">
+                            Seu pedido pode ser feito, mas a taxa de entrega
+                            será combinada com o restaurante.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            ) : (
+              // Cliente nao logado: form inline simples
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-1">
+                    <input
+                      type="text"
+                      placeholder="CEP"
+                      value={address.zipCode}
+                      onChange={(e) => {
+                        const formatted = formatCep(e.target.value);
+                        setAddress((a) => ({ ...a, zipCode: formatted }));
+                        setCepError("");
+                      }}
+                      required={!(areaChecked && deliveryArea)}
+                      className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    />
+                    {cepLoading && (
+                      <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary" />
+                    )}
+                  </div>
+                </div>
+                {cepError && <p className="text-xs text-red-500">{cepError}</p>}
+
+                <input
+                  type="text"
+                  placeholder="Rua"
+                  value={address.street}
+                  onChange={(e) => {
+                    setAddress((a) => ({ ...a, street: e.target.value }));
+                    setAreaChecked(false);
+                  }}
+                  required
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                />
+                <div className="flex gap-3">
                   <input
                     type="text"
-                    placeholder="CEP"
-                    value={address.zipCode}
+                    placeholder="Numero"
+                    value={address.number}
                     onChange={(e) => {
-                      const formatted = formatCep(e.target.value);
-                      setAddress((a) => ({ ...a, zipCode: formatted }));
-                      setCepError("");
+                      setAddress((a) => ({ ...a, number: e.target.value }));
+                      setAreaChecked(false);
                     }}
-                    required={!(areaChecked && deliveryArea)}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                    required
+                    className="w-28 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   />
-                  {cepLoading && (
-                    <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-primary" />
-                  )}
+                  <input
+                    type="text"
+                    placeholder="Complemento"
+                    value={address.complement}
+                    onChange={(e) =>
+                      setAddress((a) => ({ ...a, complement: e.target.value }))
+                    }
+                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
                 </div>
-              </div>
-              {cepError && (
-                <p className="text-xs text-red-500">{cepError}</p>
-              )}
-
-              <input
-                type="text"
-                placeholder="Rua"
-                value={address.street}
-                onChange={(e) => {
-                  setAddress((a) => ({ ...a, street: e.target.value }));
-                  setAreaChecked(false);
-                }}
-                required
-                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <div className="flex gap-3">
                 <input
                   type="text"
-                  placeholder="Numero"
-                  value={address.number}
-                  onChange={(e) => {
-                    setAddress((a) => ({ ...a, number: e.target.value }));
-                    setAreaChecked(false);
-                  }}
-                  required
-                  className="w-28 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-                <input
-                  type="text"
-                  placeholder="Complemento"
-                  value={address.complement}
+                  placeholder="Bairro"
+                  value={address.neighborhood}
                   onChange={(e) =>
-                    setAddress((a) => ({ ...a, complement: e.target.value }))
+                    setAddress((a) => ({ ...a, neighborhood: e.target.value }))
                   }
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <input
-                type="text"
-                placeholder="Bairro"
-                value={address.neighborhood}
-                onChange={(e) =>
-                  setAddress((a) => ({
-                    ...a,
-                    neighborhood: e.target.value,
-                  }))
-                }
-                required
-                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  placeholder="Cidade"
-                  value={address.city}
-                  onChange={(e) => {
-                    setAddress((a) => ({ ...a, city: e.target.value }));
-                    setAreaChecked(false);
-                  }}
                   required
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                 />
-                <input
-                  type="text"
-                  placeholder="UF"
-                  maxLength={2}
-                  value={address.state}
-                  onChange={(e) => {
-                    setAddress((a) => ({
-                      ...a,
-                      state: e.target.value.toUpperCase(),
-                    }));
-                    setAreaChecked(false);
-                  }}
-                  required
-                  className="w-16 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
+                <div className="flex gap-3">
+                  <input
+                    type="text"
+                    placeholder="Cidade"
+                    value={address.city}
+                    onChange={(e) => {
+                      setAddress((a) => ({ ...a, city: e.target.value }));
+                      setAreaChecked(false);
+                    }}
+                    required
+                    className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <input
+                    type="text"
+                    placeholder="UF"
+                    maxLength={2}
+                    value={address.state}
+                    onChange={(e) => {
+                      setAddress((a) => ({
+                        ...a,
+                        state: e.target.value.toUpperCase(),
+                      }));
+                      setAreaChecked(false);
+                    }}
+                    required
+                    className="w-16 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                </div>
 
-              {/* Verificar endereco button */}
-              {!areaChecked && (
-                <button
-                  type="button"
-                  onClick={handleCheckArea}
-                  disabled={!canCheckArea || isCheckingArea}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/30 py-2.5 text-sm font-medium text-primary hover:border-primary/60 hover:bg-primary/5 disabled:opacity-50"
-                >
-                  {isCheckingArea ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Verificando...
-                    </>
-                  ) : (
-                    <>
-                      <MapPin className="h-4 w-4" />
-                      Verificar endereco
-                    </>
-                  )}
-                </button>
-              )}
+                {!areaChecked && (
+                  <button
+                    type="button"
+                    onClick={handleCheckArea}
+                    disabled={!canCheckArea || isCheckingArea}
+                    className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-primary/30 py-2.5 text-sm font-medium text-primary hover:border-primary/60 hover:bg-primary/5 disabled:opacity-50"
+                  >
+                    {isCheckingArea ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Verificando...
+                      </>
+                    ) : (
+                      <>
+                        <MapPin className="h-4 w-4" />
+                        Verificar endereço
+                      </>
+                    )}
+                  </button>
+                )}
 
-              {/* Area result: found */}
-              {areaChecked && deliveryArea && (
-                <div className="rounded-lg border border-green-200 bg-green-50 p-3">
-                  <div className="flex items-start gap-2">
-                    <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-green-800">
-                        Area: {deliveryArea.name}
-                      </p>
-                      <p className="text-sm text-green-700">
-                        {isFreeDelivery ? (
-                          <span className="font-semibold">Frete gratis!</span>
-                        ) : (
-                          <>
-                            Taxa:{" "}
-                            {formatCurrency(
-                              parseFloat(deliveryArea.deliveryFee)
-                            )}
-                          </>
-                        )}
-                      </p>
-                      {deliveryArea.estimatedMinutes && (
-                        <p className="flex items-center gap-1 text-xs text-green-600">
-                          <Clock className="h-3 w-3" />
-                          Tempo estimado: {deliveryArea.estimatedMinutes} min
+                {areaChecked && deliveryArea && (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="mt-0.5 h-4 w-4 flex-shrink-0 text-green-600" />
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-green-800">
+                          Área: {deliveryArea.name}
                         </p>
-                      )}
-                      {deliveryArea.freeDeliveryAbove && !isFreeDelivery && (
-                        <p className="mt-1 text-xs text-green-600">
-                          Frete gratis acima de{" "}
-                          {formatCurrency(
-                            parseFloat(deliveryArea.freeDeliveryAbove)
+                        <p className="text-sm text-green-700">
+                          {isFreeDelivery ? (
+                            <span className="font-semibold">Frete grátis!</span>
+                          ) : (
+                            <>
+                              Taxa:{" "}
+                              {formatCurrency(parseFloat(deliveryArea.deliveryFee))}
+                            </>
                           )}
                         </p>
-                      )}
+                        {deliveryArea.estimatedMinutes && (
+                          <p className="flex items-center gap-1 text-xs text-green-600">
+                            <Clock className="h-3 w-3" />
+                            Tempo estimado: {deliveryArea.estimatedMinutes} min
+                          </p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* Area result: not found */}
-              {areaChecked && outsideArea && (
-                <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
-                  <div className="flex items-start gap-2">
-                    <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-600" />
-                    <div>
-                      <p className="text-sm font-semibold text-yellow-800">
-                        Endereco fora da area de entrega
-                      </p>
-                      <p className="text-xs text-yellow-600">
-                        Seu pedido pode ser feito, mas a taxa de entrega sera
-                        combinada com o restaurante.
-                      </p>
+                {areaChecked && outsideArea && (
+                  <div className="rounded-lg border border-yellow-200 bg-yellow-50 p-3">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-yellow-600" />
+                      <div>
+                        <p className="text-sm font-semibold text-yellow-800">
+                          Endereço fora da área de entrega
+                        </p>
+                        <p className="text-xs text-yellow-600">
+                          Seu pedido pode ser feito, mas a taxa de entrega
+                          será combinada com o restaurante.
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
-            </div>
+                )}
+              </div>
+            )}
           </section>
         )}
 
