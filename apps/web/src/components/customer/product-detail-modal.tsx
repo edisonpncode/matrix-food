@@ -35,7 +35,6 @@ export function ProductDetailModal({
   >(new Map());
   const [quantity, setQuantity] = useState(1);
   const [notes, setNotes] = useState("");
-  const [payWithPoints, setPayWithPoints] = useState(false);
   // Ingredientes: { ingredientId → { quantity (QUANTITY type) | state (DESCRIPTION type) } }
   const [ingredientSelections, setIngredientSelections] = useState<
     Map<string, { quantity?: number; state?: string }>
@@ -101,7 +100,6 @@ export function ProductDetailModal({
   const acceptsPoints =
     points.enabled && pointsPriceForActive != null && pointsPriceForActive > 0;
   const isPointsOnly = acceptsPoints && basePrice <= 0;
-  const effectivePayWithPoints = isPointsOnly || payWithPoints;
 
   let customizationsPrice = 0;
   selectedOptions.forEach((optionIds, groupId) => {
@@ -132,16 +130,19 @@ export function ProductDetailModal({
     }
   });
 
-  const baseForTotal = effectivePayWithPoints ? 0 : basePrice;
-  const totalPrice = (baseForTotal + customizationsPrice + ingredientsPrice) * quantity;
-  const totalPointsCost = effectivePayWithPoints
+  const extrasPrice = (customizationsPrice + ingredientsPrice) * quantity;
+  // Preço total quando paga em R$ (botão "Adicionar")
+  const totalPriceCash = (basePrice + customizationsPrice + ingredientsPrice) * quantity;
+  // Custo total em pontos quando resgata (botão "Pts"); adicionais ainda saem em R$
+  const totalPointsCost = acceptsPoints
     ? (pointsPriceForActive ?? 0) * quantity
     : 0;
   const insufficientPoints =
-    effectivePayWithPoints && points.hasCustomer
+    acceptsPoints && points.hasCustomer
       ? points.available < totalPointsCost
       : false;
-  const needsLoginForPoints = effectivePayWithPoints && !points.hasCustomer;
+  const needsLoginForPoints = acceptsPoints && !points.hasCustomer;
+  const pointsButtonDisabled = insufficientPoints || needsLoginForPoints;
 
   function toggleOption(groupId: string, optionId: string, maxSelections: number) {
     setSelectedOptions((prev) => {
@@ -164,7 +165,7 @@ export function ProductDetailModal({
     });
   }
 
-  function handleAddToCart() {
+  function handleAddToCart(withPoints: boolean) {
     if (!product) return;
     const customizations = Array.from(selectedOptions.entries()).flatMap(
       ([groupId, optionIds]) => {
@@ -247,8 +248,8 @@ export function ProductDetailModal({
       ingredientModifications: ingredientMods,
       quantity,
       notes,
-      paidWithPoints: effectivePayWithPoints,
-      pointsUnitCost: effectivePayWithPoints ? pointsPriceForActive ?? 0 : 0,
+      paidWithPoints: withPoints,
+      pointsUnitCost: withPoints ? pointsPriceForActive ?? 0 : 0,
     });
 
     onClose();
@@ -565,72 +566,6 @@ export function ProductDetailModal({
             );
           })()}
 
-          {/* Resgate por pontos */}
-          {acceptsPoints && (
-            <div className="mt-5 rounded-lg border-2 border-amber-200 bg-amber-50/60 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
-                  <Gift className="h-5 w-5 text-amber-600" />
-                  <div>
-                    <p className="text-sm font-semibold text-amber-800">
-                      {isPointsOnly
-                        ? "Disponível só por resgate"
-                        : "Resgate por pontos"}
-                    </p>
-                    <p className="text-xs text-amber-700">
-                      {pointsPriceForActive} {points.pointsName}
-                      {!isPointsOnly && " ou pague em R$"}
-                    </p>
-                  </div>
-                </div>
-                {!isPointsOnly && (
-                  <label className="flex cursor-pointer items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={payWithPoints}
-                      onChange={(e) => setPayWithPoints(e.target.checked)}
-                      className="h-4 w-4 accent-amber-500"
-                    />
-                    <span className="text-sm font-medium text-amber-800">
-                      Trocar por pontos
-                    </span>
-                  </label>
-                )}
-              </div>
-              {effectivePayWithPoints && points.hasCustomer && (
-                <p className="mt-2 text-xs text-amber-700">
-                  Saldo:{" "}
-                  <span className="font-semibold">
-                    {points.balance} {points.pointsName}
-                  </span>
-                  {points.reserved > 0 && (
-                    <>
-                      {" "}· Disponível (após reservas no carrinho):{" "}
-                      <span className="font-semibold">
-                        {points.available} {points.pointsName}
-                      </span>
-                    </>
-                  )}
-                  {totalPointsCost > 0 &&
-                    ` · Após este pedido: ${Math.max(0, points.available - totalPointsCost)} ${points.pointsName}`}
-                </p>
-              )}
-              {needsLoginForPoints && (
-                <p className="mt-2 text-xs text-amber-700">
-                  Faça login para usar seus pontos.
-                </p>
-              )}
-              {(customizationsPrice > 0 || ingredientsPrice > 0) &&
-                effectivePayWithPoints && (
-                  <p className="mt-2 text-xs text-amber-700">
-                    Adicionais escolhidos serão cobrados em R$ (
-                    {formatCurrency((customizationsPrice + ingredientsPrice) * quantity)}
-                    ).
-                  </p>
-                )}
-            </div>
-          )}
-
           {/* Observações */}
           <div className="mt-5">
             <h3 className="text-sm font-semibold text-gray-700">
@@ -645,26 +580,70 @@ export function ProductDetailModal({
             />
           </div>
 
-          {/* Quantidade + Adicionar */}
-          <div className="mt-5 flex items-center justify-between">
+          {/* Linha de saldo de pontos (quando aplicável) */}
+          {acceptsPoints && (
+            <div className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              {needsLoginForPoints ? (
+                <span>Faça login para resgatar com pontos.</span>
+              ) : insufficientPoints ? (
+                <span>
+                  Saldo: <strong>{points.available} {points.pointsName}</strong>
+                  {" · "}faltam{" "}
+                  <strong>
+                    {totalPointsCost - points.available} {points.pointsName}
+                  </strong>{" "}
+                  para resgatar este produto
+                </span>
+              ) : (
+                <span>
+                  Seu saldo: <strong>{points.available} {points.pointsName}</strong>
+                  {points.reserved > 0 && ` (já reservados no carrinho: ${points.reserved})`}
+                  {" · "}após resgate:{" "}
+                  <strong>
+                    {Math.max(0, points.available - totalPointsCost)} {points.pointsName}
+                  </strong>
+                </span>
+              )}
+              {extrasPrice > 0 && (
+                <div className="mt-1">
+                  Adicionais escolhidos cobrados à parte: {formatCurrency(extrasPrice)}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Quantidade + botões de compra */}
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
             <QuantitySelector value={quantity} onChange={setQuantity} />
-            <button
-              onClick={handleAddToCart}
-              disabled={
-                !requiredGroupsMet || insufficientPoints || needsLoginForPoints
-              }
-              className="rounded-full bg-primary px-6 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
-            >
-              {effectivePayWithPoints
-                ? insufficientPoints
-                  ? `Faltam ${totalPointsCost - points.available} ${points.pointsName}`
-                  : needsLoginForPoints
-                    ? "Faça login para resgatar"
-                    : `Resgatar ${totalPointsCost} ${points.pointsName}${
-                        totalPrice > 0 ? ` + ${formatCurrency(totalPrice)}` : ""
-                      }`
-                : `Adicionar ${formatCurrency(totalPrice)}`}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {!isPointsOnly && (
+                <button
+                  onClick={() => handleAddToCart(false)}
+                  disabled={!requiredGroupsMet}
+                  className="rounded-full bg-primary px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary/90 disabled:opacity-50"
+                >
+                  Adicionar {formatCurrency(totalPriceCash)}
+                </button>
+              )}
+              {acceptsPoints && (
+                <button
+                  onClick={() => handleAddToCart(true)}
+                  disabled={!requiredGroupsMet || pointsButtonDisabled}
+                  title={
+                    insufficientPoints
+                      ? `Saldo insuficiente (você tem ${points.available} ${points.pointsName})`
+                      : needsLoginForPoints
+                        ? "Faça login para resgatar"
+                        : undefined
+                  }
+                  className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 px-5 py-3 text-sm font-semibold text-white transition-colors hover:bg-amber-600 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500"
+                >
+                  <Gift className="h-4 w-4" />
+                  {totalPointsCost} {points.pointsName}
+                  {extrasPrice > 0 && ` + ${formatCurrency(extrasPrice)}`}
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
