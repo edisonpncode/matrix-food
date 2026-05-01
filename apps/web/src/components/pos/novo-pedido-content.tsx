@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { formatCurrency } from "@matrix-food/utils";
+import { formatCurrency, type PaymentMethodConfig } from "@matrix-food/utils";
 import { usePrinterSettings } from "@/hooks/use-printer-settings";
 import { POSCart, type POSCartItem } from "@/components/pos/pos-cart";
 import { POSCheckoutModal } from "@/components/pos/pos-checkout-modal";
@@ -698,7 +698,8 @@ export function NovoPedidoContent() {
   }, []);
 
   function handleCheckout(data: {
-    paymentMethod: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD";
+    paymentMethod: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
+    customPaymentLabel: string | null;
     changeFor: string | null;
   }) {
     const h = orderHeaderData;
@@ -707,6 +708,7 @@ export function NovoPedidoContent() {
       customerName: h.customerName || "Balcão",
       customerPhone: h.customerPhone || "",
       paymentMethod: data.paymentMethod || "CASH",
+      customPaymentLabel: data.customPaymentLabel,
       changeFor: data.changeFor,
       customerId: h.customerId,
       cpf: h.cpf,
@@ -1766,6 +1768,7 @@ export function NovoPedidoContent() {
           deliveryFee={orderHeaderData.deliveryFee || 0}
           total={finalTotal}
           orderHeader={orderHeaderData}
+          paymentMethods={tenant?.paymentMethodsAccepted as PaymentMethodConfig[] | null}
           onConfirm={handleCheckout}
           onClose={() => setShowCheckout(false)}
           isLoading={createOrder.isPending}

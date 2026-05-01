@@ -98,10 +98,6 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
 
   // --- Delivery area states ---
   const [areaChecked, setAreaChecked] = useState(false);
-  const [geocodedCoords, setGeocodedCoords] = useState<{
-    lat: number;
-    lng: number;
-  } | null>(null);
   const [deliveryArea, setDeliveryArea] = useState<{
     id: string;
     name: string;
@@ -171,13 +167,10 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
       });
 
       if (geoResult) {
-        const coords = { lat: geoResult.lat, lng: geoResult.lng };
-        setGeocodedCoords(coords);
-
         const areaResult = await utils.deliveryArea.checkAddressPublic.fetch({
           tenantId: tenant.id,
-          lat: coords.lat,
-          lng: coords.lng,
+          lat: geoResult.lat,
+          lng: geoResult.lng,
         });
 
         setAreaChecked(true);
@@ -192,7 +185,6 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
       } else {
         setAreaChecked(true);
         setOutsideArea(true);
-        setGeocodedCoords(null);
       }
     } catch {
       setAreaChecked(true);

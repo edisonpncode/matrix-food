@@ -1,7 +1,13 @@
 "use client";
 
 import { useState } from "react";
-import { formatCurrency } from "@matrix-food/utils";
+import {
+  formatCurrency,
+  getEnabledPaymentMethods,
+  DEFAULT_PAYMENT_METHODS,
+  type PaymentMethodCode,
+  type PaymentMethodConfig,
+} from "@matrix-food/utils";
 import {
   X,
   Store,
@@ -12,15 +18,6 @@ import {
   User,
 } from "lucide-react";
 import type { OrderHeaderData } from "./order-type-header";
-
-type PaymentMethod = "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD";
-
-const PAYMENT_METHODS = [
-  { value: "CASH" as const, label: "Dinheiro" },
-  { value: "PIX" as const, label: "PIX" },
-  { value: "CREDIT_CARD" as const, label: "Crédito" },
-  { value: "DEBIT_CARD" as const, label: "Débito" },
-];
 
 const ORDER_TYPE_LABELS: Record<string, { label: string; icon: typeof Store }> = {
   COUNTER: { label: "Balcão", icon: Store },
@@ -34,8 +31,10 @@ interface POSCheckoutModalProps {
   deliveryFee: number;
   total: number;
   orderHeader: OrderHeaderData;
+  paymentMethods?: PaymentMethodConfig[] | null;
   onConfirm: (data: {
-    paymentMethod: PaymentMethod;
+    paymentMethod: PaymentMethodCode;
+    customPaymentLabel: string | null;
     changeFor: string | null;
   }) => void;
   onClose: () => void;
@@ -47,20 +46,40 @@ export function POSCheckoutModal({
   deliveryFee,
   total,
   orderHeader,
+  paymentMethods,
   onConfirm,
   onClose,
   isLoading,
 }: POSCheckoutModalProps) {
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("CASH");
+  const enabledMethods = getEnabledPaymentMethods(
+    paymentMethods ?? DEFAULT_PAYMENT_METHODS
+  );
+
+  const initialId = enabledMethods.find((m) => m.code === "CASH")?.id
+    ?? enabledMethods[0]?.id
+    ?? "";
+
+  const [paymentMethodId, setPaymentMethodId] = useState<string>(initialId);
   const [changeFor, setChangeFor] = useState("");
 
+  const selectedMethod = enabledMethods.find((m) => m.id === paymentMethodId);
   const isTable = orderHeader.orderType === "TABLE";
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!isTable && !selectedMethod) return;
     onConfirm({
-      paymentMethod: isTable ? undefined as unknown as PaymentMethod : paymentMethod,
-      changeFor: paymentMethod === "CASH" && changeFor ? changeFor : null,
+      paymentMethod: isTable
+        ? ("CASH" as PaymentMethodCode)
+        : selectedMethod!.code,
+      customPaymentLabel:
+        !isTable && selectedMethod?.code === "OTHER"
+          ? selectedMethod.label
+          : null,
+      changeFor:
+        !isTable && selectedMethod?.code === "CASH" && changeFor
+          ? changeFor
+          : null,
     });
   }
 
@@ -133,25 +152,31 @@ export function POSCheckoutModal({
           ) : (
             <div className="space-y-3">
               <label className="block text-sm font-medium">Forma de Pagamento</label>
-              <div className="grid grid-cols-2 gap-2">
-                {PAYMENT_METHODS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setPaymentMethod(opt.value)}
-                    className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-                      paymentMethod === opt.value
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border hover:border-primary/50"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
+              {enabledMethods.length === 0 ? (
+                <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
+                  Nenhuma forma de pagamento ativa. Configure em Configurações &gt; Formas de Pagamento.
+                </p>
+              ) : (
+                <div className="grid grid-cols-2 gap-2">
+                  {enabledMethods.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setPaymentMethodId(opt.id)}
+                      className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                        paymentMethodId === opt.id
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "border-border hover:border-primary/50"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {/* Change for cash */}
-              {paymentMethod === "CASH" && (
+              {selectedMethod?.code === "CASH" && (
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">
                     Troco para (R$)
@@ -195,7 +220,7 @@ export function POSCheckoutModal({
           {/* Confirm Button */}
           <button
             type="submit"
-            disabled={isLoading}
+            disabled={isLoading || (!isTable && !selectedMethod)}
             className="w-full rounded-lg bg-primary py-4 text-base font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
           >
             {isLoading

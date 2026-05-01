@@ -45,7 +45,6 @@ export default function FidelidadePage() {
                 className="flex min-w-0 flex-1 items-center gap-3 rounded-l-xl p-4 hover:bg-gray-50"
               >
                 {row.tenantLogoUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
                   <img
                     src={row.tenantLogoUrl}
                     alt={row.tenantName}
