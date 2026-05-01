@@ -35,7 +35,7 @@ export default function PedidosPage() {
   const { data, isLoading } = trpc.customerPortal.getMyOrders.useQuery();
 
   return (
-    <ContaShell title="Meus pedidos" backHref="/">
+    <ContaShell title="Meus pedidos">
       {isLoading && (
         <div className="space-y-3">
           {[0, 1, 2].map((i) => (

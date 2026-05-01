@@ -53,7 +53,7 @@ export default function PerfilPage() {
   }
 
   return (
-    <ContaShell title="Meu cadastro" backHref="/">
+    <ContaShell title="Meu cadastro">
       <form onSubmit={handleSave} className="space-y-4">
         <div className="rounded-xl bg-white p-5 shadow-sm">
           <h2 className="mb-4 text-lg font-semibold text-gray-900">

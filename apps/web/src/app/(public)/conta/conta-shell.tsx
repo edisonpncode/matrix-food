@@ -3,12 +3,16 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useCustomerAuth } from "@/lib/customer-auth-context";
+import { getLastRestaurantSlug } from "@/lib/last-restaurant";
 
 interface ContaShellProps {
   title: string;
-  /** Caminho do botão voltar. Se ausente, usa router.back(). */
+  /**
+   * Caminho do botão voltar. Se ausente, volta pro último restaurante visitado
+   * (sessionStorage); se não houver, usa router.back().
+   */
   backHref?: string;
   children: ReactNode;
 }
@@ -16,6 +20,15 @@ interface ContaShellProps {
 export function ContaShell({ title, backHref, children }: ContaShellProps) {
   const { customer, isLoading } = useCustomerAuth();
   const router = useRouter();
+  const [resolvedBackHref, setResolvedBackHref] = useState<string | null>(
+    backHref ?? null
+  );
+
+  useEffect(() => {
+    if (backHref) return;
+    const slug = getLastRestaurantSlug();
+    if (slug) setResolvedBackHref(`/restaurantes/${slug}`);
+  }, [backHref]);
 
   useEffect(() => {
     if (!isLoading && !customer) {
@@ -35,9 +48,9 @@ export function ContaShell({ title, backHref, children }: ContaShellProps) {
     <div className="min-h-screen bg-gray-50">
       <header className="sticky top-0 z-10 border-b border-gray-200 bg-white">
         <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 py-3">
-          {backHref ? (
+          {resolvedBackHref ? (
             <Link
-              href={backHref}
+              href={resolvedBackHref}
               className="-ml-1 rounded-full p-1.5 text-gray-700 hover:bg-gray-100"
               aria-label="Voltar"
             >

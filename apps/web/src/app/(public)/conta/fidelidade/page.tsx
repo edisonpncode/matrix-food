@@ -9,7 +9,7 @@ export default function FidelidadePage() {
   const { data, isLoading } = trpc.customerPortal.getMyLoyalty.useQuery();
 
   return (
-    <ContaShell title="Fidelidade" backHref="/">
+    <ContaShell title="Fidelidade">
       {isLoading && (
         <div className="space-y-3">
           {[0, 1].map((i) => (

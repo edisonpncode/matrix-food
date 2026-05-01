@@ -1,8 +1,9 @@
 "use client";
 
-import { use, useState, useMemo } from "react";
+import { use, useEffect, useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
+import { setLastRestaurantSlug } from "@/lib/last-restaurant";
 import { isRestaurantOpen, getNextOpenTime } from "@matrix-food/utils";
 import { RestaurantHeader } from "@/components/customer/restaurant-header";
 import { CategoryBar } from "@/components/customer/category-tabs";
@@ -36,6 +37,10 @@ export default function RestaurantPage({ params }: PageProps) {
 
   const setTenant = useCartStore((s) => s.setTenant);
   const { customer } = useCustomerAuth();
+
+  useEffect(() => {
+    setLastRestaurantSlug(slug);
+  }, [slug]);
 
   // Buscar dados do restaurante
   const { data: tenant, isLoading: loadingTenant } =
