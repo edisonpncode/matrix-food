@@ -12,9 +12,11 @@
     "push": "drizzle-kit push",
     "studio": "drizzle-kit studio",
     "backfill:loyalty": "tsx --env-file=../../.env.local src/backfill-loyalty-balance.ts",
+    "migrate:payment-methods": "tsx --env-file=../../.env.local src/migrate-payment-methods.ts",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
+    "@matrix-food/utils": "workspace:*",
     "drizzle-orm": "^0.45.2",
     "postgres": "^3.4.7",
     "zod": "^3.25.67"

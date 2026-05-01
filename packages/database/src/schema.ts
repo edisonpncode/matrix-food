@@ -108,6 +108,7 @@ export const paymentMethodEnum = pgEnum("payment_method", [
   "CASH",
   "CREDIT_CARD",
   "DEBIT_CARD",
+  "OTHER",
 ]);
 
 export const paymentStatusEnum = pgEnum("payment_status", [
@@ -230,7 +231,16 @@ export const tenants = pgTable(
     }>(),
     /** Tipos de comida que o restaurante vende (ex: ["hamburguer", "pizza"]) */
     foodTypes: jsonb("food_types").$type<string[]>(),
-    paymentMethodsAccepted: jsonb("payment_methods_accepted").$type<string[]>(),
+    paymentMethodsAccepted: jsonb("payment_methods_accepted").$type<
+      Array<{
+        id: string;
+        code: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
+        label: string;
+        enabled: boolean;
+        order: number;
+        isCustom: boolean;
+      }>
+    >(),
     themeSettings: jsonb("theme_settings").$type<{
       primaryColor: string;
       secondaryColor: string;
@@ -877,6 +887,8 @@ export const orders = pgTable(
     pointsSpent: integer("points_spent").notNull().default(0),
     total: decimal("total", { precision: 10, scale: 2 }).notNull(),
     paymentMethod: paymentMethodEnum("payment_method").notNull(),
+    /** Nome da forma customizada quando paymentMethod = OTHER (ex: "Vale-Refeição") */
+    customPaymentLabel: text("custom_payment_label"),
     paymentStatus: paymentStatusEnum("payment_status")
       .notNull()
       .default("PENDING"),

@@ -71,6 +71,13 @@
       "when": 1777658786892,
       "tag": "0009_curved_gamora",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1777662246746,
+      "tag": "0010_wise_titania",
+      "breakpoints": true
     }
   ]
 }

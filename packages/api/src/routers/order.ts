@@ -345,12 +345,16 @@ export const orderRouter = createTRPCRouter({
           .refine((v) => isValidCpf(v), "CPF inválido"),
         deliveryAddress: deliveryAddressInput.nullable(),
         deliveryAreaId: z.string().uuid().optional(),
-        paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]),
+        paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD", "OTHER"]),
+        customPaymentLabel: z.string().min(1).max(50).nullable().optional(),
         changeFor: z.string().nullable().optional(),
         notes: z.string().optional(),
         promoCode: z.string().optional(),
         items: z.array(orderItemInput).min(1),
-      })
+      }).refine(
+        (d) => d.paymentMethod !== "OTHER" || (d.customPaymentLabel?.trim().length ?? 0) > 0,
+        { message: "Forma de pagamento personalizada exige nome.", path: ["customPaymentLabel"] }
+      )
     )
     .mutation(async ({ ctx, input }) => {
       rateLimit("order.create", ctx.ip ?? "", {
@@ -851,6 +855,7 @@ export const orderRouter = createTRPCRouter({
           discount: discount.toFixed(2),
           total: total.toFixed(2),
           paymentMethod: input.paymentMethod,
+          customPaymentLabel: input.paymentMethod === "OTHER" ? (input.customPaymentLabel ?? null) : null,
           changeFor: input.changeFor,
           notes: input.notes,
           promotionId,
@@ -1428,7 +1433,8 @@ export const orderRouter = createTRPCRouter({
           deliveryAddress: deliveryAddressInput.nullable().optional(),
           deliveryAreaId: z.string().uuid().optional(),
           manualDeliveryFee: z.string().optional(),
-          paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]).optional().default("CASH"),
+          paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD", "OTHER"]).optional().default("CASH"),
+          customPaymentLabel: z.string().min(1).max(50).nullable().optional(),
           changeFor: z.string().nullable().optional(),
           notes: z.string().optional(),
           promoCode: z.string().optional(),
@@ -1438,6 +1444,10 @@ export const orderRouter = createTRPCRouter({
           message: "POS não aceita resgate com pontos. Resgates só pelo link público.",
           path: ["items"],
         })
+        .refine(
+          (d) => d.paymentMethod !== "OTHER" || (d.customPaymentLabel?.trim().length ?? 0) > 0,
+          { message: "Forma de pagamento personalizada exige nome.", path: ["customPaymentLabel"] }
+        )
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
@@ -1781,6 +1791,7 @@ export const orderRouter = createTRPCRouter({
           discount: discount.toFixed(2),
           total: total.toFixed(2),
           paymentMethod: input.paymentMethod,
+          customPaymentLabel: input.paymentMethod === "OTHER" ? (input.customPaymentLabel ?? null) : null,
           paymentStatus,
           changeFor: input.changeFor,
           notes: input.notes,
@@ -1990,8 +2001,12 @@ export const orderRouter = createTRPCRouter({
     .input(
       z.object({
         tableNumber: z.number().int().min(1),
-        paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"]),
-      })
+        paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD", "OTHER"]),
+        customPaymentLabel: z.string().min(1).max(50).nullable().optional(),
+      }).refine(
+        (d) => d.paymentMethod !== "OTHER" || (d.customPaymentLabel?.trim().length ?? 0) > 0,
+        { message: "Forma de pagamento personalizada exige nome.", path: ["customPaymentLabel"] }
+      )
     )
     .mutation(async ({ ctx, input }) => {
       const db = getDb();
@@ -2024,6 +2039,7 @@ export const orderRouter = createTRPCRouter({
           status: "DELIVERED",
           paymentStatus: "PAID",
           paymentMethod: input.paymentMethod,
+          customPaymentLabel: input.paymentMethod === "OTHER" ? (input.customPaymentLabel ?? null) : null,
         })
         .where(inArray(orders.id, orderIds));
 

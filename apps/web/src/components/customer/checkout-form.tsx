@@ -21,6 +21,9 @@ import {
   formatCpf,
   formatCurrency,
   isValidCpf,
+  getEnabledPaymentMethods,
+  DEFAULT_PAYMENT_METHODS,
+  type PaymentMethodConfig,
 } from "@matrix-food/utils";
 import { LoyaltySection } from "./loyalty-section";
 import { formatBrazilianPhone, stripPhone } from "@/lib/format-phone";
@@ -31,7 +34,7 @@ interface Tenant {
   id: string;
   slug: string;
   name: string;
-  paymentMethodsAccepted: string[] | null;
+  paymentMethodsAccepted: PaymentMethodConfig[] | null;
   deliverySettings: {
     deliveryFee: number;
     estimatedMinutes: { min: number; max: number };
@@ -45,12 +48,6 @@ interface CheckoutFormProps {
   onBack: () => void;
 }
 
-const PAYMENT_LABELS: Record<string, string> = {
-  PIX: "PIX",
-  CASH: "Dinheiro",
-  CREDIT_CARD: "Cartao de Credito",
-  DEBIT_CARD: "Cartao de Debito",
-};
 
 export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   const router = useRouter();
@@ -82,7 +79,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
     city: savedAddress?.city ?? "",
     state: savedAddress?.state ?? "",
   });
-  const [paymentMethod, setPaymentMethod] = useState<string>("");
+  const [paymentMethodId, setPaymentMethodId] = useState<string>("");
   const [changeFor, setChangeFor] = useState("");
   const [notes, setNotes] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -114,28 +111,13 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   } | null>(null);
   const [outsideArea, setOutsideArea] = useState(false);
 
-  // --- Delivery area queries ---
-  const geocodeQuery = trpc.deliveryArea.geocodeAddress.useQuery(
-    {
-      street: address.street,
-      number: address.number,
-      neighborhood: address.neighborhood,
-      city: address.city,
-      state: address.state,
-    },
-    { enabled: false }
-  );
+  // --- Delivery area: chamadas imperativas via utils.fetch ---
+  // (useQuery + refetch ligado a state nao funciona aqui porque o input
+  // do refetch fica preso ao closure do render anterior — passamos as
+  // coords direto pro fetch.)
+  const utils = trpc.useUtils();
+  const [isCheckingArea, setIsCheckingArea] = useState(false);
 
-  const checkQuery = trpc.deliveryArea.checkAddressPublic.useQuery(
-    {
-      tenantId: tenant.id,
-      lat: geocodedCoords?.lat ?? 0,
-      lng: geocodedCoords?.lng ?? 0,
-    },
-    { enabled: false }
-  );
-
-  const isCheckingArea = geocodeQuery.isFetching || checkQuery.isFetching;
   const canCheckArea =
     address.street.trim() &&
     address.number.trim() &&
@@ -177,18 +159,31 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
     setAreaChecked(false);
     setDeliveryArea(null);
     setOutsideArea(false);
+    setIsCheckingArea(true);
 
     try {
-      const geoResult = await geocodeQuery.refetch();
-      if (geoResult.data) {
-        const coords = { lat: geoResult.data.lat, lng: geoResult.data.lng };
+      const geoResult = await utils.deliveryArea.geocodeAddress.fetch({
+        street: address.street,
+        number: address.number,
+        neighborhood: address.neighborhood,
+        city: address.city,
+        state: address.state,
+      });
+
+      if (geoResult) {
+        const coords = { lat: geoResult.lat, lng: geoResult.lng };
         setGeocodedCoords(coords);
 
-        const areaResult = await checkQuery.refetch();
+        const areaResult = await utils.deliveryArea.checkAddressPublic.fetch({
+          tenantId: tenant.id,
+          lat: coords.lat,
+          lng: coords.lng,
+        });
+
         setAreaChecked(true);
 
-        if (areaResult.data) {
-          setDeliveryArea(areaResult.data);
+        if (areaResult) {
+          setDeliveryArea(areaResult);
           setOutsideArea(false);
         } else {
           setDeliveryArea(null);
@@ -202,6 +197,8 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
     } catch {
       setAreaChecked(true);
       setOutsideArea(true);
+    } finally {
+      setIsCheckingArea(false);
     }
   }
 
@@ -228,12 +225,10 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   const minOrder = tenant.deliverySettings?.minOrder ?? 0;
   const isBelowMinimum = minOrder > 0 && subtotal < minOrder;
 
-  const paymentMethods = tenant.paymentMethodsAccepted ?? [
-    "PIX",
-    "CASH",
-    "CREDIT_CARD",
-    "DEBIT_CARD",
-  ];
+  const paymentMethods = getEnabledPaymentMethods(
+    tenant.paymentMethodsAccepted ?? DEFAULT_PAYMENT_METHODS
+  );
+  const selectedMethod = paymentMethods.find((m) => m.id === paymentMethodId);
 
   const validatePromo = trpc.promotion.validate.useQuery(
     {
@@ -309,12 +304,15 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
               }
             : null,
         deliveryAreaId: deliveryArea?.id ?? undefined,
-        paymentMethod: paymentMethod as
+        paymentMethod: (selectedMethod?.code ?? "CASH") as
           | "PIX"
           | "CASH"
           | "CREDIT_CARD"
-          | "DEBIT_CARD",
-        changeFor: paymentMethod === "CASH" && changeFor ? changeFor : null,
+          | "DEBIT_CARD"
+          | "OTHER",
+        customPaymentLabel:
+          selectedMethod?.code === "OTHER" ? selectedMethod.label : null,
+        changeFor: selectedMethod?.code === "CASH" && changeFor ? changeFor : null,
         notes: notes || undefined,
         promoCode: appliedPromo?.code || undefined,
         items: items.map((item) => ({
@@ -359,7 +357,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
     customerName.trim() !== "" &&
     stripPhone(customerPhone).length >= 10 &&
     isValidCpf(customerCpf) &&
-    paymentMethod !== "" &&
+    selectedMethod !== undefined &&
     acceptedTerms &&
     !isBelowMinimum &&
     isOpen &&
@@ -668,9 +666,9 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
           <div className="space-y-2">
             {paymentMethods.map((method) => (
               <label
-                key={method}
+                key={method.id}
                 className={`flex cursor-pointer items-center gap-3 rounded-lg border-2 p-3 transition-colors ${
-                  paymentMethod === method
+                  paymentMethodId === method.id
                     ? "border-primary bg-primary/5"
                     : "border-gray-200 hover:border-gray-300"
                 }`}
@@ -678,18 +676,16 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
                 <input
                   type="radio"
                   name="payment"
-                  value={method}
-                  checked={paymentMethod === method}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  value={method.id}
+                  checked={paymentMethodId === method.id}
+                  onChange={(e) => setPaymentMethodId(e.target.value)}
                   className="accent-primary"
                 />
-                <span className="text-sm font-medium">
-                  {PAYMENT_LABELS[method] ?? method}
-                </span>
+                <span className="text-sm font-medium">{method.label}</span>
               </label>
             ))}
           </div>
-          {paymentMethod === "CASH" && (
+          {selectedMethod?.code === "CASH" && (
             <div className="mt-3">
               <input
                 type="text"

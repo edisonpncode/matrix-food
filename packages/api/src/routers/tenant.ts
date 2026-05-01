@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure, tenantProcedure } from "../trpc";
 import { getDb, tenants, tenantUsers, userTypes, eq, and, ilike, asc } from "@matrix-food/database";
+import { DEFAULT_PAYMENT_METHODS, paymentMethodsListSchema } from "@matrix-food/utils";
 import { AVAILABLE_PERMISSIONS } from "./userType";
 
 export const tenantRouter = createTRPCRouter({
@@ -102,6 +103,7 @@ export const tenantRouter = createTRPCRouter({
           email: input.email,
           phone: input.ownerPhone,
           whatsapp: input.ownerPhone,
+          paymentMethodsAccepted: DEFAULT_PAYMENT_METHODS,
         })
         .returning();
 
@@ -288,6 +290,7 @@ export const tenantRouter = createTRPCRouter({
             })
           )
           .optional(),
+        paymentMethodsAccepted: paymentMethodsListSchema.optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {

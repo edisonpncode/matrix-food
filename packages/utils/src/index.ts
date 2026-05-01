@@ -23,3 +23,11 @@ export { createLogger, logger } from "./logger";
 export { fetchAddressByCep, formatCep } from "./cep";
 export type { ViaCepAddress } from "./cep";
 export { cleanCpf, formatCpf, isValidCpf } from "./cpf";
+export {
+  PAYMENT_METHOD_CODES,
+  DEFAULT_PAYMENT_METHODS,
+  paymentMethodsListSchema,
+  getEnabledPaymentMethods,
+  findPaymentMethodById,
+} from "./payment-methods";
+export type { PaymentMethodCode, PaymentMethodConfig } from "./payment-methods";

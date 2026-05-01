@@ -4,6 +4,7 @@
  */
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
+import { DEFAULT_PAYMENT_METHODS } from "@matrix-food/utils";
 import * as schema from "./schema";
 
 async function seed() {
@@ -46,7 +47,7 @@ async function seed() {
         maxRadius: 10,
         estimatedMinutes: { min: 30, max: 50 },
       },
-      paymentMethodsAccepted: ["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD"],
+      paymentMethodsAccepted: DEFAULT_PAYMENT_METHODS,
       themeSettings: {
         primaryColor: "#7c3aed",
         secondaryColor: "#f59e0b",
