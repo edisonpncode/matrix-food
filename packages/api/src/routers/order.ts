@@ -681,9 +681,17 @@ export const orderRouter = createTRPCRouter({
           ? parseFloat(loyaltyConf.minOrderForPoints)
           : 0;
         if (total >= minOrder) {
-          loyaltyPointsEarned = Math.floor(
-            total * parseFloat(loyaltyConf.pointsPerReal)
-          );
+          // Regra: a cada `spendingBase` reais gastos, ganha `pointsPerReal` pontos.
+          // Ex.: spendingBase=20, pointsPerReal=1 → 1 ponto por R$20.
+          const spendingBase = loyaltyConf.spendingBase
+            ? parseFloat(loyaltyConf.spendingBase)
+            : 1;
+          const pointsRate = parseFloat(loyaltyConf.pointsPerReal);
+          if (spendingBase > 0 && pointsRate > 0) {
+            loyaltyPointsEarned = Math.floor(
+              (total / spendingBase) * pointsRate
+            );
+          }
         }
       }
 
@@ -1789,9 +1797,15 @@ export const orderRouter = createTRPCRouter({
           ? parseFloat(loyaltyConf.minOrderForPoints)
           : 0;
         if (total >= minOrder) {
-          loyaltyPointsEarned = Math.floor(
-            total * parseFloat(loyaltyConf.pointsPerReal)
-          );
+          const spendingBase = loyaltyConf.spendingBase
+            ? parseFloat(loyaltyConf.spendingBase)
+            : 1;
+          const pointsRate = parseFloat(loyaltyConf.pointsPerReal);
+          if (spendingBase > 0 && pointsRate > 0) {
+            loyaltyPointsEarned = Math.floor(
+              (total / spendingBase) * pointsRate
+            );
+          }
         }
       }
 

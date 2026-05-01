@@ -319,53 +319,74 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
   // Mostra popup de progresso de fidelidade quando o cliente está perto
   // (≤50% do passo) de ganhar mais 1 ponto, ou de atingir o mínimo para
   // começar a ganhar pontos. Só aparece uma vez por sessão por tenant.
+  // Regra do passo: a cada `spendingBase` reais gastos, ganha `pointsPerReal`
+  // pontos. Logo R$ por ponto = spendingBase / pointsPerReal.
+  const addressIsReady =
+    orderType === "PICKUP" ||
+    (!!address.street.trim() &&
+      !!address.number.trim() &&
+      !!address.city.trim() &&
+      !!address.state.trim());
+
   useEffect(() => {
     if (!loyaltyConfig) return;
     if (showLoyaltyModal) return;
-    if (orderType === "DELIVERY" && (!areaChecked || isCheckingArea)) return;
+    if (!addressIsReady) return;
+    if (isCheckingArea) return;
 
     if (typeof window !== "undefined") {
       const key = `mf:loyalty-progress-shown:${tenant.id}`;
       if (window.sessionStorage.getItem(key)) return;
     }
 
-    const ratePerReal = parseFloat(loyaltyConfig.pointsPerReal);
-    if (!ratePerReal || ratePerReal <= 0) return;
+    const spendingBase = parseFloat(loyaltyConfig.spendingBase ?? "1");
+    const pointsRate = parseFloat(loyaltyConfig.pointsPerReal);
+    if (!spendingBase || spendingBase <= 0) return;
+    if (!pointsRate || pointsRate <= 0) return;
 
-    const realPerPoint = 1 / ratePerReal;
+    const realPerPoint = spendingBase / pointsRate;
     const halfStep = realPerPoint / 2;
     const minOrderForPoints = parseFloat(
       loyaltyConfig.minOrderForPoints ?? "0"
     );
 
-    let amountNeeded: number;
-    let reason: "next-point" | "min-order";
+    // Pequeno debounce para evitar disparo enquanto o cliente ainda está
+    // mexendo no carrinho ou no endereço.
+    const timeoutId = setTimeout(() => {
+      let amountNeeded: number;
+      let reason: "next-point" | "min-order";
 
-    if (total < minOrderForPoints) {
-      amountNeeded = minOrderForPoints - total;
-      reason = "min-order";
-    } else {
-      const earned = Math.floor(total / realPerPoint);
-      const nextThreshold = (earned + 1) * realPerPoint;
-      amountNeeded = nextThreshold - total;
-      reason = "next-point";
-    }
-
-    if (amountNeeded > 0 && amountNeeded <= halfStep) {
-      setLoyaltyModalData({ amountNeeded, reason });
-      setShowLoyaltyModal(true);
-      if (typeof window !== "undefined") {
-        window.sessionStorage.setItem(
-          `mf:loyalty-progress-shown:${tenant.id}`,
-          "1"
-        );
+      if (total < minOrderForPoints) {
+        amountNeeded = minOrderForPoints - total;
+        reason = "min-order";
+      } else {
+        const earnedRaw = total / realPerPoint;
+        const earned = Math.floor(earnedRaw);
+        const nextThreshold = (earned + 1) * realPerPoint;
+        amountNeeded = nextThreshold - total;
+        reason = "next-point";
       }
-    }
+
+      if (amountNeeded > 0 && amountNeeded <= halfStep) {
+        setLoyaltyModalData({
+          amountNeeded: Math.round(amountNeeded * 100) / 100,
+          reason,
+        });
+        setShowLoyaltyModal(true);
+        if (typeof window !== "undefined") {
+          window.sessionStorage.setItem(
+            `mf:loyalty-progress-shown:${tenant.id}`,
+            "1"
+          );
+        }
+      }
+    }, 600);
+
+    return () => clearTimeout(timeoutId);
   }, [
     loyaltyConfig,
     total,
-    orderType,
-    areaChecked,
+    addressIsReady,
     isCheckingArea,
     showLoyaltyModal,
     tenant.id,
