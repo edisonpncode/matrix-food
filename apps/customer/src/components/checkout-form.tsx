@@ -1,11 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowLeft, Tag, X, Check } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { useCartStore } from "@/stores/cart-store";
 import { formatCurrency } from "@matrix-food/utils";
+import { AddressForm, type AddressValue } from "@matrix-food/ui/address-form";
+import { AddressList } from "@matrix-food/ui/address-list";
 import { LoyaltySection } from "./loyalty-section";
 import { useCustomerAuth } from "@/lib/customer-auth-context";
 
@@ -44,15 +46,11 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
   );
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
-  const [address, setAddress] = useState({
-    street: "",
-    number: "",
-    complement: "",
-    neighborhood: "",
-    city: "",
-    state: "",
-    zipCode: "",
-  });
+  const [selectedAddressIndex, setSelectedAddressIndex] = useState<number | null>(null);
+  const [draftAddress, setDraftAddress] = useState<AddressValue | null>(null);
+  const [addressMode, setAddressMode] = useState<"list" | "new" | "edit">("list");
+  const [editingIndex, setEditingIndex] = useState<number | null>(null);
+  const [savingAddress, setSavingAddress] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState<string>("");
   const [changeFor, setChangeFor] = useState("");
   const [notes, setNotes] = useState("");
@@ -67,6 +65,8 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
   } | null>(null);
 
   const createOrder = trpc.order.create.useMutation();
+  const utils = trpc.useUtils();
+  const updateMe = trpc.customerPortal.updateMe.useMutation();
 
   // Pre-preencher quando cliente esta logado
   const { customer } = useCustomerAuth();
@@ -79,23 +79,99 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     if (!customerName && customer.name) setCustomerName(customer.name);
     if (!customerPhone && customer.phone) setCustomerPhone(customer.phone);
   }, [customer]);
+
+  const savedAddresses: AddressValue[] = useMemo(() => {
+    return (meQuery.data?.addresses ?? []) as AddressValue[];
+  }, [meQuery.data]);
+
+  // Quando lista de endereços salvos chega, seleciona o primeiro automaticamente
   useEffect(() => {
     if (orderType !== "DELIVERY") return;
-    const me = meQuery.data;
-    if (!me?.addresses || me.addresses.length === 0) return;
-    if (address.street) return;
-    const a = me.addresses[0];
-    if (!a) return;
-    setAddress({
-      street: a.street ?? "",
-      number: a.number ?? "",
-      complement: a.complement ?? "",
-      neighborhood: a.neighborhood ?? "",
-      city: a.city ?? "",
-      state: a.state ?? "",
-      zipCode: a.zipCode ?? "",
-    });
-  }, [meQuery.data, orderType]);
+    if (selectedAddressIndex !== null) return;
+    if (savedAddresses.length === 0) return;
+    setSelectedAddressIndex(0);
+  }, [savedAddresses, orderType, selectedAddressIndex]);
+
+  // Cliente anônimo (sem login): garante que sempre exista um draftAddress quando entrega
+  useEffect(() => {
+    if (orderType !== "DELIVERY") return;
+    if (customer) return;
+    if (!draftAddress) {
+      setDraftAddress({
+        label: "",
+        street: "",
+        number: "",
+        complement: "",
+        neighborhood: "",
+        city: "",
+        state: "",
+        zipCode: "",
+      });
+    }
+  }, [orderType, customer, draftAddress]);
+
+  const selectedAddress: AddressValue | null = useMemo(() => {
+    if (orderType !== "DELIVERY") return null;
+    if (customer) {
+      if (selectedAddressIndex !== null && savedAddresses[selectedAddressIndex]) {
+        return savedAddresses[selectedAddressIndex];
+      }
+      return null;
+    }
+    return draftAddress;
+  }, [orderType, customer, selectedAddressIndex, savedAddresses, draftAddress]);
+
+  async function handleSaveAddress(value: AddressValue) {
+    if (!customer) {
+      // Anônimo: só salva no estado local
+      setDraftAddress(value);
+      setAddressMode("list");
+      return;
+    }
+    setSavingAddress(true);
+    try {
+      let nextAddresses: AddressValue[];
+      if (addressMode === "edit" && editingIndex !== null) {
+        nextAddresses = savedAddresses.map((addr, i) =>
+          i === editingIndex ? value : addr
+        );
+      } else {
+        nextAddresses = [...savedAddresses, value];
+      }
+      const normalized = nextAddresses.map((a) => ({
+        ...a,
+        label: a.label?.trim() || "Endereço",
+      }));
+      await updateMe.mutateAsync({ addresses: normalized });
+      await utils.customerPortal.getMe.invalidate();
+      const newIndex =
+        addressMode === "edit" && editingIndex !== null
+          ? editingIndex
+          : nextAddresses.length - 1;
+      setSelectedAddressIndex(newIndex);
+      setAddressMode("list");
+      setEditingIndex(null);
+    } finally {
+      setSavingAddress(false);
+    }
+  }
+
+  async function handleRemoveAddress(index: number) {
+    if (!customer) return;
+    if (!confirm("Remover este endereço?")) return;
+    const nextAddresses = savedAddresses.filter((_, i) => i !== index);
+    const normalized = nextAddresses.map((a) => ({
+      ...a,
+      label: a.label?.trim() || "Endereço",
+    }));
+    await updateMe.mutateAsync({ addresses: normalized });
+    await utils.customerPortal.getMe.invalidate();
+    if (selectedAddressIndex === index) {
+      setSelectedAddressIndex(nextAddresses.length > 0 ? 0 : null);
+    } else if (selectedAddressIndex !== null && selectedAddressIndex > index) {
+      setSelectedAddressIndex(selectedAddressIndex - 1);
+    }
+  }
 
   const deliveryFee =
     orderType === "DELIVERY"
@@ -162,15 +238,15 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
         customerName,
         customerPhone,
         deliveryAddress:
-          orderType === "DELIVERY"
+          orderType === "DELIVERY" && selectedAddress
             ? {
-                street: address.street,
-                number: address.number,
-                complement: address.complement || undefined,
-                neighborhood: address.neighborhood,
-                city: address.city,
-                state: address.state,
-                zipCode: address.zipCode,
+                street: selectedAddress.street,
+                number: selectedAddress.number,
+                complement: selectedAddress.complement || undefined,
+                neighborhood: selectedAddress.neighborhood,
+                city: selectedAddress.city,
+                state: selectedAddress.state,
+                zipCode: selectedAddress.zipCode,
               }
             : null,
         paymentMethod: paymentMethod as "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD",
@@ -204,13 +280,20 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
     }
   }
 
+  const hasValidAddress =
+    !!selectedAddress &&
+    !!selectedAddress.street &&
+    !!selectedAddress.number &&
+    !!selectedAddress.neighborhood &&
+    !!selectedAddress.city &&
+    !!selectedAddress.state;
+
   const isValid =
     customerName.trim() !== "" &&
     customerPhone.trim() !== "" &&
     paymentMethod !== "" &&
     acceptedTerms &&
-    (orderType === "PICKUP" ||
-      (address.street && address.number && address.neighborhood && address.city && address.state && address.zipCode));
+    (orderType === "PICKUP" || hasValidAddress);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -276,85 +359,54 @@ export function CheckoutForm({ tenant, onBack }: CheckoutFormProps) {
         {orderType === "DELIVERY" && (
           <section className="rounded-xl bg-white p-4 shadow-sm">
             <h2 className="mb-3 font-semibold">Endereço de entrega</h2>
-            <div className="space-y-3">
-              <input
-                type="text"
-                placeholder="Rua"
-                value={address.street}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, street: e.target.value }))
-                }
-                required
-                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+
+            {customer ? (
+              addressMode === "new" || addressMode === "edit" ? (
+                <div>
+                  <AddressForm
+                    value={
+                      addressMode === "edit" && editingIndex !== null
+                        ? savedAddresses[editingIndex]
+                        : null
+                    }
+                    onSave={handleSaveAddress}
+                    onCancel={() => {
+                      setAddressMode("list");
+                      setEditingIndex(null);
+                    }}
+                    saveLabel={
+                      savingAddress
+                        ? "Salvando..."
+                        : addressMode === "edit"
+                          ? "Salvar alterações"
+                          : "Salvar endereço"
+                    }
+                  />
+                </div>
+              ) : (
+                <AddressList
+                  addresses={savedAddresses}
+                  selectedIndex={selectedAddressIndex}
+                  onSelect={(i) => setSelectedAddressIndex(i)}
+                  onAddNew={() => {
+                    setAddressMode("new");
+                    setEditingIndex(null);
+                  }}
+                  onEdit={(i) => {
+                    setAddressMode("edit");
+                    setEditingIndex(i);
+                  }}
+                  onRemove={handleRemoveAddress}
+                  emptyMessage="Você ainda não tem endereços salvos. Adicione um abaixo."
+                />
+              )
+            ) : (
+              <AddressForm
+                value={draftAddress}
+                onChange={setDraftAddress}
+                hideLabel
               />
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  placeholder="Número"
-                  value={address.number}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, number: e.target.value }))
-                  }
-                  required
-                  className="w-28 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-                <input
-                  type="text"
-                  placeholder="Complemento"
-                  value={address.complement}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, complement: e.target.value }))
-                  }
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <input
-                type="text"
-                placeholder="Bairro"
-                value={address.neighborhood}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, neighborhood: e.target.value }))
-                }
-                required
-                className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-              <div className="flex gap-3">
-                <input
-                  type="text"
-                  placeholder="Cidade"
-                  value={address.city}
-                  onChange={(e) =>
-                    setAddress((a) => ({ ...a, city: e.target.value }))
-                  }
-                  required
-                  className="flex-1 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-                <input
-                  type="text"
-                  placeholder="UF"
-                  maxLength={2}
-                  value={address.state}
-                  onChange={(e) =>
-                    setAddress((a) => ({
-                      ...a,
-                      state: e.target.value.toUpperCase(),
-                    }))
-                  }
-                  required
-                  className="w-16 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                />
-              </div>
-              <input
-                type="text"
-                placeholder="CEP"
-                value={address.zipCode}
-                onChange={(e) =>
-                  setAddress((a) => ({ ...a, zipCode: e.target.value }))
-                }
-                required
-                className="w-36 rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-              />
-            </div>
+            )}
           </section>
         )}
 

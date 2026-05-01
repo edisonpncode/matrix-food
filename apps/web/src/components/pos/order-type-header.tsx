@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { formatCurrency } from "@matrix-food/utils";
+import { formatCurrency, fetchAddressByCep, formatCep } from "@matrix-food/utils";
+import { AddressList } from "@matrix-food/ui/address-list";
 import { trpc } from "@/lib/trpc";
 import {
   Store,
@@ -15,6 +16,8 @@ import {
   AlertTriangle,
   MapPin,
   Loader2,
+  Plus,
+  Save,
 } from "lucide-react";
 
 export type OrderType = "COUNTER" | "TABLE" | "PICKUP" | "DELIVERY";
@@ -28,6 +31,7 @@ export interface CustomerData {
 }
 
 export interface AddressData {
+  label?: string;
   street: string;
   number: string;
   complement?: string;
@@ -116,6 +120,14 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
   const [city, setCity] = useState(defaultCity ?? "");
   const [state, setState] = useState(defaultState ?? "");
   const [referencePoint, setReferencePoint] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [cepLoading, setCepLoading] = useState(false);
+
+  // Saved addresses navigation
+  const [savedAddresses, setSavedAddresses] = useState<AddressData[]>([]);
+  const [selectedAddressIndex, setSelectedAddressIndex] = useState<number | null>(null);
+  const [showSavedList, setShowSavedList] = useState(false);
+  const [savingAddress, setSavingAddress] = useState(false);
 
   // Delivery area
   const [deliveryAreaInfo, setDeliveryAreaInfo] = useState<DeliveryAreaInfo | null>(null);
@@ -123,6 +135,11 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
   const [addressNotFound, setAddressNotFound] = useState(false);
   const [manualFee, setManualFee] = useState("");
   const [checkingArea, setCheckingArea] = useState(false);
+
+  const utils = trpc.useUtils();
+  const addAddressMutation = trpc.customer.addAddress.useMutation();
+  const updateAddressMutation = trpc.customer.updateAddress.useMutation();
+  const removeAddressMutation = trpc.customer.removeAddress.useMutation();
 
   // Customer search query (PICKUP / DELIVERY) — busca progressiva
   const searchEnabled = searchQuery.length >= 2 && showSearchResults;
@@ -188,7 +205,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
       quickSale: orderType === "COUNTER" && quickSale,
       deliveryAddress:
         orderType === "DELIVERY" && street
-          ? { street, number, complement, neighborhood, city, state, zipCode: "", referencePoint }
+          ? { street, number, complement, neighborhood, city, state, zipCode, referencePoint }
           : undefined,
       deliveryAreaId: deliveryAreaInfo?.id,
       deliveryFee: orderType === "DELIVERY" ? deliveryFeeValue : 0,
@@ -198,8 +215,38 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
   }, [
     orderType, name, phone, cpf, customerId, tableNumber, quickSale,
     selectedCustomer, street, number, complement, neighborhood, city,
-    state, referencePoint, deliveryAreaInfo, manualFee,
+    state, zipCode, referencePoint, deliveryAreaInfo, manualFee,
   ]);
+
+  function applyAddressToFields(addr: AddressData) {
+    setStreet(addr.street);
+    setNumber(addr.number);
+    setComplement(addr.complement || "");
+    setNeighborhood(addr.neighborhood || "");
+    setCity(addr.city || "");
+    setState(addr.state || "");
+    setZipCode(addr.zipCode || "");
+    setReferencePoint(addr.referencePoint || "");
+    // limpa estado de área para forçar nova verificação
+    setDeliveryAreaInfo(null);
+    setOutsideArea(false);
+    setAddressNotFound(false);
+  }
+
+  function clearAddressFields() {
+    setStreet("");
+    setNumber("");
+    setComplement("");
+    setNeighborhood("");
+    setCity(defaultCity ?? "");
+    setState(defaultState ?? "");
+    setZipCode("");
+    setReferencePoint("");
+    setDeliveryAreaInfo(null);
+    setOutsideArea(false);
+    setAddressNotFound(false);
+    setSelectedAddressIndex(null);
+  }
 
   function handleSelectCustomer(c: CustomerData) {
     setSelectedCustomer(c);
@@ -210,16 +257,104 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
     setShowSearchResults(false);
     setSearchQuery("");
 
-    // Auto-fill first address for delivery
-    if (orderType === "DELIVERY" && c.addresses && c.addresses.length > 0) {
-      const addr = c.addresses[0]!;
-      setStreet(addr.street);
-      setNumber(addr.number);
-      setComplement(addr.complement || "");
-      setNeighborhood(addr.neighborhood || "");
-      setCity(addr.city || "");
-      setState(addr.state || "");
-      setReferencePoint(addr.referencePoint || "");
+    const addresses = c.addresses ?? [];
+    setSavedAddresses(addresses);
+
+    // Auto-preenche primeiro endereço quando for delivery
+    if (orderType === "DELIVERY" && addresses.length > 0) {
+      applyAddressToFields(addresses[0]!);
+      setSelectedAddressIndex(0);
+      setShowSavedList(addresses.length > 1);
+    } else {
+      setSelectedAddressIndex(null);
+      setShowSavedList(false);
+    }
+  }
+
+  function handleSelectSavedAddress(index: number) {
+    const addr = savedAddresses[index];
+    if (!addr) return;
+    applyAddressToFields(addr);
+    setSelectedAddressIndex(index);
+  }
+
+  async function handleSaveCurrentAddress() {
+    if (!customerId) return;
+    if (!street || !number || !neighborhood || !city || !state) return;
+    setSavingAddress(true);
+    try {
+      const addressPayload = {
+        label: savedAddresses[selectedAddressIndex ?? -1]?.label || "Endereço",
+        street,
+        number,
+        complement: complement || undefined,
+        neighborhood,
+        city,
+        state,
+        zipCode,
+        referencePoint: referencePoint || undefined,
+      };
+
+      if (selectedAddressIndex !== null && savedAddresses[selectedAddressIndex]) {
+        // Atualiza endereço existente
+        await updateAddressMutation.mutateAsync({
+          customerId,
+          index: selectedAddressIndex,
+          address: addressPayload,
+        });
+        const next = savedAddresses.map((a, i) =>
+          i === selectedAddressIndex ? { ...a, ...addressPayload } : a
+        );
+        setSavedAddresses(next);
+      } else {
+        // Adiciona novo endereço
+        await addAddressMutation.mutateAsync({
+          customerId,
+          address: addressPayload,
+        });
+        const next = [...savedAddresses, addressPayload];
+        setSavedAddresses(next);
+        setSelectedAddressIndex(next.length - 1);
+      }
+      await utils.customer.quickSearch.invalidate();
+      await utils.customer.searchByPhone.invalidate();
+    } finally {
+      setSavingAddress(false);
+    }
+  }
+
+  async function handleRemoveSavedAddress(index: number) {
+    if (!customerId) return;
+    if (!confirm("Remover este endereço do cadastro do cliente?")) return;
+    await removeAddressMutation.mutateAsync({
+      customerId,
+      index,
+    });
+    const next = savedAddresses.filter((_, i) => i !== index);
+    setSavedAddresses(next);
+    if (selectedAddressIndex === index) {
+      clearAddressFields();
+    } else if (selectedAddressIndex !== null && selectedAddressIndex > index) {
+      setSelectedAddressIndex(selectedAddressIndex - 1);
+    }
+    await utils.customer.quickSearch.invalidate();
+    await utils.customer.searchByPhone.invalidate();
+  }
+
+  async function handleCepBlur() {
+    const digits = zipCode.replace(/\D/g, "");
+    if (digits.length !== 8) return;
+    setCepLoading(true);
+    try {
+      const result = await fetchAddressByCep(digits);
+      if (result) {
+        if (!street) setStreet(result.street);
+        if (!neighborhood) setNeighborhood(result.neighborhood);
+        if (!city || city === defaultCity) setCity(result.city);
+        if (!state || state === defaultState) setState(result.state);
+      }
+    } finally {
+      setCepLoading(false);
     }
   }
 
@@ -252,15 +387,9 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
     setPhone("");
     setCpf("");
     setCustomerId(undefined);
-    setStreet("");
-    setNumber("");
-    setComplement("");
-    setNeighborhood("");
-    setCity(defaultCity ?? "");
-    setState(defaultState ?? "");
-    setReferencePoint("");
-    setDeliveryAreaInfo(null);
-    setOutsideArea(false);
+    setSavedAddresses([]);
+    setShowSavedList(false);
+    clearAddressFields();
     setManualFee("");
   }
 
@@ -741,7 +870,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                   )}
                 </div>
               ) : (
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-3 flex-wrap">
                   <div className="flex items-center gap-2 rounded-md border border-green-300 bg-green-50 px-3 py-1.5">
                     <Check className="h-4 w-4 text-green-600" />
                     <span className="text-sm font-medium text-green-800">{selectedCustomer.name}</span>
@@ -754,8 +883,83 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                   >
                     <X className="h-3 w-3" /> Trocar
                   </button>
+                  {savedAddresses.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowSavedList((v) => !v)}
+                      className="flex items-center gap-1 rounded-md border border-input px-2 py-1 text-xs hover:bg-accent"
+                    >
+                      <MapPin className="h-3 w-3" />
+                      {savedAddresses.length} endereço{savedAddresses.length > 1 ? "s" : ""} salvo{savedAddresses.length > 1 ? "s" : ""}
+                      {showSavedList ? " ▲" : " ▼"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearAddressFields();
+                      setShowSavedList(false);
+                    }}
+                    className="flex items-center gap-1 rounded-md border border-dashed border-input px-2 py-1 text-xs text-muted-foreground hover:bg-accent"
+                  >
+                    <Plus className="h-3 w-3" /> Novo endereço
+                  </button>
                 </div>
               )}
+
+              {/* Lista de endereços salvos (compacta) */}
+              {selectedCustomer && showSavedList && savedAddresses.length > 0 && (
+                <div className="rounded-md border border-input bg-muted/40 p-2">
+                  <AddressList
+                    addresses={savedAddresses}
+                    selectedIndex={selectedAddressIndex}
+                    onSelect={handleSelectSavedAddress}
+                    onRemove={handleRemoveSavedAddress}
+                    compact
+                  />
+                </div>
+              )}
+
+              {/* CEP row */}
+              <div className="flex gap-2 items-end">
+                <div className="w-32">
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    CEP
+                  </label>
+                  <input
+                    type="text"
+                    value={zipCode}
+                    onChange={(e) => {
+                      const v = formatCep(e.target.value);
+                      setZipCode(v);
+                      if (v.replace(/\D/g, "").length === 8) {
+                        // dispara busca quando completar 8 dígitos
+                        void (async () => {
+                          setCepLoading(true);
+                          try {
+                            const result = await fetchAddressByCep(v);
+                            if (result) {
+                              if (!street) setStreet(result.street);
+                              if (!neighborhood) setNeighborhood(result.neighborhood);
+                              if (!city || city === defaultCity) setCity(result.city);
+                              if (!state || state === defaultState) setState(result.state);
+                            }
+                          } finally {
+                            setCepLoading(false);
+                          }
+                        })();
+                      }
+                    }}
+                    onBlur={handleCepBlur}
+                    placeholder="00000-000"
+                    inputMode="numeric"
+                    className={smallInputClass}
+                  />
+                </div>
+                {cepLoading && (
+                  <Loader2 className="mb-2 h-4 w-4 animate-spin text-muted-foreground" />
+                )}
+              </div>
 
               {/* Address row */}
               <div className="flex gap-2">
@@ -852,6 +1056,28 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                   )}
                   Verificar área
                 </button>
+
+                {/* Save address button (apenas quando temos cliente cadastrado) */}
+                {customerId && street && number && neighborhood && city && state && (
+                  <button
+                    type="button"
+                    onClick={handleSaveCurrentAddress}
+                    disabled={savingAddress}
+                    title={
+                      selectedAddressIndex !== null
+                        ? "Atualizar este endereço no cadastro do cliente"
+                        : "Salvar endereço no cadastro do cliente"
+                    }
+                    className="flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+                  >
+                    {savingAddress ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <Save className="h-3 w-3" />
+                    )}
+                    {selectedAddressIndex !== null ? "Atualizar endereço" : "Salvar endereço"}
+                  </button>
+                )}
 
                 {/* Area result */}
                 {deliveryAreaInfo && (

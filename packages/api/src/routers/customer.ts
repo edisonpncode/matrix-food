@@ -441,6 +441,66 @@ export const customerRouter = createTRPCRouter({
     }),
 
   /**
+   * Atualiza um endereço existente do cliente pelo índice no array.
+   */
+  updateAddress: tenantProcedure
+    .input(
+      z.object({
+        customerId: z.string().uuid(),
+        index: z.number().int().min(0),
+        address: addressSchema,
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [tenantLink] = await db
+        .select()
+        .from(customerTenants)
+        .where(
+          and(
+            eq(customerTenants.customerId, input.customerId),
+            eq(customerTenants.tenantId, ctx.tenantId)
+          )
+        )
+        .limit(1);
+
+      if (!tenantLink) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Cliente não encontrado neste restaurante.",
+        });
+      }
+
+      const [customer] = await db
+        .select({ addresses: customers.addresses })
+        .from(customers)
+        .where(eq(customers.id, input.customerId))
+        .limit(1);
+
+      const currentAddresses = customer?.addresses ?? [];
+
+      if (input.index >= currentAddresses.length) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Índice de endereço inválido.",
+        });
+      }
+
+      const updatedAddresses = currentAddresses.map((addr, i) =>
+        i === input.index ? input.address : addr
+      );
+
+      const [updated] = await db
+        .update(customers)
+        .set({ addresses: updatedAddresses })
+        .where(eq(customers.id, input.customerId))
+        .returning();
+
+      return updated;
+    }),
+
+  /**
    * Remove um endereço do cliente por índice.
    */
   removeAddress: tenantProcedure

@@ -440,6 +440,9 @@ importers:
 
   packages/ui:
     dependencies:
+      '@matrix-food/utils':
+        specifier: workspace:*
+        version: link:../utils
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
