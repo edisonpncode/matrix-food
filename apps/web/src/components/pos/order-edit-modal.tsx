@@ -329,6 +329,14 @@ export function OrderEditModal({ orderId, onClose, onChanged }: OrderEditModalPr
       printerSettings.printers.find((p) => p.isActive)?.paperWidth ??
       "80mm";
 
+    const currentItems = order.items.map((it) =>
+      snapshotFromItem({
+        ...it,
+        customizations: it.customizations ?? [],
+        ingredientModifications: it.ingredientModifications ?? [],
+      })
+    );
+
     printChangesViaIframe({
       order: {
         id: order.id,
@@ -337,6 +345,16 @@ export function OrderEditModal({ orderId, onClose, onChanged }: OrderEditModalPr
         customerName: order.customerName,
         customerPhone: order.customerPhone,
         tableNumber: order.tableNumber ?? null,
+        deliveryAddress:
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (order.deliveryAddress as any) ?? null,
+        items: currentItems,
+        paymentMethod: order.paymentMethod,
+        subtotal: order.subtotal,
+        deliveryFee: order.deliveryFee,
+        discount: order.discount,
+        total: order.total,
+        notes: order.notes,
       },
       changes,
       paperWidth,
@@ -345,16 +363,7 @@ export function OrderEditModal({ orderId, onClose, onChanged }: OrderEditModalPr
 
     // Após imprimir, redefine o snapshot para o estado atual.
     // Próximas mudanças serão destacadas como novas.
-    if (order) {
-      const newSnaps = order.items.map((it) =>
-        snapshotFromItem({
-          ...it,
-          customizations: it.customizations ?? [],
-          ingredientModifications: it.ingredientModifications ?? [],
-        })
-      );
-      setBaseSnapshots(newSnaps);
-    }
+    setBaseSnapshots(currentItems);
   }
 
   return (

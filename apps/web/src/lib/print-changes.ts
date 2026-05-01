@@ -24,23 +24,46 @@ export type PendingChange =
       oldQuantity: number;
     };
 
+export interface PrintChangesOrder {
+  id: string;
+  displayNumber: string;
+  type: string;
+  customerName: string;
+  customerPhone: string;
+  tableNumber: number | null;
+  /** Endereço de entrega (apenas para DELIVERY) */
+  deliveryAddress?: {
+    street?: string;
+    number?: string;
+    complement?: string;
+    neighborhood?: string;
+    city?: string;
+    state?: string;
+    referencePoint?: string;
+  } | null;
+  /** Itens atuais completos do pedido — todos serão impressos */
+  items: OrderItemSnapshot[];
+  paymentMethod: string;
+  subtotal: string;
+  deliveryFee: string;
+  discount: string;
+  total: string;
+  notes?: string | null;
+}
+
 interface PrintChangesArgs {
-  order: {
-    id: string;
-    displayNumber: string;
-    type: string;
-    customerName: string;
-    customerPhone: string;
-    tableNumber: number | null;
-  };
+  order: PrintChangesOrder;
   changes: PendingChange[];
   paperWidth: PaperWidth;
   restaurantName: string;
 }
 
 /**
- * Imprime via iframe oculto um ticket especial de "Reimpressão — Alterações"
- * destacando o que foi adicionado, modificado ou removido no pedido.
+ * Imprime via iframe oculto um ticket especial de "Reimpressão — Pedido alterado"
+ * com TODOS os itens atuais + destaque do que foi adicionado, modificado ou removido.
+ *
+ * O objetivo é que a cozinha descarte a comanda antiga e use essa nova como
+ * comanda completa atualizada.
  */
 export function printChangesViaIframe(args: PrintChangesArgs): void {
   const html = renderToStaticMarkup(
