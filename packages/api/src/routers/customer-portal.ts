@@ -28,7 +28,7 @@ const addressSchema = z.object({
   neighborhood: z.string().min(1),
   city: z.string().min(1),
   state: z.string().min(1),
-  zipCode: z.string().min(1),
+  zipCode: z.string().default(""),
   referencePoint: z.string().optional(),
   lat: z.number().optional(),
   lng: z.number().optional(),

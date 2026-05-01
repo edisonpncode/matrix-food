@@ -128,6 +128,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
   const [selectedAddressIndex, setSelectedAddressIndex] = useState<number | null>(null);
   const [showSavedList, setShowSavedList] = useState(false);
   const [savingAddress, setSavingAddress] = useState(false);
+  const [savedFeedback, setSavedFeedback] = useState<"created" | "updated" | null>(null);
 
   // Delivery area
   const [deliveryAreaInfo, setDeliveryAreaInfo] = useState<DeliveryAreaInfo | null>(null);
@@ -306,6 +307,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
           i === selectedAddressIndex ? { ...a, ...addressPayload } : a
         );
         setSavedAddresses(next);
+        setSavedFeedback("updated");
       } else {
         // Adiciona novo endereço
         await addAddressMutation.mutateAsync({
@@ -315,9 +317,15 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
         const next = [...savedAddresses, addressPayload];
         setSavedAddresses(next);
         setSelectedAddressIndex(next.length - 1);
+        setSavedFeedback("created");
       }
+      // abre a lista para o atendente ver o resultado
+      setShowSavedList(true);
+      // refresh dos caches de busca para próximas pesquisas trazerem o novo endereço
       await utils.customer.quickSearch.invalidate();
       await utils.customer.searchByPhone.invalidate();
+      // limpa feedback após 3s
+      setTimeout(() => setSavedFeedback(null), 3000);
     } finally {
       setSavingAddress(false);
     }
@@ -1064,7 +1072,7 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                     onClick={handleSaveCurrentAddress}
                     disabled={savingAddress}
                     title={
-                      selectedAddressIndex !== null
+                      selectedAddressIndex !== null && savedAddresses[selectedAddressIndex]
                         ? "Atualizar este endereço no cadastro do cliente"
                         : "Salvar endereço no cadastro do cliente"
                     }
@@ -1075,8 +1083,20 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                     ) : (
                       <Save className="h-3 w-3" />
                     )}
-                    {selectedAddressIndex !== null ? "Atualizar endereço" : "Salvar endereço"}
+                    {selectedAddressIndex !== null && savedAddresses[selectedAddressIndex]
+                      ? "Atualizar endereço"
+                      : "Salvar endereço"}
                   </button>
+                )}
+
+                {/* Feedback de salvamento */}
+                {savedFeedback && (
+                  <span className="flex items-center gap-1 rounded-md bg-green-50 px-2 py-1 text-xs font-medium text-green-700">
+                    <Check className="h-3 w-3" />
+                    {savedFeedback === "created"
+                      ? "Endereço adicionado!"
+                      : "Endereço atualizado!"}
+                  </span>
                 )}
 
                 {/* Area result */}
