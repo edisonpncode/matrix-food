@@ -363,6 +363,8 @@ export const deliveryAreaRouter = createTRPCRouter({
 
   /**
    * Geocodifica um endereco usando a API do Nominatim (OpenStreetMap).
+   * Tenta multiplas variacoes de query (estruturada, com/sem bairro, so rua)
+   * porque enderecos brasileiros nem sempre estao indexados por numero exato.
    * Retorna coordenadas lat/lng ou null se nao encontrado.
    */
   geocodeAddress: publicProcedure
@@ -370,44 +372,71 @@ export const deliveryAreaRouter = createTRPCRouter({
       z.object({
         street: z.string().min(1, "Rua e obrigatoria"),
         number: z.string().min(1, "Numero e obrigatorio"),
+        neighborhood: z.string().optional(),
         city: z.string().min(1, "Cidade e obrigatoria"),
         state: z.string().min(1, "Estado e obrigatorio"),
       })
     )
     .query(async ({ input }) => {
-      try {
-        const query = `${input.number} ${input.street}, ${input.city}, ${input.state}, Brazil`;
-        const url = `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(query)}&format=json&limit=1&countrycodes=br`;
+      const streetFull = `${input.street} ${input.number}`;
+      const cityVal = input.city;
+      const stateVal = input.state;
+      const neighborhoodVal = input.neighborhood?.trim() ?? "";
 
-        const response = await fetch(url, {
-          headers: {
-            "User-Agent": "MatrixFood/1.0",
-          },
-        });
+      const queries: string[] = [
+        // 1. Structured: street/city/state/country params separados
+        `https://nominatim.openstreetmap.org/search?format=json&street=${encodeURIComponent(streetFull)}&city=${encodeURIComponent(cityVal)}&state=${encodeURIComponent(stateVal)}&country=Brazil&limit=3`,
+        // 2. Free-text com bairro (se informado)
+        ...(neighborhoodVal
+          ? [
+              `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${streetFull}, ${neighborhoodVal}, ${cityVal}, ${stateVal}, Brasil`)}&countrycodes=br&limit=3`,
+            ]
+          : []),
+        // 3. Free-text sem bairro
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${streetFull}, ${cityVal}, ${stateVal}, Brasil`)}&countrycodes=br&limit=3`,
+        // 4. Apenas nome da rua (fallback final, sem numero)
+        `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${input.street}, ${cityVal}, ${stateVal}, Brasil`)}&countrycodes=br&limit=3`,
+      ];
 
-        if (!response.ok) {
-          return null;
+      for (let i = 0; i < queries.length; i++) {
+        const url = queries[i]!;
+        try {
+          const response = await fetch(url, {
+            headers: { "User-Agent": "MatrixFood/1.0" },
+          });
+          if (!response.ok) {
+            continue;
+          }
+
+          const data = (await response.json()) as Array<{
+            lat: string;
+            lon: string;
+            display_name: string;
+            type?: string;
+          }>;
+
+          if (data && data.length > 0) {
+            // Prefere resultados de "house" ou "residential" para maior precisao
+            const best =
+              data.find((r) => r.type === "house" || r.type === "residential") ??
+              data[0]!;
+            if (best.lat && best.lon) {
+              return {
+                lat: parseFloat(best.lat),
+                lng: parseFloat(best.lon),
+                displayName: best.display_name,
+              };
+            }
+          }
+        } catch {
+          continue;
         }
-
-        const data = (await response.json()) as Array<{
-          lat: string;
-          lon: string;
-          display_name: string;
-        }>;
-
-        if (!data || data.length === 0) {
-          return null;
+        // Respeita rate limit do Nominatim entre tentativas
+        if (i < queries.length - 1) {
+          await new Promise((r) => setTimeout(r, 300));
         }
-
-        const result = data[0]!;
-
-        return {
-          lat: parseFloat(result.lat),
-          lng: parseFloat(result.lon),
-          displayName: result.display_name,
-        };
-      } catch {
-        return null;
       }
+
+      return null;
     }),
 });

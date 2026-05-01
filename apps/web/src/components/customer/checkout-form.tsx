@@ -119,6 +119,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
     {
       street: address.street,
       number: address.number,
+      neighborhood: address.neighborhood,
       city: address.city,
       state: address.state,
     },
