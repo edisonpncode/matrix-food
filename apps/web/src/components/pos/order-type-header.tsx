@@ -451,8 +451,10 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
     setOutsideArea(false);
     setAddressNotFound(false);
 
+    let coords: { lat: number; lng: number } | null = null;
+
     try {
-      const coords = await geocodeNominatim();
+      coords = await geocodeNominatim();
 
       if (coords) {
         // Check which delivery area this point falls in
@@ -480,6 +482,48 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
       setOutsideArea(true);
     } finally {
       setCheckingArea(false);
+    }
+
+    // Salva automaticamente como novo endereço quando o atendente está
+    // adicionando (selectedAddressIndex === null) e o cliente está cadastrado.
+    if (
+      customerId &&
+      selectedAddressIndex === null &&
+      street &&
+      number &&
+      neighborhood &&
+      city &&
+      state
+    ) {
+      try {
+        setSavingAddress(true);
+        const addressPayload = {
+          label: "Endereço",
+          street,
+          number,
+          complement: complement || undefined,
+          neighborhood,
+          city,
+          state,
+          zipCode,
+          referencePoint: referencePoint || undefined,
+          ...(coords ? { lat: coords.lat, lng: coords.lng } : {}),
+        };
+        await addAddressMutation.mutateAsync({
+          customerId,
+          address: addressPayload,
+        });
+        const next = [...savedAddresses, addressPayload];
+        setSavedAddresses(next);
+        setSelectedAddressIndex(next.length - 1);
+        setShowSavedList(true);
+        setSavedFeedback("created");
+        await utils.customer.quickSearch.invalidate();
+        await utils.customer.searchByPhone.invalidate();
+        setTimeout(() => setSavedFeedback(null), 3000);
+      } finally {
+        setSavingAddress(false);
+      }
     }
   }
 
@@ -1065,29 +1109,26 @@ export function OrderTypeHeader({ onDataChange, defaultCity, defaultState }: Ord
                   Verificar área
                 </button>
 
-                {/* Save address button (apenas quando temos cliente cadastrado) */}
-                {customerId && street && number && neighborhood && city && state && (
-                  <button
-                    type="button"
-                    onClick={handleSaveCurrentAddress}
-                    disabled={savingAddress}
-                    title={
-                      selectedAddressIndex !== null && savedAddresses[selectedAddressIndex]
-                        ? "Atualizar este endereço no cadastro do cliente"
-                        : "Salvar endereço no cadastro do cliente"
-                    }
-                    className="flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
-                  >
-                    {savingAddress ? (
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                    ) : (
-                      <Save className="h-3 w-3" />
-                    )}
-                    {selectedAddressIndex !== null && savedAddresses[selectedAddressIndex]
-                      ? "Atualizar endereço"
-                      : "Salvar endereço"}
-                  </button>
-                )}
+                {/* Botão "Atualizar endereço" — só aparece ao editar um existente */}
+                {customerId &&
+                  selectedAddressIndex !== null &&
+                  savedAddresses[selectedAddressIndex] &&
+                  street && number && neighborhood && city && state && (
+                    <button
+                      type="button"
+                      onClick={handleSaveCurrentAddress}
+                      disabled={savingAddress}
+                      title="Atualizar este endereço no cadastro do cliente"
+                      className="flex items-center gap-1.5 rounded-md border border-input bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+                    >
+                      {savingAddress ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <Save className="h-3 w-3" />
+                      )}
+                      Atualizar endereço
+                    </button>
+                  )}
 
                 {/* Feedback de salvamento */}
                 {savedFeedback && (
