@@ -866,17 +866,9 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
-      // 11. Creditar pontos de fidelidade
-      if (loyaltyPointsEarned > 0 && input.customerPhone && order) {
-        await db.insert(loyaltyTransactions).values({
-          tenantId: input.tenantId,
-          customerPhone: input.customerPhone,
-          type: "EARNED",
-          points: loyaltyPointsEarned,
-          description: `Pedido ${displayNumber}`,
-          orderId: order.id,
-        });
-      }
+      // 11. Pontos de fidelidade NÃO são creditados aqui — só após o pedido
+      // ser finalizado (status DELIVERED ou PICKED_UP) em updateStatus.
+      // O valor já está gravado em order.loyaltyPointsEarned para uso posterior.
 
       // 12. Atualizar stats do cliente
       if (resolvedCustomerId) {
@@ -899,11 +891,6 @@ export const orderRouter = createTRPCRouter({
               totalSpent: sql`${customerTenants.totalSpent} + ${total.toFixed(2)}::decimal`,
               lastOrderAt: new Date(),
               ...(existingCt.firstOrderAt ? {} : { firstOrderAt: new Date() }),
-              ...(loyaltyPointsEarned > 0
-                ? {
-                    loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} + ${loyaltyPointsEarned}`,
-                  }
-                : {}),
             })
             .where(eq(customerTenants.id, existingCt.id));
         }
@@ -1151,8 +1138,10 @@ export const orderRouter = createTRPCRouter({
           return existing;
         }
 
-        // Estornar pontos de fidelidade gastos no pedido (idempotente)
-        if (existing.pointsSpent > 0) {
+        // Estornar pontos de fidelidade do pedido (gastos e ganhos) — idempotente.
+        // Se o pedido foi cancelado depois de finalizado (DELIVERED/PICKED_UP),
+        // os pontos GANHOS já foram creditados e precisam ser debitados de volta.
+        if (existing.pointsSpent > 0 || existing.loyaltyPointsEarned > 0) {
           const [alreadyRefunded] = await db
             .select({ id: loyaltyTransactions.id })
             .from(loyaltyTransactions)
@@ -1165,20 +1154,52 @@ export const orderRouter = createTRPCRouter({
             .limit(1);
 
           if (!alreadyRefunded) {
-            await db.insert(loyaltyTransactions).values({
-              tenantId: ctx.tenantId,
-              customerPhone: existing.customerPhone,
-              type: "ADJUSTMENT",
-              points: existing.pointsSpent,
-              description: `Estorno pedido ${existing.displayNumber} (cancelado)`,
-              orderId: existing.id,
-            });
+            let balanceDelta = 0;
 
-            if (existing.customerId) {
+            // Devolver pontos GASTOS (resgate desfeito)
+            if (existing.pointsSpent > 0) {
+              await db.insert(loyaltyTransactions).values({
+                tenantId: ctx.tenantId,
+                customerPhone: existing.customerPhone,
+                type: "ADJUSTMENT",
+                points: existing.pointsSpent,
+                description: `Estorno pedido ${existing.displayNumber} (cancelado)`,
+                orderId: existing.id,
+              });
+              balanceDelta += existing.pointsSpent;
+            }
+
+            // Estornar pontos GANHOS se já haviam sido creditados (pedido entregue antes do cancelamento)
+            if (existing.loyaltyPointsEarned > 0) {
+              const [wasCredited] = await db
+                .select({ id: loyaltyTransactions.id })
+                .from(loyaltyTransactions)
+                .where(
+                  and(
+                    eq(loyaltyTransactions.orderId, existing.id),
+                    eq(loyaltyTransactions.type, "EARNED")
+                  )
+                )
+                .limit(1);
+
+              if (wasCredited) {
+                await db.insert(loyaltyTransactions).values({
+                  tenantId: ctx.tenantId,
+                  customerPhone: existing.customerPhone,
+                  type: "ADJUSTMENT",
+                  points: -existing.loyaltyPointsEarned,
+                  description: `Estorno pedido ${existing.displayNumber} (cancelado após finalização)`,
+                  orderId: existing.id,
+                });
+                balanceDelta -= existing.loyaltyPointsEarned;
+              }
+            }
+
+            if (existing.customerId && balanceDelta !== 0) {
               await db
                 .update(customerTenants)
                 .set({
-                  loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} + ${existing.pointsSpent}`,
+                  loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} + ${balanceDelta}`,
                 })
                 .where(
                   and(
@@ -1274,6 +1295,51 @@ export const orderRouter = createTRPCRouter({
           code: "NOT_FOUND",
           message: "Pedido não encontrado",
         });
+      }
+
+      // Creditar pontos de fidelidade quando o pedido é finalizado.
+      // Idempotente: se já existir transação EARNED para este pedido, não credita de novo
+      // (caso o admin volte e avance o status mais de uma vez).
+      if (
+        (input.status === "DELIVERED" || input.status === "PICKED_UP") &&
+        updated.loyaltyPointsEarned > 0 &&
+        updated.customerPhone
+      ) {
+        const [alreadyEarned] = await db
+          .select({ id: loyaltyTransactions.id })
+          .from(loyaltyTransactions)
+          .where(
+            and(
+              eq(loyaltyTransactions.orderId, updated.id),
+              eq(loyaltyTransactions.type, "EARNED")
+            )
+          )
+          .limit(1);
+
+        if (!alreadyEarned) {
+          await db.insert(loyaltyTransactions).values({
+            tenantId: ctx.tenantId,
+            customerPhone: updated.customerPhone,
+            type: "EARNED",
+            points: updated.loyaltyPointsEarned,
+            description: `Pedido ${updated.displayNumber}`,
+            orderId: updated.id,
+          });
+
+          if (updated.customerId) {
+            await db
+              .update(customerTenants)
+              .set({
+                loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} + ${updated.loyaltyPointsEarned}`,
+              })
+              .where(
+                and(
+                  eq(customerTenants.customerId, updated.customerId),
+                  eq(customerTenants.tenantId, ctx.tenantId)
+                )
+              );
+          }
+        }
       }
 
       return updated;
@@ -1712,17 +1778,9 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
-      // Creditar pontos de fidelidade
-      if (loyaltyPointsEarned > 0 && input.customerPhone && order) {
-        await db.insert(loyaltyTransactions).values({
-          tenantId: ctx.tenantId,
-          customerPhone: input.customerPhone,
-          type: "EARNED",
-          points: loyaltyPointsEarned,
-          description: `Pedido ${displayNumber}`,
-          orderId: order.id,
-        });
-      }
+      // Pontos de fidelidade NÃO são creditados aqui — só após o pedido ser
+      // finalizado (status DELIVERED ou PICKED_UP) em updateStatus.
+      // O valor já está gravado em order.loyaltyPointsEarned para uso posterior.
 
       // Atualizar stats do cliente
       if (resolvedCustomerId) {
@@ -1745,11 +1803,6 @@ export const orderRouter = createTRPCRouter({
               totalSpent: sql`${customerTenants.totalSpent} + ${total.toFixed(2)}::decimal`,
               lastOrderAt: new Date(),
               ...(existingCt.firstOrderAt ? {} : { firstOrderAt: new Date() }),
-              ...(loyaltyPointsEarned > 0
-                ? {
-                    loyaltyPointsBalance: sql`${customerTenants.loyaltyPointsBalance} + ${loyaltyPointsEarned}`,
-                  }
-                : {}),
             })
             .where(eq(customerTenants.id, existingCt.id));
         }
