@@ -482,7 +482,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
                       setAddress((a) => ({ ...a, zipCode: formatted }));
                       setCepError("");
                     }}
-                    required
+                    required={!(areaChecked && deliveryArea)}
                     className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                   {cepLoading && (
