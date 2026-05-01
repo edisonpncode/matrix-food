@@ -78,6 +78,13 @@
       "when": 1777662246746,
       "tag": "0010_wise_titania",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1777670145901,
+      "tag": "0011_nifty_prodigy",
+      "breakpoints": true
     }
   ]
 }

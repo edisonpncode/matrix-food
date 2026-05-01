@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
 import {
@@ -10,8 +10,6 @@ import {
   Truck,
   X,
   RefreshCw,
-  Volume2,
-  VolumeX,
   Printer,
   FileText,
   Loader2,
@@ -20,12 +18,14 @@ import {
   ShoppingBag,
   Utensils,
   Bike,
+  AlertTriangle,
 } from "lucide-react";
 import { usePrinterSettings } from "@/hooks/use-printer-settings";
 import { DeliveryPersonSelector } from "@/components/admin/delivery-person-selector";
 import { FinalizeDeliveryModal } from "@/components/admin/finalize-delivery-modal";
 import { RequirePinModal } from "@/components/shared/user-session/require-pin-modal";
 import { OrderEditModal } from "@/components/pos/order-edit-modal";
+import { PrintJobsPanel } from "@/components/pos/print-jobs-panel";
 
 type OrderStatus =
   | "PENDING"
@@ -182,8 +182,6 @@ function paymentLabel(method: string): string {
 export function PedidosContent() {
   const [stage, setStage] = useState<StageFilter>("ACTIVE");
   const [typeFilter, setTypeFilter] = useState<OrderType | null>(null);
-  const [soundEnabled, setSoundEnabled] = useState(true);
-  const previousCountRef = useRef<number>(0);
 
   // Delivery assignment state
   const [assigningOrderId, setAssigningOrderId] = useState<string | null>(null);
@@ -275,37 +273,22 @@ export function PedidosContent() {
     });
   }, [orders, stage, typeFilter]);
 
-  // === Som de notificação para novos pedidos pendentes ===
-  useEffect(() => {
-    if (!orders) return;
-    const currentPendingCount = orders.filter(
-      (o) => o.status === "PENDING" && o.source === "ONLINE"
-    ).length;
-    if (
-      currentPendingCount > previousCountRef.current &&
-      soundEnabled &&
-      previousCountRef.current > 0
-    ) {
-      try {
-        const ctx = new AudioContext();
-        const oscillator = ctx.createOscillator();
-        const gainNode = ctx.createGain();
-        oscillator.connect(gainNode);
-        gainNode.connect(ctx.destination);
-        oscillator.frequency.value = 800;
-        oscillator.type = "sine";
-        gainNode.gain.value = 0.3;
-        oscillator.start();
-        setTimeout(() => {
-          oscillator.stop();
-          ctx.close();
-        }, 300);
-      } catch {
-        // Audio not available
-      }
+  // === Contagem de impressões falhas por pedido (indicador no card) ===
+  const visibleOrderIds = useMemo(
+    () => filteredOrders.map((o) => o.id),
+    [filteredOrders]
+  );
+  const failedPrintCounts = trpc.printJobs.failedCountsByOrders.useQuery(
+    { orderIds: visibleOrderIds },
+    {
+      enabled: visibleOrderIds.length > 0,
+      refetchInterval: 15000,
     }
-    previousCountRef.current = currentPendingCount;
-  }, [orders, soundEnabled]);
+  );
+
+  // Som de notificação é tratado globalmente em
+  // useOrderNotifications (componente de provider no layout do POS),
+  // para que o atendente seja avisado em qualquer tela.
 
   function orderForPrint(order: NonNullable<typeof orders>[number]) {
     return {
@@ -421,17 +404,6 @@ export function PedidosContent() {
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Pedidos</h1>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => setSoundEnabled(!soundEnabled)}
-            className="rounded-lg border p-2 hover:bg-accent"
-            title={soundEnabled ? "Desativar som" : "Ativar som"}
-          >
-            {soundEnabled ? (
-              <Volume2 className="h-4 w-4" />
-            ) : (
-              <VolumeX className="h-4 w-4" />
-            )}
-          </button>
           <button
             onClick={() => refetch()}
             className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm hover:bg-accent"
@@ -582,6 +554,12 @@ export function PedidosContent() {
                     {order.source === "POS" ? "POS" : "Online"}
                   </span>
                   <span>{formatTime(order.createdAt)}</span>
+                  {(failedPrintCounts.data?.[order.id] ?? 0) > 0 && (
+                    <span className="flex items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
+                      <AlertTriangle className="h-3 w-3" />
+                      Impressão falhou
+                    </span>
+                  )}
                 </div>
 
                 {/* Customer */}
@@ -636,6 +614,15 @@ export function PedidosContent() {
                     </span>
                   </div>
                 )}
+
+                {/* Histórico de impressão (colapsável) */}
+                <div
+                  className="mt-3"
+                  onClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => e.stopPropagation()}
+                >
+                  <PrintJobsPanel orderId={order.id} />
+                </div>
 
                 {/* Actions */}
                 <div

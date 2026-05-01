@@ -23,6 +23,7 @@ import {
   customers,
   customerTenants,
   tenantUsers,
+  tenants,
   activityLogs,
   eq,
   and,
@@ -47,6 +48,8 @@ import {
   verifyOrderAccessToken,
 } from "../lib/order-token";
 import { rateLimit } from "../lib/rate-limit";
+import { orderEvents } from "../lib/order-events";
+import { autoPrintNewOnlineOrder } from "../services/print/auto-print";
 
 /**
  * Formata um Decimal/string/number em BRL com duas casas (sem o prefixo "R$").
@@ -967,11 +970,57 @@ export const orderRouter = createTRPCRouter({
         }
       }
 
+      // 13. Auto-aprovar e auto-imprimir (se configurado pelo restaurante).
+      // Decisão de produto: auto-print = auto-aprovação. Pula PENDING e
+      // vai direto para PREPARING. Impressão acontece em background —
+      // não bloqueia a resposta ao cliente.
+      let finalStatus: "PENDING" | "PREPARING" = order.status as
+        | "PENDING"
+        | "PREPARING";
+      const [tenantAutoPrint] = await db
+        .select({ printerSettings: tenants.printerSettings })
+        .from(tenants)
+        .where(eq(tenants.id, input.tenantId))
+        .limit(1);
+      const autoPrintEnabled = !!(
+        tenantAutoPrint?.printerSettings?.autoPrint?.enabled &&
+        tenantAutoPrint.printerSettings.autoPrint.onNewOrder
+      );
+      if (autoPrintEnabled) {
+        await db
+          .update(orders)
+          .set({ status: "PREPARING" })
+          .where(eq(orders.id, order.id));
+        finalStatus = "PREPARING";
+
+        // Fire-and-forget: não esperar a impressão (TCP pode demorar).
+        // Erros são capturados internamente pelo serviço.
+        void autoPrintNewOnlineOrder({
+          tenantId: input.tenantId,
+          orderId: order.id,
+          orderType: input.type,
+        }).catch((err) => {
+          console.error("auto-print failed (will not throw):", err);
+        });
+      }
+
+      // 14. Notifica atendentes conectados via SSE.
+      orderEvents.emit("new-online-order", {
+        tenantId: input.tenantId,
+        orderId: order.id,
+        displayNumber: order.displayNumber,
+        status: finalStatus,
+        createdAt:
+          order.createdAt instanceof Date
+            ? order.createdAt.toISOString()
+            : new Date().toISOString(),
+      });
+
       return {
         id: order.id,
         displayNumber: order.displayNumber,
         total: order.total,
-        status: order.status,
+        status: finalStatus,
         loyaltyPointsEarned,
         accessToken: signOrderAccessToken(order.id),
       };

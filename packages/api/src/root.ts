@@ -18,6 +18,7 @@ import { customerRouter } from "./routers/customer";
 import { customerPortalRouter } from "./routers/customer-portal";
 import { deliveryAreaRouter } from "./routers/deliveryArea";
 import { printRouter } from "./routers/print";
+import { printJobsRouter } from "./routers/printJobs";
 import { minimaxRouter } from "./routers/minimax";
 import { ingredientRouter } from "./routers/ingredient";
 import { aiChatRouter } from "./routers/aiChat";
@@ -47,6 +48,7 @@ export const appRouter = createTRPCRouter({
   customerPortal: customerPortalRouter,
   deliveryArea: deliveryAreaRouter,
   print: printRouter,
+  printJobs: printJobsRouter,
   minimax: minimaxRouter,
   ingredient: ingredientRouter,
   aiChat: aiChatRouter,

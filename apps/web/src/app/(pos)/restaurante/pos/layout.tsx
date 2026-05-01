@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { POSSidebar } from "@/components/pos/sidebar";
 import { RoutePermissionGuard } from "@/components/shared/user-session/route-permission-guard";
 import { SessionBootstrap } from "@/components/shared/user-session/session-bootstrap";
+import { OrderNotificationsProvider } from "@/components/pos/order-notifications-provider";
 
 export const dynamic = "force-dynamic";
 
@@ -18,12 +19,14 @@ export default function POSLayout({
   return (
     <>
       <SessionBootstrap />
-      <div className="flex h-screen">
-        <POSSidebar />
-        <main className="flex-1 overflow-auto p-6">
-          <RoutePermissionGuard>{children}</RoutePermissionGuard>
-        </main>
-      </div>
+      <OrderNotificationsProvider>
+        <div className="flex h-screen">
+          <POSSidebar />
+          <main className="flex-1 overflow-auto p-6">
+            <RoutePermissionGuard>{children}</RoutePermissionGuard>
+          </main>
+        </div>
+      </OrderNotificationsProvider>
     </>
   );
 }

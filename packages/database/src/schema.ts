@@ -2340,3 +2340,85 @@ export const superadminAuditLogs = pgTable(
     ),
   })
 );
+
+// ============================================
+// PRINT JOBS (Histórico de tentativas de impressão)
+// ============================================
+
+export const printJobStatusEnum = pgEnum("print_job_status", [
+  "PENDING",
+  "SUCCESS",
+  "FAILED",
+]);
+
+export const printJobReceiptTypeEnum = pgEnum("print_job_receipt_type", [
+  "CUSTOMER",
+  "KITCHEN",
+  "DELIVERY",
+]);
+
+export const printJobTriggerEnum = pgEnum("print_job_trigger", [
+  "AUTO_NEW_ORDER",
+  "AUTO_CONFIRMED",
+  "MANUAL",
+]);
+
+/**
+ * Histórico de tentativas de impressão de comandas/recibos.
+ *
+ * Cada linha = uma tentativa em UMA impressora para UMA via (CUSTOMER /
+ * KITCHEN / DELIVERY). Permite ao atendente ver o que foi impresso, o
+ * que falhou e dar retry manual sem reimprimir o que já saiu.
+ */
+export const printJobs = pgTable(
+  "print_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** ID da impressora (referência aos `tenants.printerSettings.printers[].id`). */
+    printerId: text("printer_id").notNull(),
+    /** Snapshot do nome para histórico mesmo se a impressora for renomeada. */
+    printerName: text("printer_name").notNull(),
+    receiptType: printJobReceiptTypeEnum("receipt_type").notNull(),
+    /** O que disparou a impressão: pedido novo, confirmado, ou manual. */
+    trigger: printJobTriggerEnum("trigger").notNull(),
+    status: printJobStatusEnum("status").notNull().default("PENDING"),
+    /** Mensagem de erro quando status=FAILED. */
+    errorMessage: text("error_message"),
+    /** Quantas tentativas já foram feitas (incluindo a atual). */
+    attempts: integer("attempts").notNull().default(1),
+    /** Timestamp da última tentativa (sucesso ou falha). */
+    attemptedAt: timestamp("attempted_at").notNull().defaultNow(),
+    /** Timestamp da finalização com sucesso (NULL se ainda não saiu). */
+    completedAt: timestamp("completed_at"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => ({
+    tenantOrderIdx: index("print_jobs_tenant_order_idx").on(
+      table.tenantId,
+      table.orderId
+    ),
+    statusIdx: index("print_jobs_status_idx").on(table.tenantId, table.status),
+    createdAtIdx: index("print_jobs_created_at_idx").on(table.createdAt),
+  })
+);
+
+export const printJobsRelations = relations(printJobs, ({ one }) => ({
+  tenant: one(tenants, {
+    fields: [printJobs.tenantId],
+    references: [tenants.id],
+  }),
+  order: one(orders, {
+    fields: [printJobs.orderId],
+    references: [orders.id],
+  }),
+}));

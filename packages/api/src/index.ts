@@ -8,3 +8,7 @@ export {
   type TRPCContext,
 } from "./trpc";
 export { AVAILABLE_PERMISSIONS } from "./routers/userType";
+export {
+  orderEvents,
+  type NewOnlineOrderPayload,
+} from "./lib/order-events";
