@@ -359,7 +359,7 @@ export function CheckoutForm({ tenant, isOpen, onBack }: CheckoutFormProps) {
         address.neighborhood &&
         address.city &&
         address.state &&
-        address.zipCode));
+        (address.zipCode || (areaChecked && deliveryArea))));
 
   return (
     <div className="min-h-screen bg-gray-50">
