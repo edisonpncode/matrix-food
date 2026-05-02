@@ -67,10 +67,9 @@ export const loyaltyReportsRouter = createTRPCRouter({
           loyaltyTransactions.type
         );
 
-      const map = new Map<
-        string,
-        { bucket: string; EARNED: number; REDEEMED: number; EXPIRED: number; ADJUSTMENT: number }
-      >();
+      type LoyaltyKind = "EARNED" | "REDEEMED" | "EXPIRED" | "ADJUSTMENT";
+      type SeriesEntry = { bucket: string } & Record<LoyaltyKind, number>;
+      const map = new Map<string, SeriesEntry>();
       for (const d of daily) {
         let entry = map.get(d.bucket);
         if (!entry) {
@@ -83,7 +82,7 @@ export const loyaltyReportsRouter = createTRPCRouter({
           };
           map.set(d.bucket, entry);
         }
-        entry[d.type as keyof typeof entry] = d.points;
+        entry[d.type as LoyaltyKind] = d.points;
       }
       const series = Array.from(map.values()).sort((a, b) =>
         a.bucket.localeCompare(b.bucket)
