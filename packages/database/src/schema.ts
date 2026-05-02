@@ -892,6 +892,13 @@ export const orders = pgTable(
     paymentStatus: paymentStatusEnum("payment_status")
       .notNull()
       .default("PENDING"),
+    /**
+     * Indica que o pedido foi pago com múltiplas formas/pagadores.
+     * Quando true, os detalhes ficam em order_payments e os campos
+     * paymentMethod/customPaymentLabel/changeFor refletem apenas a
+     * primeira linha (mantidos para compatibilidade).
+     */
+    isSplitPayment: boolean("is_split_payment").notNull().default(false),
     /** Troco para (se pagamento em dinheiro) */
     changeFor: decimal("change_for", { precision: 10, scale: 2 }),
     /** Valor que o atendente conferiu ao finalizar uma entrega (só delivery) */
@@ -912,6 +919,42 @@ export const orders = pgTable(
     index("orders_tenant_created_idx").on(table.tenantId, table.createdAt),
     index("orders_tenant_status_idx").on(table.tenantId, table.status),
   ]
+);
+
+// ============================================
+// ORDER PAYMENTS (Linhas de pagamento - usado em split)
+// ============================================
+
+/**
+ * Cada linha representa um pagamento individual de um pedido.
+ * Pedidos sem split (isSplitPayment=false) NÃO possuem linhas aqui —
+ * usam os campos diretos de orders. Pedidos com split possuem N linhas.
+ * Limite de 10 linhas por pedido validado em camada de aplicação.
+ */
+export const orderPayments = pgTable(
+  "order_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** Forma de pagamento desta linha */
+    method: paymentMethodEnum("method").notNull(),
+    /** Label customizado quando method = OTHER (ex: "Vale-Refeição") */
+    customLabel: text("custom_label"),
+    /** Valor pago nesta linha em R$ (sempre > 0) */
+    amount: decimal("amount", { precision: 10, scale: 2 }).notNull(),
+    /** Nome do pagador (opcional, usado em "dividir entre N pessoas") */
+    payerName: varchar("payer_name", { length: 100 }),
+    /** Status individual da linha */
+    status: paymentStatusEnum("status").notNull().default("PAID"),
+    /** Troco para — só preenchido quando method = CASH */
+    changeFor: decimal("change_for", { precision: 10, scale: 2 }),
+    /** Ordem de exibição na lista */
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [index("order_payments_order_id_idx").on(table.orderId)]
 );
 
 // ============================================
@@ -1768,7 +1811,15 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
     references: [deliveryAreas.id],
   }),
   items: many(orderItems),
+  payments: many(orderPayments),
   fiscalDocuments: many(fiscalDocuments),
+}));
+
+export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
+  order: one(orders, {
+    fields: [orderPayments.orderId],
+    references: [orders.id],
+  }),
 }));
 
 export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
