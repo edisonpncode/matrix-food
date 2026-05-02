@@ -13,6 +13,8 @@ export default function FidelidadePage() {
   const [pointsPerReal, setPointsPerReal] = useState("1");
   const [pointsName, setPointsName] = useState("Pontos");
   const [minOrderForPoints, setMinOrderForPoints] = useState("");
+  const [neverExpires, setNeverExpires] = useState(false);
+  const [pointsExpirationDays, setPointsExpirationDays] = useState("90");
   const [configLoaded, setConfigLoaded] = useState(false);
 
   const utils = trpc.useUtils();
@@ -26,6 +28,12 @@ export default function FidelidadePage() {
     setPointsPerReal(configData.pointsPerReal);
     setPointsName(configData.pointsName);
     setMinOrderForPoints(configData.minOrderForPoints ?? "");
+    if (configData.pointsExpirationDays === null) {
+      setNeverExpires(true);
+    } else {
+      setNeverExpires(false);
+      setPointsExpirationDays(String(configData.pointsExpirationDays));
+    }
     setConfigLoaded(true);
   }
 
@@ -40,12 +48,30 @@ export default function FidelidadePage() {
 
   function handleSaveConfig(e: React.FormEvent) {
     e.preventDefault();
+
+    const newDays = neverExpires ? null : Number(pointsExpirationDays) || null;
+    const oldDays = configData?.pointsExpirationDays ?? null;
+
+    // Avisa quando muda o prazo: a regra é que pontos existentes não são afetados.
+    if (configLoaded && newDays !== oldDays) {
+      const fmt = (v: number | null) =>
+        v === null ? "Nunca expira" : `${v} dias`;
+      const ok = window.confirm(
+        `Mudar a validade de "${fmt(oldDays)}" para "${fmt(newDays)}"?\n\n` +
+          `Esta mudança vale apenas para pontos que serão creditados a partir de agora.\n` +
+          `Pontos que o cliente já tem mantêm a validade original.\n\n` +
+          `Confirma?`
+      );
+      if (!ok) return;
+    }
+
     upsertConfig.mutate({
       isActive,
       spendingBase,
       pointsPerReal,
       pointsName,
       minOrderForPoints: minOrderForPoints || null,
+      pointsExpirationDays: newDays,
     });
   }
 
@@ -172,6 +198,58 @@ export default function FidelidadePage() {
                     placeholder="Sem mínimo"
                     className="w-full rounded-lg border px-3 py-2 text-sm"
                   />
+                </div>
+
+                {/* Validade dos pontos */}
+                <div className="space-y-3 rounded-lg border bg-muted/30 p-4">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="font-medium">Pontos nunca expiram</p>
+                      <p className="text-xs text-muted-foreground">
+                        Marque para que os pontos do cliente sejam acumulados sem
+                        prazo de validade.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setNeverExpires(!neverExpires)}
+                      className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center rounded-full transition-colors ${
+                        neverExpires ? "bg-primary" : "bg-gray-300"
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-md transition-transform ${
+                          neverExpires ? "translate-x-6" : "translate-x-1"
+                        }`}
+                      />
+                    </button>
+                  </div>
+
+                  <div>
+                    <label className="mb-1 block text-sm font-medium">
+                      Validade dos pontos (dias)
+                    </label>
+                    <input
+                      type="number"
+                      value={pointsExpirationDays}
+                      onChange={(e) => setPointsExpirationDays(e.target.value)}
+                      step="1"
+                      min="1"
+                      max="3650"
+                      placeholder="90"
+                      disabled={neverExpires}
+                      className="w-full rounded-lg border px-3 py-2 text-sm disabled:cursor-not-allowed disabled:bg-gray-100 disabled:text-gray-400"
+                    />
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Pontos novos que o cliente ganhar a partir de agora vão
+                      expirar após este prazo.{" "}
+                      <strong>
+                        Pontos já existentes mantêm a validade que tinham quando
+                        foram ganhos
+                      </strong>{" "}
+                      — mudar este valor não afeta saldos atuais.
+                    </p>
+                  </div>
                 </div>
               </div>
 

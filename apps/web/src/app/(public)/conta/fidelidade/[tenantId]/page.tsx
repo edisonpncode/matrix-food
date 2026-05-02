@@ -23,6 +23,15 @@ function formatDate(date: string | Date): string {
   });
 }
 
+function formatDateOnly(date: string | Date): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleDateString("pt-BR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
 export default function ExtratoPontosPage({
   params,
 }: {
@@ -73,6 +82,16 @@ export default function ExtratoPontosPage({
                 </div>
               </div>
             </div>
+            {data.nextExpiration && (
+              <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                <span className="font-semibold">{data.nextExpiration.points} pontos</span>{" "}
+                expiram em{" "}
+                <span className="font-semibold">
+                  {formatDateOnly(data.nextExpiration.date)}
+                </span>
+                . Use antes para não perder!
+              </div>
+            )}
           </div>
 
           <div className="rounded-xl bg-white shadow-sm">
@@ -91,6 +110,10 @@ export default function ExtratoPontosPage({
                     ? `Pedido #${tx.orderDisplayNumber}`
                     : null;
                   const typeLabel = TYPE_LABELS[tx.type] ?? tx.type;
+                  const showExpires =
+                    tx.type === "EARNED" &&
+                    tx.expiresAt &&
+                    new Date(tx.expiresAt).getTime() > Date.now();
                   return (
                     <li key={tx.id} className="flex items-start gap-3 px-5 py-3">
                       <div className="min-w-0 flex-1">
@@ -113,6 +136,11 @@ export default function ExtratoPontosPage({
                             <> · {orderLabel}</>
                           ) : null}
                         </div>
+                        {showExpires && (
+                          <div className="mt-0.5 text-xs text-amber-700">
+                            Expira em {formatDateOnly(tx.expiresAt!)}
+                          </div>
+                        )}
                       </div>
                       <div
                         className={`shrink-0 text-sm font-semibold ${

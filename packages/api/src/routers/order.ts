@@ -1492,6 +1492,18 @@ export const orderRouter = createTRPCRouter({
           .limit(1);
 
         if (!alreadyEarned) {
+          // Lê prazo de validade vigente. Pontos novos pegam o prazo atual;
+          // pontos já existentes mantêm o expiresAt original (regra do produto).
+          const [cfg] = await db
+            .select({ days: loyaltyConfig.pointsExpirationDays })
+            .from(loyaltyConfig)
+            .where(eq(loyaltyConfig.tenantId, ctx.tenantId))
+            .limit(1);
+
+          const expiresAt = cfg?.days
+            ? new Date(Date.now() + cfg.days * 24 * 60 * 60 * 1000)
+            : null;
+
           await db.insert(loyaltyTransactions).values({
             tenantId: ctx.tenantId,
             customerPhone: updated.customerPhone,
@@ -1499,6 +1511,7 @@ export const orderRouter = createTRPCRouter({
             points: updated.loyaltyPointsEarned,
             description: `Pedido ${updated.displayNumber}`,
             orderId: updated.id,
+            expiresAt,
           });
 
           if (updated.customerId) {

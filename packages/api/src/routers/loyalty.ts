@@ -38,6 +38,7 @@ export const loyaltyRouter = createTRPCRouter({
         pointsPerReal: z.string().default("1"),
         pointsName: z.string().min(1).max(50).default("Pontos"),
         minOrderForPoints: z.string().nullable().optional(),
+        pointsExpirationDays: z.number().int().min(1).max(3650).nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -59,6 +60,7 @@ export const loyaltyRouter = createTRPCRouter({
             pointsPerReal: input.pointsPerReal,
             pointsName: input.pointsName,
             minOrderForPoints: input.minOrderForPoints ?? null,
+            pointsExpirationDays: input.pointsExpirationDays ?? null,
           })
           .where(eq(loyaltyConfig.id, existing.id))
           .returning();
@@ -74,6 +76,7 @@ export const loyaltyRouter = createTRPCRouter({
           pointsPerReal: input.pointsPerReal,
           pointsName: input.pointsName,
           minOrderForPoints: input.minOrderForPoints ?? null,
+          pointsExpirationDays: input.pointsExpirationDays ?? null,
         })
         .returning();
       return created;

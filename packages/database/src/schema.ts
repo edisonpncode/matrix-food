@@ -1327,6 +1327,8 @@ export const loyaltyConfig = pgTable("loyalty_config", {
   pointsName: varchar("points_name", { length: 50 }).notNull().default("Pontos"),
   /** Valor mínimo do pedido para ganhar pontos */
   minOrderForPoints: decimal("min_order_for_points", { precision: 10, scale: 2 }),
+  /** Dias até expirar pontos novos. NULL = nunca expira. */
+  pointsExpirationDays: integer("points_expiration_days"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at")
     .notNull()
@@ -1356,10 +1358,15 @@ export const loyaltyTransactions = pgTable(
     orderId: uuid("order_id").references(() => orders.id, {
       onDelete: "set null",
     }),
+    /** Quando estes pontos expiram. Só preenchido em EARNED. NULL = nunca expira. */
+    expiresAt: timestamp("expires_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [
     index("loyalty_tx_tenant_phone_idx").on(table.tenantId, table.customerPhone),
+    index("loyalty_tx_expiration_idx")
+      .on(table.tenantId, table.expiresAt)
+      .where(sql`${table.type} = 'EARNED' AND ${table.expiresAt} IS NOT NULL`),
   ]
 );
 

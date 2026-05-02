@@ -23,6 +23,7 @@ import {
 } from "@matrix-food/database";
 import { rateLimit } from "../lib/rate-limit";
 import { cleanCpf, isValidCpf } from "@matrix-food/utils";
+import { calculateExpiration } from "../services/loyalty/expiration";
 
 /**
  * Schema de endereço do cliente.
@@ -402,6 +403,7 @@ export const customerPortalRouter = createTRPCRouter({
           orderId: loyaltyTransactions.orderId,
           orderDisplayNumber: orders.displayNumber,
           createdAt: loyaltyTransactions.createdAt,
+          expiresAt: loyaltyTransactions.expiresAt,
         })
         .from(loyaltyTransactions)
         .leftJoin(orders, eq(loyaltyTransactions.orderId, orders.id))
@@ -414,12 +416,16 @@ export const customerPortalRouter = createTRPCRouter({
         .orderBy(desc(loyaltyTransactions.createdAt))
         .limit(input.limit);
 
+      // Próxima expiração: roda FIFO virtual nas transações trazidas.
+      const fifo = calculateExpiration(transactions, new Date());
+
       return {
         tenant,
         balance: link?.balance ?? 0,
         totalEarned: aggregates?.totalEarned ?? 0,
         totalRedeemed: aggregates?.totalRedeemed ?? 0,
         transactions,
+        nextExpiration: fifo.nextExpiration,
       };
     }),
 

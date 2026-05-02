@@ -5,7 +5,8 @@
   "exports": {
     ".": "./src/index.ts",
     "./root": "./src/root.ts",
-    "./services/morpheu": "./src/services/morpheu/index.ts"
+    "./services/morpheu": "./src/services/morpheu/index.ts",
+    "./services/loyalty": "./src/services/loyalty/index.ts"
   },
   "scripts": {
     "test": "vitest run --passWithNoTests"
