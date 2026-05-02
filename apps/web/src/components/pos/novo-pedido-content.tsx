@@ -1783,6 +1783,7 @@ export function NovoPedidoContent() {
           total={finalTotal}
           orderHeader={orderHeaderData}
           paymentMethods={tenant?.paymentMethodsAccepted as PaymentMethodConfig[] | null}
+          items={cartItems}
           onConfirm={handleCheckout}
           onClose={() => setShowCheckout(false)}
           isLoading={createOrder.isPending}

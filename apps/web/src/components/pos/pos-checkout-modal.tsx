@@ -6,7 +6,6 @@ import {
   getEnabledPaymentMethods,
   DEFAULT_PAYMENT_METHODS,
   round2,
-  splitEvenly,
   type PaymentMethodCode,
   type PaymentMethodConfig,
 } from "@matrix-food/utils";
@@ -24,8 +23,14 @@ import {
   Trash2,
   CheckCircle2,
   AlertCircle,
+  SplitSquareHorizontal,
 } from "lucide-react";
 import type { OrderHeaderData } from "./order-type-header";
+import type { POSCartItem } from "./pos-cart";
+import {
+  POSSplitByPersonWizard,
+  type SplitLineOut,
+} from "./pos-split-by-person-wizard";
 
 const ORDER_TYPE_LABELS: Record<string, { label: string; icon: typeof Store }> = {
   COUNTER: { label: "Balcão", icon: Store },
@@ -34,11 +39,9 @@ const ORDER_TYPE_LABELS: Record<string, { label: string; icon: typeof Store }> =
   DELIVERY: { label: "Tele Entrega", icon: Truck },
 };
 
-/** Linha individual de pagamento usada no modo split (UI). */
+/** Linha individual de pagamento usada no modo "Mais formas" (UI). */
 interface SplitLineDraft {
-  /** Id local apenas para React keys. */
   uid: string;
-  /** Id de PaymentMethodConfig.id (não confundir com code). */
   methodId: string;
   amount: string;
   payerName: string;
@@ -64,10 +67,14 @@ interface POSCheckoutModalProps {
   total: number;
   orderHeader: OrderHeaderData;
   paymentMethods?: PaymentMethodConfig[] | null;
+  /** Itens do carrinho — necessário para o modo "Dividir por item". */
+  items: POSCartItem[];
   onConfirm: (data: ConfirmPayload) => void;
   onClose: () => void;
   isLoading: boolean;
 }
+
+type PaymentMode = "single" | "multi-form" | "by-person";
 
 function newUid() {
   return Math.random().toString(36).slice(2, 10);
@@ -79,6 +86,7 @@ export function POSCheckoutModal({
   total,
   orderHeader,
   paymentMethods,
+  items,
   onConfirm,
   onClose,
   isLoading,
@@ -91,20 +99,19 @@ export function POSCheckoutModal({
     ?? enabledMethods[0]?.id
     ?? "";
 
-  // Modo único (forma de pagamento simples)
+  const [mode, setMode] = useState<PaymentMode>("single");
+
+  // Modo "single"
   const [paymentMethodId, setPaymentMethodId] = useState<string>(initialId);
   const [changeFor, setChangeFor] = useState("");
 
-  // Modo split
-  const [splitMode, setSplitMode] = useState(false);
-  const [peopleCount, setPeopleCount] = useState(2);
+  // Modo "multi-form" (várias formas — mesma pessoa pagando)
   const [splitLines, setSplitLines] = useState<SplitLineDraft[]>([]);
 
   const selectedMethod = enabledMethods.find((m) => m.id === paymentMethodId);
   const isTable = orderHeader.orderType === "TABLE";
 
-  function enterSplitMode() {
-    // Inicializa com 2 linhas vazias (mesma forma) caso não haja nada.
+  function enterMultiFormMode() {
     if (splitLines.length === 0) {
       const fallback = enabledMethods[0]?.id ?? "";
       setSplitLines([
@@ -112,11 +119,11 @@ export function POSCheckoutModal({
         { uid: newUid(), methodId: fallback, amount: "0.00", payerName: "", changeFor: "" },
       ]);
     }
-    setSplitMode(true);
+    setMode("multi-form");
   }
 
-  function exitSplitMode() {
-    setSplitMode(false);
+  function exitToSingle() {
+    setMode("single");
   }
 
   function addLine() {
@@ -136,31 +143,26 @@ export function POSCheckoutModal({
     setSplitLines((prev) => prev.map((l) => (l.uid === uid ? { ...l, ...patch } : l)));
   }
 
-  function divideEqually() {
-    const n = Math.min(Math.max(peopleCount | 0, 2), 10);
-    const fallback = enabledMethods[0]?.id ?? "";
-    const amounts = splitEvenly(total, n);
-    setSplitLines(
-      amounts.map((amt, idx) => ({
-        uid: newUid(),
-        methodId:
-          // Reaproveita a forma da linha anterior (idx) se existir
-          splitLines[idx]?.methodId ?? fallback,
-        amount: amt.toFixed(2),
-        payerName: splitLines[idx]?.payerName ?? "",
-        changeFor: "",
-      }))
-    );
-  }
-
-  // Soma das linhas em reais (para validação visual + envio)
+  // Soma das linhas do modo "multi-form"
   const splitSum = useMemo(() => {
-    if (!splitMode) return 0;
+    if (mode !== "multi-form") return 0;
     return splitLines.reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
-  }, [splitMode, splitLines]);
+  }, [mode, splitLines]);
 
   const splitDiff = round2(total - splitSum);
-  const splitOk = splitMode && Math.abs(splitDiff) <= 0.01 && splitLines.length >= 2;
+  const splitOk =
+    mode === "multi-form" && Math.abs(splitDiff) <= 0.01 && splitLines.length >= 2;
+
+  function handleByPersonConfirm(lines: SplitLineOut[]) {
+    if (lines.length === 0) return;
+    const first = lines[0]!;
+    onConfirm({
+      paymentMethod: first.method,
+      customPaymentLabel: first.customLabel,
+      changeFor: first.changeFor != null ? first.changeFor.toFixed(2) : null,
+      splitPayments: lines,
+    });
+  }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -175,7 +177,7 @@ export function POSCheckoutModal({
       return;
     }
 
-    if (splitMode) {
+    if (mode === "multi-form") {
       if (!splitOk) return;
       const lines = splitLines.map((l) => {
         const cfg = enabledMethods.find((m) => m.id === l.methodId);
@@ -193,7 +195,6 @@ export function POSCheckoutModal({
         };
       });
 
-      // Primeira linha alimenta os campos legados de orders
       const first = lines[0]!;
       onConfirm({
         paymentMethod: first.method,
@@ -204,6 +205,7 @@ export function POSCheckoutModal({
       return;
     }
 
+    // single
     if (!selectedMethod) return;
     onConfirm({
       paymentMethod: selectedMethod.code,
@@ -214,13 +216,18 @@ export function POSCheckoutModal({
     });
   }
 
-  const typeInfo = ORDER_TYPE_LABELS[orderHeader.orderType] ?? ORDER_TYPE_LABELS["COUNTER"]!;
+  const typeInfo =
+    ORDER_TYPE_LABELS[orderHeader.orderType] ?? ORDER_TYPE_LABELS["COUNTER"]!;
   const TypeIcon = typeInfo.icon;
   const canSubmit = isTable
     ? true
-    : splitMode
+    : mode === "multi-form"
       ? splitOk
       : !!selectedMethod;
+
+  // O wizard "by-person" tem seu próprio botão de confirmar dentro dele,
+  // então o footer do modal (Total + Confirmar) some quando ele está ativo.
+  const showFooter = mode !== "by-person";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -283,105 +290,92 @@ export function POSCheckoutModal({
                 Pagamento será feito ao fechar a mesa.
               </p>
             </div>
-          ) : !splitMode ? (
-            // Modo simples — comportamento original
+          ) : mode === "single" ? (
+            // Modo simples — comportamento original com 2 atalhos discretos
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="block text-sm font-medium">Forma de Pagamento</label>
-                {enabledMethods.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={enterSplitMode}
-                    className="text-xs font-medium text-primary hover:underline flex items-center gap-1"
-                  >
-                    <Users className="h-3.5 w-3.5" />
-                    Dividir pagamento
-                  </button>
-                )}
-              </div>
+              <label className="block text-sm font-medium">
+                Forma de Pagamento
+              </label>
 
               {enabledMethods.length === 0 ? (
                 <p className="rounded-md bg-amber-50 p-3 text-sm text-amber-800">
                   Nenhuma forma de pagamento ativa. Configure em Configurações &gt; Formas de Pagamento.
                 </p>
               ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  {enabledMethods.map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={() => setPaymentMethodId(opt.id)}
-                      className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors ${
-                        paymentMethodId === opt.id
-                          ? "border-primary bg-primary/10 text-primary"
-                          : "border-border hover:border-primary/50"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+                <>
+                  <div className="grid grid-cols-2 gap-2">
+                    {enabledMethods.map((opt) => (
+                      <button
+                        key={opt.id}
+                        type="button"
+                        onClick={() => setPaymentMethodId(opt.id)}
+                        className={`rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors ${
+                          paymentMethodId === opt.id
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "border-border hover:border-primary/50"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
 
-              {selectedMethod?.code === "CASH" && (
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Troco para (R$)
-                  </label>
-                  <input
-                    type="number"
-                    value={changeFor}
-                    onChange={(e) => setChangeFor(e.target.value)}
-                    placeholder="Sem troco"
-                    step="0.01"
-                    min="0"
-                    className="w-full rounded-lg border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                </div>
+                  {selectedMethod?.code === "CASH" && (
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                        Troco para (R$)
+                      </label>
+                      <input
+                        type="number"
+                        value={changeFor}
+                        onChange={(e) => setChangeFor(e.target.value)}
+                        placeholder="Sem troco"
+                        step="0.01"
+                        min="0"
+                        className="w-full rounded-lg border px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                    </div>
+                  )}
+
+                  {/* Atalhos pra modos avançados */}
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={enterMultiFormMode}
+                      className="flex-1 rounded-lg border border-border bg-accent/30 px-3 py-2 text-xs font-medium text-foreground hover:bg-accent flex items-center justify-center gap-1.5"
+                    >
+                      <SplitSquareHorizontal className="h-3.5 w-3.5" />
+                      Mais formas
+                    </button>
+                    {items.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setMode("by-person")}
+                        className="flex-1 rounded-lg border border-border bg-accent/30 px-3 py-2 text-xs font-medium text-foreground hover:bg-accent flex items-center justify-center gap-1.5"
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        Dividir entre pessoas
+                      </button>
+                    )}
+                  </div>
+                </>
               )}
             </div>
-          ) : (
-            // Modo split
+          ) : mode === "multi-form" ? (
+            // Modo split de formas (mesma pessoa, várias formas de pagamento)
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <button
                   type="button"
-                  onClick={exitSplitMode}
+                  onClick={exitToSingle}
                   className="text-xs font-medium text-muted-foreground hover:text-foreground flex items-center gap-1"
                 >
                   <ArrowLeft className="h-3.5 w-3.5" />
                   Voltar para forma única
                 </button>
-                <span className="text-sm font-medium">Dividir pagamento</span>
+                <span className="text-sm font-medium">Várias formas</span>
               </div>
 
-              {/* Ações rápidas */}
-              <div className="rounded-lg border border-border bg-accent/20 p-3 space-y-2">
-                <div className="flex items-center gap-2 text-sm">
-                  <Users className="h-4 w-4 text-primary" />
-                  <span>Dividir entre</span>
-                  <input
-                    type="number"
-                    min={2}
-                    max={10}
-                    value={peopleCount}
-                    onChange={(e) =>
-                      setPeopleCount(Math.min(Math.max(parseInt(e.target.value) || 2, 2), 10))
-                    }
-                    className="w-14 rounded-md border px-2 py-1 text-center text-sm focus:border-primary focus:outline-none"
-                  />
-                  <span>pessoas</span>
-                  <button
-                    type="button"
-                    onClick={divideEqually}
-                    className="ml-auto rounded-md bg-primary px-3 py-1.5 text-xs font-semibold text-white hover:bg-primary/90"
-                  >
-                    Dividir igualmente
-                  </button>
-                </div>
-              </div>
-
-              {/* Linhas */}
               <div className="space-y-2">
                 {splitLines.map((line, idx) => {
                   const cfg = enabledMethods.find((m) => m.id === line.methodId);
@@ -455,7 +449,6 @@ export function POSCheckoutModal({
                 })}
               </div>
 
-              {/* Botão de adicionar */}
               {splitLines.length < 10 && (
                 <button
                   type="button"
@@ -467,7 +460,6 @@ export function POSCheckoutModal({
                 </button>
               )}
 
-              {/* Status da soma */}
               <div
                 className={`flex items-center gap-2 rounded-lg p-3 text-sm ${
                   splitOk
@@ -494,42 +486,56 @@ export function POSCheckoutModal({
                 </div>
               </div>
             </div>
+          ) : (
+            // Modo "Dividir entre pessoas" (wizard)
+            <POSSplitByPersonWizard
+              items={items}
+              total={total}
+              enabledMethods={enabledMethods}
+              onConfirm={handleByPersonConfirm}
+              onCancel={exitToSingle}
+              isLoading={isLoading}
+            />
           )}
 
-          {/* Total breakdown */}
-          <div className="space-y-1">
-            {deliveryFee > 0 && (
-              <>
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>Subtotal</span>
-                  <span>{formatCurrency(subtotal)}</span>
+          {showFooter && (
+            <>
+              {/* Total breakdown */}
+              <div className="space-y-1">
+                {deliveryFee > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Subtotal</span>
+                      <span>{formatCurrency(subtotal)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm text-muted-foreground">
+                      <span>Taxa de entrega</span>
+                      <span>{formatCurrency(deliveryFee)}</span>
+                    </div>
+                  </>
+                )}
+                <div className="flex items-center justify-between rounded-lg bg-accent p-3">
+                  <span className="text-lg font-bold">Total</span>
+                  <span className="text-2xl font-bold text-primary">
+                    {formatCurrency(total)}
+                  </span>
                 </div>
-                <div className="flex justify-between text-sm text-muted-foreground">
-                  <span>Taxa de entrega</span>
-                  <span>{formatCurrency(deliveryFee)}</span>
-                </div>
-              </>
-            )}
-            <div className="flex items-center justify-between rounded-lg bg-accent p-3">
-              <span className="text-lg font-bold">Total</span>
-              <span className="text-2xl font-bold text-primary">
-                {formatCurrency(total)}
-              </span>
-            </div>
-          </div>
+              </div>
 
-          {/* Confirm Button */}
-          <button
-            type="submit"
-            disabled={isLoading || !canSubmit}
-            className="w-full rounded-lg bg-primary py-4 text-base font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
-          >
-            {isLoading
-              ? "Processando..."
-              : isTable
-                ? "Abrir Mesa"
-                : "Confirmar Pedido"}
-          </button>
+              {/* Confirm Button */}
+              <button
+                type="submit"
+                disabled={isLoading || !canSubmit}
+                className="w-full rounded-lg bg-primary py-4 text-base font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
+              >
+                {isLoading
+                  ? "Processando..."
+                  : isTable
+                    ? "Abrir Mesa"
+                    : "Confirmar Pedido"}
+              </button>
+            </>
+          )}
         </form>
       </div>
     </div>
