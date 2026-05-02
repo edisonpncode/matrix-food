@@ -27,11 +27,20 @@ export default function OrderConfirmationPage({ params }: PageProps) {
   const { slug, orderId } = use(params);
   const searchParams = useSearchParams();
   const token = searchParams.get("t") ?? "";
+  const hasToken = token.length > 0;
 
-  const { data: order, isLoading } = trpc.order.getById.useQuery(
+  const tokenQuery = trpc.order.getById.useQuery(
     { id: orderId, token },
-    { enabled: token.length > 0 }
+    { enabled: hasToken }
   );
+
+  const sessionQuery = trpc.customerPortal.getMyOrderById.useQuery(
+    { id: orderId },
+    { enabled: !hasToken, retry: false }
+  );
+
+  const order = hasToken ? tokenQuery.data : sessionQuery.data;
+  const isLoading = hasToken ? tokenQuery.isLoading : sessionQuery.isLoading;
 
   if (isLoading) {
     return (

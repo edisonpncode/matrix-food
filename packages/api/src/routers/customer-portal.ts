@@ -11,6 +11,9 @@ import {
   customerTenants,
   tenants,
   orders,
+  orderItems,
+  orderItemCustomizations,
+  orderItemIngredients,
   loyaltyTransactions,
   eq,
   and,
@@ -417,6 +420,86 @@ export const customerPortalRouter = createTRPCRouter({
         totalEarned: aggregates?.totalEarned ?? 0,
         totalRedeemed: aggregates?.totalRedeemed ?? 0,
         transactions,
+      };
+    }),
+
+  /**
+   * Busca um pedido específico do cliente logado.
+   * Autentica via sessão (HMAC cookie ou Firebase uid) e verifica que o pedido
+   * pertence ao cliente — não precisa do token HMAC do `order.create`. Permite
+   * abrir a tela de detalhe do pedido a partir de listagens internas (extrato
+   * de pontos, pedidos da conta) sem reenviar tokens longos por URL.
+   */
+  getMyOrderById: customerProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const customerWhere = ctx.customer.customerId
+        ? eq(customers.id, ctx.customer.customerId)
+        : eq(customers.firebaseUid, ctx.customer.uid!);
+      const [customer] = await db
+        .select({ id: customers.id })
+        .from(customers)
+        .where(customerWhere)
+        .limit(1);
+      if (!customer) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Cliente não encontrado.",
+        });
+      }
+
+      const [order] = await db
+        .select()
+        .from(orders)
+        .where(
+          and(eq(orders.id, input.id), eq(orders.customerId, customer.id))
+        )
+        .limit(1);
+
+      if (!order) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Pedido não encontrado.",
+        });
+      }
+
+      const items = await db
+        .select()
+        .from(orderItems)
+        .where(eq(orderItems.orderId, order.id));
+
+      const itemsWithDetails = await Promise.all(
+        items.map(async (item) => {
+          const customizations = await db
+            .select()
+            .from(orderItemCustomizations)
+            .where(eq(orderItemCustomizations.orderItemId, item.id));
+          const ingredientMods = await db
+            .select()
+            .from(orderItemIngredients)
+            .where(eq(orderItemIngredients.orderItemId, item.id));
+          return {
+            ...item,
+            customizations,
+            ingredientModifications: ingredientMods,
+          };
+        })
+      );
+
+      // Remove lat/lng do endereço — mesma política da rota pública.
+      let sanitizedAddress: unknown = order.deliveryAddress;
+      if (sanitizedAddress && typeof sanitizedAddress === "object") {
+        const rest = { ...(sanitizedAddress as Record<string, unknown>) };
+        delete rest.latitude;
+        delete rest.longitude;
+        sanitizedAddress = rest;
+      }
+
+      return {
+        ...order,
+        deliveryAddress: sanitizedAddress,
+        items: itemsWithDetails,
       };
     }),
 

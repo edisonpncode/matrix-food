@@ -39,18 +39,35 @@ export default function OrderConfirmationPage({ params }: PageProps) {
   const { slug, orderId } = use(params);
   const searchParams = useSearchParams();
   const token = searchParams.get("t") ?? "";
+  const hasToken = token.length > 0;
 
-  const { data: order, isLoading } = trpc.order.getById.useQuery(
+  const refetchInterval = (status: string | undefined) => {
+    if (status && TERMINAL_STATUSES.includes(status)) return false;
+    return 10000; // 10s polling
+  };
+
+  // Caminho 1: token HMAC na URL (pós-checkout, link compartilhado).
+  const tokenQuery = trpc.order.getById.useQuery(
     { id: orderId, token },
     {
-      enabled: token.length > 0,
-      refetchInterval: (query) => {
-        const status = query.state.data?.status;
-        if (status && TERMINAL_STATUSES.includes(status)) return false;
-        return 10000; // 10s polling
-      },
+      enabled: hasToken,
+      refetchInterval: (query) => refetchInterval(query.state.data?.status),
     }
   );
+
+  // Caminho 2: cliente autenticado abrindo seu próprio pedido (extrato de
+  // pontos, lista de pedidos). Sem token na URL — usa a sessão.
+  const sessionQuery = trpc.customerPortal.getMyOrderById.useQuery(
+    { id: orderId },
+    {
+      enabled: !hasToken,
+      retry: false,
+      refetchInterval: (query) => refetchInterval(query.state.data?.status),
+    }
+  );
+
+  const order = hasToken ? tokenQuery.data : sessionQuery.data;
+  const isLoading = hasToken ? tokenQuery.isLoading : sessionQuery.isLoading;
 
   if (isLoading) {
     return (
