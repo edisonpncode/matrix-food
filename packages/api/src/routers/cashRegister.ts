@@ -8,6 +8,10 @@ import {
   orders,
   eq,
   and,
+  or,
+  not,
+  gte,
+  lte,
   desc,
   sql,
   inArray,
@@ -503,7 +507,9 @@ export const cashRegisterRouter = createTRPCRouter({
         .where(eq(cashRegisterTransactions.sessionId, input.sessionId))
         .orderBy(desc(cashRegisterTransactions.createdAt));
 
-      let totalSales = 0;
+      // cashSalesConfirmed = vendas que já entraram fisicamente no caixa
+      // (transações SALE registradas). Usado só pra calcular currentBalance.
+      let cashSalesConfirmed = 0;
       let totalRefunds = 0;
       let totalDeposits = 0;
       let totalWithdrawals = 0;
@@ -513,7 +519,7 @@ export const cashRegisterRouter = createTRPCRouter({
         const amount = parseFloat(tx.amount);
         switch (tx.type) {
           case "SALE":
-            totalSales += amount;
+            cashSalesConfirmed += amount;
             break;
           case "REFUND":
             totalRefunds += amount; // normalmente negativo
@@ -530,10 +536,46 @@ export const cashRegisterRouter = createTRPCRouter({
         }
       }
 
+      // totalSales = TUDO que foi vendido na sessão (todos os canais e origens),
+      // mesmo que o dinheiro ainda não tenha entrado. Pedidos cancelados não contam.
+      // Inclui pedidos criados durante a janela da sessão OU pedidos com SALE/REFUND
+      // registrados nessa sessão (cobre online finalizado depois de cruzar sessões).
+      const sessionEnd = session.closedAt ?? new Date();
+      const salesRows = await db
+        .selectDistinct({
+          id: orders.id,
+          total: orders.total,
+        })
+        .from(orders)
+        .leftJoin(
+          cashRegisterTransactions,
+          eq(cashRegisterTransactions.orderId, orders.id)
+        )
+        .where(
+          and(
+            eq(orders.tenantId, ctx.tenantId),
+            not(eq(orders.status, "CANCELLED")),
+            or(
+              and(
+                gte(orders.createdAt, session.openedAt),
+                lte(orders.createdAt, sessionEnd)
+              ),
+              and(
+                eq(cashRegisterTransactions.sessionId, input.sessionId),
+                inArray(cashRegisterTransactions.type, ["SALE", "REFUND"])
+              )
+            )
+          )
+        );
+      const totalSales = salesRows.reduce(
+        (sum, row) => sum + parseFloat(row.total),
+        0
+      );
+
       const openingBalance = parseFloat(session.openingBalance);
-      const salesNet = totalSales + totalRefunds;
+      const cashSalesNet = cashSalesConfirmed + totalRefunds;
       const currentBalance =
-        openingBalance + salesNet + totalDeposits - totalWithdrawals + totalAdjustments;
+        openingBalance + cashSalesNet + totalDeposits - totalWithdrawals + totalAdjustments;
 
       // Breakdown esperado por método — só retornado em histórico ou se explicitamente pedido.
       let breakdownByMethod: Record<MethodKey, number> | null = null;

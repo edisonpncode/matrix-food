@@ -1962,7 +1962,10 @@ export const orderRouter = createTRPCRouter({
         )
         .limit(1);
 
-      if (activeSession) {
+      // Só registra SALE no caixa quando o pagamento já foi confirmado.
+      // COUNTER/DINE_IN entram aqui (paymentStatus="PAID"); TABLE/PICKUP/DELIVERY
+      // ficam pendentes e a SALE é criada por closeTable/finalizeOrder/finalizeDelivery.
+      if (activeSession && paymentStatus === "PAID") {
         await db.insert(cashRegisterTransactions).values({
           sessionId: activeSession.id,
           tenantId: ctx.tenantId,
@@ -2375,6 +2378,34 @@ export const orderRouter = createTRPCRouter({
       const operator = ctx.user.name ?? ctx.user.email ?? "Funcionário";
       const displayNumber = existingOrder.displayNumber;
       const deliveryPersonId = existingOrder.deliveryPersonId;
+
+      // === Registrar SALE base do pedido no caixa ===
+      // Em DELIVERY, o dinheiro só "entra" quando o motoboy retorna com a conferência.
+      // Verifica duplicação por orderId+SALE para proteger contra reentradas.
+      if (activeSession) {
+        const [existingSale] = await db
+          .select()
+          .from(cashRegisterTransactions)
+          .where(
+            and(
+              eq(cashRegisterTransactions.orderId, existingOrder.id),
+              eq(cashRegisterTransactions.type, "SALE")
+            )
+          )
+          .limit(1);
+
+        if (!existingSale) {
+          await db.insert(cashRegisterTransactions).values({
+            sessionId: activeSession.id,
+            tenantId: ctx.tenantId,
+            type: "SALE",
+            amount: existingOrder.total,
+            description: `Pedido #${displayNumber} (entrega)`,
+            orderId: existingOrder.id,
+            createdBy: operator,
+          });
+        }
+      }
 
       // === Aplicar lógica de diferença ===
       if (diff < 0) {
