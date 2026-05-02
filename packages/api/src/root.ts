@@ -24,6 +24,7 @@ import { ingredientRouter } from "./routers/ingredient";
 import { aiChatRouter } from "./routers/aiChat";
 import { fiscalRouter } from "./routers/fiscal";
 import { morpheuRouter } from "./routers/morpheu";
+import { reportsRouter } from "./routers/reports";
 
 /**
  * Router raiz que combina todos os sub-routers.
@@ -54,6 +55,7 @@ export const appRouter = createTRPCRouter({
   aiChat: aiChatRouter,
   fiscal: fiscalRouter,
   morpheu: morpheuRouter,
+  reports: reportsRouter,
 });
 
 export type AppRouter = typeof appRouter;

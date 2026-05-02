@@ -489,24 +489,35 @@ export const customers = pgTable(
 // CUSTOMER-TENANT (Relação cliente ↔ restaurante)
 // ============================================
 
-export const customerTenants = pgTable("customer_tenants", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  customerId: uuid("customer_id")
-    .notNull()
-    .references(() => customers.id, { onDelete: "cascade" }),
-  tenantId: uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "cascade" }),
-  loyaltyPointsBalance: integer("loyalty_points_balance").notNull().default(0),
-  totalOrders: integer("total_orders").notNull().default(0),
-  totalSpent: decimal("total_spent", { precision: 10, scale: 2 })
-    .notNull()
-    .default("0"),
-  firstOrderAt: timestamp("first_order_at"),
-  lastOrderAt: timestamp("last_order_at"),
-  isBlocked: boolean("is_blocked").notNull().default(false),
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+export const customerTenants = pgTable(
+  "customer_tenants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => customers.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    loyaltyPointsBalance: integer("loyalty_points_balance")
+      .notNull()
+      .default(0),
+    totalOrders: integer("total_orders").notNull().default(0),
+    totalSpent: decimal("total_spent", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    firstOrderAt: timestamp("first_order_at"),
+    lastOrderAt: timestamp("last_order_at"),
+    isBlocked: boolean("is_blocked").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("customer_tenants_tenant_last_order_idx").on(
+      table.tenantId,
+      table.lastOrderAt
+    ),
+  ]
+);
 
 // ============================================
 // CATEGORIES (Categorias do Cardápio)
@@ -972,6 +983,45 @@ export const orderPayments = pgTable(
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
   (table) => [index("order_payments_order_id_idx").on(table.orderId)]
+);
+
+// ============================================
+// ORDER CANCELLATIONS (Motivos de cancelamento)
+// ============================================
+
+/**
+ * Registra o motivo e quem cancelou cada pedido.
+ * Inserido quando orders.status passa para CANCELLED.
+ * Permite análise de cancelamentos no relatório operacional.
+ */
+export const orderCancellations = pgTable(
+  "order_cancellations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    /** Motivo curto (categoria) — ex: "CLIENTE_DESISTIU", "PRODUTO_INDISPONIVEL", "OUTRO" */
+    reason: varchar("reason", { length: 60 }).notNull(),
+    /** Funcionário que efetuou o cancelamento (se logado) */
+    cancelledByUserId: uuid("cancelled_by_user_id").references(
+      () => tenantUsers.id,
+      { onDelete: "set null" }
+    ),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("order_cancellations_order_id_idx").on(table.orderId),
+    index("order_cancellations_tenant_created_idx").on(
+      table.tenantId,
+      table.createdAt
+    ),
+    index("order_cancellations_reason_idx").on(table.reason),
+  ]
 );
 
 // ============================================
@@ -1830,6 +1880,10 @@ export const ordersRelations = relations(orders, ({ one, many }) => ({
   items: many(orderItems),
   payments: many(orderPayments),
   fiscalDocuments: many(fiscalDocuments),
+  cancellation: one(orderCancellations, {
+    fields: [orders.id],
+    references: [orderCancellations.orderId],
+  }),
 }));
 
 export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
@@ -1838,6 +1892,24 @@ export const orderPaymentsRelations = relations(orderPayments, ({ one }) => ({
     references: [orders.id],
   }),
 }));
+
+export const orderCancellationsRelations = relations(
+  orderCancellations,
+  ({ one }) => ({
+    order: one(orders, {
+      fields: [orderCancellations.orderId],
+      references: [orders.id],
+    }),
+    tenant: one(tenants, {
+      fields: [orderCancellations.tenantId],
+      references: [tenants.id],
+    }),
+    cancelledByUser: one(tenantUsers, {
+      fields: [orderCancellations.cancelledByUserId],
+      references: [tenantUsers.id],
+    }),
+  })
+);
 
 export const orderItemsRelations = relations(orderItems, ({ one, many }) => ({
   order: one(orders, {

@@ -28,6 +28,7 @@ import {
   Package,
   FileText,
   Bike,
+  BarChart3,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -94,6 +95,7 @@ const sidebarEntries: SidebarEntry[] = [
       { href: "/restaurante/admin/avaliacoes", label: "Avaliações", icon: MessageSquare, permission: "reviews.view" },
     ],
   },
+  { href: "/restaurante/admin/relatorios", label: "Relatórios", icon: BarChart3, permission: "reports.view" },
   {
     id: "config",
     label: "Configurações",
