@@ -102,6 +102,7 @@ const sidebarEntries: SidebarEntry[] = [
     icon: Settings,
     children: [
       { href: "/restaurante/admin/configuracoes", label: "Dados Empresa", icon: Settings, permission: "settings.view" },
+      { href: "/restaurante/admin/configuracoes/formas-pagamento", label: "Formas de Pagamento", icon: CreditCard, permission: "settings.view" },
       { href: "/restaurante/admin/areas-entrega", label: "Áreas de Entrega", icon: MapPin, permission: "deliveryAreas.view" },
       { href: "/restaurante/admin/equipe", label: "Equipe", icon: Users, permission: "staff.view" },
       { href: "/restaurante/admin/configuracoes/impressora", label: "Impressora", icon: Printer, permission: "printer.manage" },

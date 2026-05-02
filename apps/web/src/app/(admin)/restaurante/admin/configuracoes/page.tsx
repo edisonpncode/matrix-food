@@ -2,11 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/lib/trpc";
-import { Loader2, Save, Clock, CheckCircle, XCircle, CreditCard } from "lucide-react";
+import { Loader2, Save, Clock, CheckCircle, XCircle } from "lucide-react";
 import { ShareLinkSection } from "@/components/customer/share-link-section";
 import { ImageUploader } from "@/components/admin/image-uploader";
-import { PaymentMethodsManager } from "@/components/admin/payment-methods-manager";
-import { DEFAULT_PAYMENT_METHODS, type PaymentMethodConfig } from "@matrix-food/utils";
 
 const DAYS_CONFIG = [
   { key: "monday", label: "Segunda-feira" },
@@ -54,7 +52,6 @@ export default function ConfiguracoesPage() {
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
   const [bannerUrl, setBannerUrl] = useState<string | null>(null);
   const [operatingHours, setOperatingHours] = useState<OperatingHoursState>(DEFAULT_HOURS);
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>(DEFAULT_PAYMENT_METHODS);
 
   const updateDay = useCallback((day: string, field: keyof DayHours, value: string | boolean) => {
     setOperatingHours((prev) => ({
@@ -79,12 +76,6 @@ export default function ConfiguracoesPage() {
       if (tenant.data.operatingHours) {
         setOperatingHours({ ...DEFAULT_HOURS, ...tenant.data.operatingHours });
       }
-      const accepted = tenant.data.paymentMethodsAccepted as PaymentMethodConfig[] | null;
-      if (accepted && accepted.length > 0) {
-        setPaymentMethods(accepted);
-      } else {
-        setPaymentMethods(DEFAULT_PAYMENT_METHODS);
-      }
     }
   }, [tenant.data]);
 
@@ -103,7 +94,6 @@ export default function ConfiguracoesPage() {
       phone: phone || undefined,
       whatsapp: whatsapp || undefined,
       email: email || undefined,
-      paymentMethodsAccepted: paymentMethods,
     });
   }
 
@@ -138,9 +128,9 @@ export default function ConfiguracoesPage() {
         </div>
       )}
 
-      <h1 className="text-2xl font-bold text-foreground">Configurações</h1>
+      <h1 className="text-2xl font-bold text-foreground">Dados Empresa</h1>
       <p className="mt-1 text-muted-foreground">
-        Dados do seu restaurante
+        Informações do seu restaurante
       </p>
 
       {/* Link do Cardapio / QR Code */}
@@ -390,23 +380,6 @@ export default function ConfiguracoesPage() {
               );
             })}
           </div>
-        </section>
-
-        {/* Formas de Pagamento */}
-        <section className="rounded-lg border border-border bg-card p-5">
-          <div className="mb-4 flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-primary" />
-            <h2 className="text-lg font-semibold text-foreground">
-              Formas de Pagamento
-            </h2>
-          </div>
-          <p className="mb-4 text-xs text-muted-foreground">
-            Arraste para reordenar como aparecem no checkout. Use a caixa de
-            seleção para ativar/desativar sem apagar. Você pode adicionar
-            formas personalizadas (ex: Vale-Refeição, Sodexo) ou remover as
-            que não usa.
-          </p>
-          <PaymentMethodsManager value={paymentMethods} onChange={setPaymentMethods} />
         </section>
 
         <button
