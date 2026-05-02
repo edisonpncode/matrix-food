@@ -203,10 +203,11 @@ export function PedidosContent() {
 
   const { data: tenant } = trpc.tenant.getById.useQuery();
 
-  // Busca todos os pedidos do tenant (sem filtrar server-side — filtros são locais
-  // para permitir trocar de aba sem refetch).
+  // Filtro server-side: só pedidos ativos OU finalizados na sessão de caixa
+  // atualmente aberta. Pedidos finalizados de caixas anteriores ficam ocultos
+  // para não poluir a tela do turno atual.
   const { data: orders, refetch } = trpc.order.listByTenant.useQuery(
-    {},
+    { onlyCurrentSession: true },
     { refetchInterval: 15000 }
   );
 

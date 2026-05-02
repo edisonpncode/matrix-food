@@ -28,6 +28,7 @@ import {
   activityLogs,
   eq,
   and,
+  or,
   not,
   ne,
   inArray,
@@ -1158,11 +1159,56 @@ export const orderRouter = createTRPCRouter({
           .optional(),
         /** Filtra por status de pagamento (útil p/ "Finalizados"). */
         paymentStatus: z.enum(["PENDING", "PAID", "REFUNDED"]).optional(),
+        /** Quando true, oculta pedidos finalizados de caixas anteriores —
+         *  mostra apenas pedidos ativos OU com venda registrada na sessão
+         *  de caixa atualmente aberta. Sem caixa aberto, só pedidos ativos. */
+        onlyCurrentSession: z.boolean().optional(),
       })
     )
     .query(async ({ ctx, input }) => {
       const db = getDb();
       const conditions = [eq(orders.tenantId, ctx.tenantId)];
+
+      if (input.onlyCurrentSession) {
+        const [activeSession] = await db
+          .select({ id: cashRegisterSessions.id })
+          .from(cashRegisterSessions)
+          .where(
+            and(
+              eq(cashRegisterSessions.tenantId, ctx.tenantId),
+              eq(cashRegisterSessions.status, "OPEN")
+            )
+          )
+          .limit(1);
+
+        const activeStatuses = [
+          "PENDING",
+          "CONFIRMED",
+          "PREPARING",
+          "READY",
+          "OUT_FOR_DELIVERY",
+        ] as const;
+
+        if (activeSession) {
+          const sessionOrderIds = db
+            .select({ orderId: cashRegisterTransactions.orderId })
+            .from(cashRegisterTransactions)
+            .where(
+              and(
+                eq(cashRegisterTransactions.sessionId, activeSession.id),
+                eq(cashRegisterTransactions.type, "SALE")
+              )
+            );
+
+          const sessionFilter = or(
+            inArray(orders.status, activeStatuses),
+            inArray(orders.id, sessionOrderIds)
+          );
+          if (sessionFilter) conditions.push(sessionFilter);
+        } else {
+          conditions.push(inArray(orders.status, activeStatuses));
+        }
+      }
 
       if (input.status) {
         if (Array.isArray(input.status)) {
