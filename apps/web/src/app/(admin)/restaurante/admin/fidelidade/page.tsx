@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { trpc } from "@/lib/trpc";
-import { Star, Users, Settings2 } from "lucide-react";
+import { Star, Users, Settings2, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function FidelidadePage() {
   const [activeTab, setActiveTab] = useState<"config" | "customers">("config");
@@ -16,6 +16,23 @@ export default function FidelidadePage() {
   const [neverExpires, setNeverExpires] = useState(false);
   const [pointsExpirationDays, setPointsExpirationDays] = useState("90");
   const [configLoaded, setConfigLoaded] = useState(false);
+  const [feedback, setFeedback] = useState<
+    { type: "success" | "error"; text: string } | null
+  >(null);
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showFeedback(type: "success" | "error", text: string, ms = 5000) {
+    setFeedback({ type, text });
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    feedbackTimerRef.current = setTimeout(() => setFeedback(null), ms);
+  }
+
+  useEffect(
+    () => () => {
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
+    },
+    []
+  );
 
   const utils = trpc.useUtils();
 
@@ -43,6 +60,10 @@ export default function FidelidadePage() {
   const upsertConfig = trpc.loyalty.upsertConfig.useMutation({
     onSuccess: () => {
       utils.loyalty.getConfig.invalidate();
+      showFeedback("success", "Configurações salvas com sucesso!");
+    },
+    onError: (err) => {
+      showFeedback("error", `Erro ao salvar: ${err.message}`, 8000);
     },
   });
 
@@ -253,16 +274,31 @@ export default function FidelidadePage() {
                 </div>
               </div>
 
+              {feedback && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+                    feedback.type === "success"
+                      ? "border-green-200 bg-green-50 text-green-800"
+                      : "border-red-200 bg-red-50 text-red-800"
+                  }`}
+                >
+                  {feedback.type === "success" ? (
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                  ) : (
+                    <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                  )}
+                  <span>{feedback.text}</span>
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={upsertConfig.isPending}
                 className="w-full rounded-lg bg-primary py-3 text-sm font-semibold text-white hover:bg-primary/90 disabled:opacity-50"
               >
-                {upsertConfig.isPending
-                  ? "Salvando..."
-                  : upsertConfig.isSuccess
-                    ? "Salvo!"
-                    : "Salvar Configurações"}
+                {upsertConfig.isPending ? "Salvando..." : "Salvar Configurações"}
               </button>
             </form>
           )}
