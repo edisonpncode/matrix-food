@@ -3,3 +3,4 @@ export { KpiCard } from "./kpi-card";
 export { ReportShell } from "./report-shell";
 export { ChartContainer } from "./chart-container";
 export { ExportButton, type ExportFormat } from "./export-button";
+export { HeatmapChart } from "./heatmap-chart";

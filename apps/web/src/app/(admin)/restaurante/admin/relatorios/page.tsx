@@ -40,7 +40,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-green-600",
     iconBg: "bg-green-50",
     href: "/restaurante/admin/relatorios/vendas",
-    comingSoon: true,
   },
   {
     id: "produtos",
@@ -51,7 +50,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-purple-600",
     iconBg: "bg-purple-50",
     href: "/restaurante/admin/relatorios/produtos",
-    comingSoon: true,
   },
   {
     id: "clientes",
@@ -62,7 +60,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-blue-600",
     iconBg: "bg-blue-50",
     href: "/restaurante/admin/relatorios/clientes",
-    comingSoon: true,
   },
   {
     id: "fidelidade",
@@ -73,7 +70,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-yellow-600",
     iconBg: "bg-yellow-50",
     href: "/restaurante/admin/relatorios/fidelidade",
-    comingSoon: true,
   },
   {
     id: "operacional",
@@ -84,7 +80,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-orange-600",
     iconBg: "bg-orange-50",
     href: "/restaurante/admin/relatorios/operacional",
-    comingSoon: true,
   },
   {
     id: "caixa",
@@ -95,7 +90,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-emerald-600",
     iconBg: "bg-emerald-50",
     href: "/restaurante/admin/relatorios/caixa",
-    comingSoon: true,
   },
   {
     id: "promocoes",
@@ -105,7 +99,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-pink-600",
     iconBg: "bg-pink-50",
     href: "/restaurante/admin/relatorios/promocoes",
-    comingSoon: true,
   },
   {
     id: "entregas",
@@ -116,7 +109,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-cyan-600",
     iconBg: "bg-cyan-50",
     href: "/restaurante/admin/relatorios/entregas",
-    comingSoon: true,
   },
   {
     id: "avaliacoes",
@@ -127,7 +119,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-amber-600",
     iconBg: "bg-amber-50",
     href: "/restaurante/admin/relatorios/avaliacoes",
-    comingSoon: true,
   },
   {
     id: "fiscal",
@@ -138,7 +129,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-slate-600",
     iconBg: "bg-slate-100",
     href: "/restaurante/admin/relatorios/fiscal",
-    comingSoon: true,
   },
   {
     id: "comunicacao",
@@ -149,7 +139,6 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-teal-600",
     iconBg: "bg-teal-50",
     href: "/restaurante/admin/relatorios/comunicacao",
-    comingSoon: true,
   },
 ];
 
