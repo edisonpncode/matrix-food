@@ -1982,6 +1982,19 @@ export const orderRouter = createTRPCRouter({
         tryAutoEmitNfce(ctx.tenantId, order.id).catch(() => {});
       }
 
+      // Notifica clientes SSE (tela de pedidos em outros dispositivos) para
+      // que a listagem atualize em tempo real, sem esperar o polling de 15s.
+      orderEvents.emit("new-online-order", {
+        tenantId: ctx.tenantId,
+        orderId: order.id,
+        displayNumber: order.displayNumber,
+        status: orderStatus,
+        createdAt:
+          order.createdAt instanceof Date
+            ? order.createdAt.toISOString()
+            : new Date().toISOString(),
+      });
+
       return {
         id: order.id,
         displayNumber: order.displayNumber,

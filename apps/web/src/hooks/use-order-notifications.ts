@@ -79,6 +79,7 @@ export function useOrderNotifications(): { pendingCount: number } {
   const knownPendingIdsRef = useRef<Set<string>>(new Set());
   const isFirstLoadRef = useRef(true);
   const repeatTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const utils = trpc.useUtils();
 
   // Polling de fallback — também alimenta a contagem inicial.
   const { data: orders } = trpc.order.listByTenant.useQuery(
@@ -166,6 +167,10 @@ export function useOrderNotifications(): { pendingCount: number } {
       es.addEventListener("new-online-order", (ev) => {
         try {
           const payload = JSON.parse((ev as MessageEvent).data) as NewOrderEvent;
+          // Atualiza a listagem de pedidos imediatamente em todos os
+          // dispositivos conectados — vale tanto para pedidos do link
+          // (PENDING) quanto para pedidos criados pelo POS (PREPARING).
+          void utils.order.listByTenant.invalidate();
           // Só toca/notifica se for PENDING (auto-aprovados não exigem ação).
           if (payload.status === "PENDING") {
             playNewOrderChime();
@@ -196,7 +201,7 @@ export function useOrderNotifications(): { pendingCount: number } {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       es?.close();
     };
-  }, []);
+  }, [utils]);
 
   return { pendingCount };
 }

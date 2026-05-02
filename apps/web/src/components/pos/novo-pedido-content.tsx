@@ -120,6 +120,7 @@ export function NovoPedidoContent() {
     selectedCustomizations: Record<string, string[]>;
   } | null>(null);
 
+  const utils = trpc.useUtils();
   const { data: tenant } = trpc.tenant.getById.useQuery();
   const { data: categories } = trpc.category.listForPOS.useQuery();
   const { data: products } = trpc.product.listForPOS.useQuery();
@@ -128,6 +129,11 @@ export function NovoPedidoContent() {
 
   const createOrder = trpc.order.createFromPOS.useMutation({
     onSuccess: async (data) => {
+      // Invalida o cache da listagem de pedidos para que ao voltar para a
+      // tela de pedidos o novo pedido apareça imediatamente, sem esperar
+      // o polling de 15s.
+      void utils.order.listByTenant.invalidate();
+
       // Auto-print se habilitado
       if (printerSettings.autoPrint.enabled && printerSettings.autoPrint.onNewOrder) {
         try {
