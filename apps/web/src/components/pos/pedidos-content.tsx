@@ -2,7 +2,10 @@
 
 import { useState, useMemo } from "react";
 import { trpc } from "@/lib/trpc";
-import { formatCurrency } from "@matrix-food/utils";
+import {
+  formatCurrency,
+  type PaymentMethodConfig,
+} from "@matrix-food/utils";
 import {
   Clock,
   Check,
@@ -23,6 +26,7 @@ import {
 import { usePrinterSettings } from "@/hooks/use-printer-settings";
 import { DeliveryPersonSelector } from "@/components/admin/delivery-person-selector";
 import { FinalizeDeliveryModal } from "@/components/admin/finalize-delivery-modal";
+import { FinalizePaymentModal } from "@/components/pos/finalize-payment-modal";
 import { RequirePinModal } from "@/components/shared/user-session/require-pin-modal";
 import { OrderEditModal } from "@/components/pos/order-edit-modal";
 import { PrintJobsPanel } from "@/components/pos/print-jobs-panel";
@@ -189,10 +193,15 @@ export function PedidosContent() {
   const [finalizingOrderId, setFinalizingOrderId] = useState<string | null>(
     null
   );
+  // Fechamento de mesa / vem buscar (modal pede forma de pagamento)
+  const [closingOrderId, setClosingOrderId] = useState<string | null>(null);
+  const [closingError, setClosingError] = useState<string | null>(null);
   // PIN authorization state for cancellation
   const [pendingCancelOrderId, setPendingCancelOrderId] = useState<string | null>(null);
   // Modal de detalhes/edição
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+
+  const { data: tenant } = trpc.tenant.getById.useQuery();
 
   // Busca todos os pedidos do tenant (sem filtrar server-side — filtros são locais
   // para permitir trocar de aba sem refetch).
@@ -231,7 +240,12 @@ export function PedidosContent() {
   });
 
   const finalizeOrder = trpc.order.finalizeOrder.useMutation({
-    onSuccess: () => refetch(),
+    onSuccess: () => {
+      setClosingOrderId(null);
+      setClosingError(null);
+      refetch();
+    },
+    onError: (err) => setClosingError(err.message),
   });
 
   const cancelOrder = trpc.order.updateStatus.useMutation({
@@ -366,6 +380,16 @@ export function PedidosContent() {
   }
 
   function handleFinalizeNonDelivery(orderId: string) {
+    const order = orders?.find((o) => o.id === orderId);
+    if (!order) return;
+    // Mesa e Vem Buscar: abrir modal pedindo forma de pagamento.
+    // Balcão e Consumo no local: já têm forma escolhida na criação,
+    // só confirma e fecha.
+    if (order.type === "TABLE" || order.type === "PICKUP") {
+      setClosingError(null);
+      setClosingOrderId(orderId);
+      return;
+    }
     if (!confirm("Finalizar este pedido como pago?")) return;
     finalizeOrder.mutate({ orderId });
   }
@@ -396,6 +420,11 @@ export function PedidosContent() {
   const orderBeingFinalized = useMemo(
     () => orders?.find((o) => o.id === finalizingOrderId) ?? null,
     [orders, finalizingOrderId]
+  );
+
+  const orderBeingClosed = useMemo(
+    () => orders?.find((o) => o.id === closingOrderId) ?? null,
+    [orders, closingOrderId]
   );
 
   return (
@@ -759,6 +788,43 @@ export function PedidosContent() {
           }}
         />
       )}
+
+      {closingOrderId &&
+        orderBeingClosed &&
+        (orderBeingClosed.type === "TABLE" ||
+          orderBeingClosed.type === "PICKUP") && (
+          <FinalizePaymentModal
+            order={{
+              id: orderBeingClosed.id,
+              displayNumber: orderBeingClosed.displayNumber,
+              type: orderBeingClosed.type,
+              total: parseFloat(orderBeingClosed.total),
+              customerName: orderBeingClosed.customerName,
+              tableNumber: orderBeingClosed.tableNumber,
+            }}
+            paymentMethods={
+              tenant?.paymentMethodsAccepted as
+                | PaymentMethodConfig[]
+                | null
+                | undefined
+            }
+            isLoading={finalizeOrder.isPending}
+            errorMessage={closingError}
+            onClose={() => {
+              setClosingOrderId(null);
+              setClosingError(null);
+            }}
+            onConfirm={(data) => {
+              setClosingError(null);
+              finalizeOrder.mutate({
+                orderId: orderBeingClosed.id,
+                paymentMethod: data.paymentMethod,
+                customPaymentLabel: data.customPaymentLabel,
+                changeFor: data.changeFor ?? undefined,
+              });
+            }}
+          />
+        )}
 
       {pendingCancelOrderId && (
         <RequirePinModal

@@ -2540,12 +2540,21 @@ export const orderRouter = createTRPCRouter({
   /**
    * Finaliza um pedido que NÃO é DELIVERY (PICKUP, COUNTER, TABLE, DINE_IN).
    * Sem motoboy, sem modal de diferença — só registra recebimento e fecha.
+   *
+   * Para TABLE e PICKUP o `paymentMethod` é definido aqui (na criação fica
+   * pendente como placeholder), por isso aceita os campos opcionais
+   * paymentMethod/customPaymentLabel/changeFor.
    */
   finalizeOrder: tenantProcedure
     .input(
       z.object({
         orderId: z.string().uuid(),
         amountReceived: z.number().nonnegative().optional(),
+        paymentMethod: z
+          .enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD", "OTHER"])
+          .optional(),
+        customPaymentLabel: z.string().trim().min(1).max(50).nullable().optional(),
+        changeFor: z.number().nonnegative().nullable().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -2585,16 +2594,55 @@ export const orderRouter = createTRPCRouter({
         });
       }
 
+      // Mesa e Vem Buscar exigem forma de pagamento na finalização
+      // (na criação não é perguntada — fica como placeholder).
+      const requiresPaymentMethod =
+        existingOrder.type === "TABLE" || existingOrder.type === "PICKUP";
+      if (requiresPaymentMethod && !input.paymentMethod) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Forma de pagamento é obrigatória para fechar pedidos de mesa ou retirada.",
+        });
+      }
+      if (input.paymentMethod === "OTHER" && !input.customPaymentLabel) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Informe o nome da forma de pagamento personalizada.",
+        });
+      }
+
       const finalStatus =
         existingOrder.type === "PICKUP" ? "PICKED_UP" : "DELIVERED";
 
+      const updateData: {
+        status: typeof finalStatus;
+        paymentStatus: "PAID";
+        amountReceived: string | null;
+        paymentMethod?: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
+        customPaymentLabel?: string | null;
+        changeFor?: string | null;
+      } = {
+        status: finalStatus,
+        paymentStatus: "PAID",
+        amountReceived: input.amountReceived?.toFixed(2) ?? null,
+      };
+
+      if (input.paymentMethod) {
+        updateData.paymentMethod = input.paymentMethod;
+        updateData.customPaymentLabel =
+          input.paymentMethod === "OTHER"
+            ? (input.customPaymentLabel ?? null)
+            : null;
+        updateData.changeFor =
+          input.paymentMethod === "CASH" && input.changeFor != null
+            ? input.changeFor.toFixed(2)
+            : null;
+      }
+
       const [updated] = await db
         .update(orders)
-        .set({
-          status: finalStatus,
-          paymentStatus: "PAID",
-          amountReceived: input.amountReceived?.toFixed(2) ?? null,
-        })
+        .set(updateData)
         .where(eq(orders.id, input.orderId))
         .returning();
 
