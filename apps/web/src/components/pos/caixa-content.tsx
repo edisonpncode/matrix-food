@@ -12,6 +12,7 @@ import {
   X,
   EyeOff,
   Printer,
+  AlertTriangle,
 } from "lucide-react";
 import { useCan } from "@/lib/permissions";
 import { useActiveUser } from "@/lib/logged-users-store";
@@ -45,6 +46,9 @@ export function CaixaContent() {
   const [closeStep, setCloseStep] = useState<CloseStep>(null);
   const [counted, setCounted] = useState<Breakdown>(EMPTY_BREAKDOWN);
   const [closeResult, setCloseResult] = useState<CloseResult | null>(null);
+  const [pendingOrdersWarning, setPendingOrdersWarning] = useState<number | null>(
+    null
+  );
 
   const canViewTotals = useCan("cashRegister.viewTotals");
   const activeUser = useActiveUser();
@@ -58,6 +62,12 @@ export function CaixaContent() {
     { sessionId: activeSession?.id ?? "" },
     { enabled: !!activeSession }
   );
+
+  const { data: pendingOrders } =
+    trpc.cashRegister.countPendingOrders.useQuery(undefined, {
+      enabled: !!activeSession,
+      refetchInterval: 15000,
+    });
 
   const { data: printerSettings } = trpc.tenant.getPrinterSettings.useQuery(
     undefined,
@@ -320,7 +330,13 @@ export function CaixaContent() {
           <span className="text-sm font-medium">Depósito</span>
         </button>
         <button
-          onClick={() => {
+          onClick={async () => {
+            const fresh = await utils.cashRegister.countPendingOrders.fetch();
+            const count = fresh?.count ?? 0;
+            if (count > 0) {
+              setPendingOrdersWarning(count);
+              return;
+            }
             setCounted(EMPTY_BREAKDOWN);
             setCloseStep("count");
           }}
@@ -330,10 +346,18 @@ export function CaixaContent() {
               ? undefined
               : `Apenas ${activeSession.openedBy}, o gerente ou o proprietário podem fechar este caixa.`
           }
-          className="flex flex-col items-center gap-2 rounded-xl border-2 border-border p-4 text-muted-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
+          className="relative flex flex-col items-center gap-2 rounded-xl border-2 border-border p-4 text-muted-foreground hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent"
         >
           <Lock className="h-8 w-8" />
           <span className="text-sm font-medium">Fechar Caixa</span>
+          {(pendingOrders?.count ?? 0) > 0 && (
+            <span
+              className="absolute -right-1 -top-1 flex h-6 w-6 items-center justify-center rounded-full bg-amber-500 text-xs font-bold text-white"
+              title={`${pendingOrders?.count} pedido(s) em aberto`}
+            >
+              {pendingOrders?.count}
+            </span>
+          )}
         </button>
       </div>
 
@@ -473,6 +497,39 @@ export function CaixaContent() {
                     }`}
               </button>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Aviso: pedidos em aberto bloqueiam fechamento do caixa */}
+      {pendingOrdersWarning !== null && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-card p-6 shadow-xl">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-amber-100">
+                <AlertTriangle className="h-6 w-6 text-amber-600" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold">Não é possível fechar</h3>
+                <p className="text-sm text-muted-foreground">
+                  Caixa com pedidos em aberto
+                </p>
+              </div>
+            </div>
+            <p className="mb-6 text-sm">
+              Existe(m){" "}
+              <span className="font-bold text-amber-700">
+                {pendingOrdersWarning} pedido(s)
+              </span>{" "}
+              ainda em andamento. Finalize ou cancele todos antes de fechar o
+              caixa.
+            </p>
+            <button
+              onClick={() => setPendingOrdersWarning(null)}
+              className="w-full rounded-lg bg-primary py-3 text-base font-semibold text-primary-foreground hover:opacity-90"
+            >
+              Entendi
+            </button>
           </div>
         </div>
       )}

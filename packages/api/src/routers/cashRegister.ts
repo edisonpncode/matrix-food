@@ -382,6 +382,26 @@ export const cashRegisterRouter = createTRPCRouter({
     }),
 
   /**
+   * Conta pedidos em aberto (não DELIVERED/PICKED_UP/CANCELLED). Usado pela
+   * UI para bloquear o fechamento do caixa antes de pedir a contagem.
+   */
+  countPendingOrders: tenantProcedure.query(async ({ ctx }) => {
+    const db = getDb();
+
+    const [row] = await db
+      .select({ count: sql<string>`COUNT(*)::text` })
+      .from(orders)
+      .where(
+        and(
+          eq(orders.tenantId, ctx.tenantId),
+          sql`${orders.status} NOT IN ('DELIVERED', 'PICKED_UP', 'CANCELLED')`
+        )
+      );
+
+    return { count: parseInt(row?.count ?? "0", 10) };
+  }),
+
+  /**
    * Retorna a sessão de caixa aberta (ou null).
    */
   getActiveSession: tenantProcedure.query(async ({ ctx }) => {
