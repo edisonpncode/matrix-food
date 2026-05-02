@@ -15,6 +15,7 @@
     "db:studio": "pnpm --filter @matrix-food/database studio",
     "db:backfill-loyalty": "pnpm --filter @matrix-food/database backfill:loyalty",
     "db:backfill-loyalty-expiration": "pnpm --filter @matrix-food/database backfill:loyalty-expiration",
+    "db:apply-loyalty-expiration": "pnpm --filter @matrix-food/database apply:loyalty-expiration",
     "clean": "turbo clean"
   },
   "packageManager": "pnpm@10.31.0",

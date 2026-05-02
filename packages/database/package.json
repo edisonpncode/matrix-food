@@ -13,6 +13,7 @@
     "studio": "drizzle-kit studio",
     "backfill:loyalty": "tsx --env-file=../../.env.local src/backfill-loyalty-balance.ts",
     "backfill:loyalty-expiration": "tsx --env-file=../../.env.local src/backfill-loyalty-expiration.ts",
+    "apply:loyalty-expiration": "tsx --env-file=../../.env.local src/apply-loyalty-expiration-schema.ts",
     "migrate:payment-methods": "tsx --env-file=../../.env.local src/migrate-payment-methods.ts",
     "test": "vitest run --passWithNoTests"
   },
