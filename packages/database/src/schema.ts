@@ -55,6 +55,8 @@ export const activityActionEnum = pgEnum("activity_action", [
   "FISCAL_DOCUMENT_EMITTED",
   "FISCAL_DOCUMENT_CANCELLED",
   "FISCAL_DOCUMENT_RETRY",
+  "REPORT_VIEWED",
+  "REPORT_EXPORTED",
 ]);
 
 export const fiscalProviderEnum = pgEnum("fiscal_provider", [
@@ -909,6 +911,16 @@ export const orders = pgTable(
     surplusHandling: surplusHandlingEnum("surplus_handling"),
     notes: text("notes"),
     estimatedMinutes: integer("estimated_minutes"),
+    /** Marcado quando o pedido sai de PENDING -> CONFIRMED (atendente aceitou) */
+    acceptedAt: timestamp("accepted_at"),
+    /** Marcado quando o pedido entra em PREPARING (cozinha começou) */
+    preparingAt: timestamp("preparing_at"),
+    /** Marcado quando o pedido entra em READY (pronto para entrega/retirada) */
+    readyAt: timestamp("ready_at"),
+    /** Marcado quando o pedido entra em OUT_FOR_DELIVERY (motoboy saiu) */
+    outForDeliveryAt: timestamp("out_for_delivery_at"),
+    /** Marcado quando o pedido entra em DELIVERED ou PICKED_UP (finalizado) */
+    deliveredAt: timestamp("delivered_at"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")
       .notNull()
@@ -918,6 +930,11 @@ export const orders = pgTable(
   (table) => [
     index("orders_tenant_created_idx").on(table.tenantId, table.createdAt),
     index("orders_tenant_status_idx").on(table.tenantId, table.status),
+    index("orders_tenant_type_created_idx").on(
+      table.tenantId,
+      table.type,
+      table.createdAt
+    ),
   ]
 );
 
