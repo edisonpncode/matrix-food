@@ -31,3 +31,4 @@ export {
   findPaymentMethodById,
 } from "./payment-methods";
 export type { PaymentMethodCode, PaymentMethodConfig } from "./payment-methods";
+export { round2, splitEvenly, isSplitTotalValid } from "./payment-split";

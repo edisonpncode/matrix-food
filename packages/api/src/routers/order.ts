@@ -4,6 +4,7 @@ import { createTRPCRouter, publicProcedure, tenantProcedure } from "../trpc";
 import {
   getDb,
   orders,
+  orderPayments,
   orderItems,
   orderItemCustomizations,
   orderItemIngredients,
@@ -1493,6 +1494,34 @@ export const orderRouter = createTRPCRouter({
           paymentMethod: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD", "OTHER"]).optional().default("CASH"),
           customPaymentLabel: z.string().min(1).max(50).nullable().optional(),
           changeFor: z.string().nullable().optional(),
+          /**
+           * Pagamento dividido (split). Quando fornecido com 2+ linhas, o
+           * pedido é marcado como isSplitPayment=true e cada linha vira um
+           * registro em order_payments. A soma de amounts deve ser igual ao
+           * total do pedido (tolerância de R$ 0,01 para arredondamento).
+           */
+          splitPayments: z
+            .array(
+              z
+                .object({
+                  method: z.enum(["PIX", "CASH", "CREDIT_CARD", "DEBIT_CARD", "OTHER"]),
+                  customLabel: z.string().min(1).max(50).nullable().optional(),
+                  amount: z.number().positive(),
+                  payerName: z.string().max(100).nullable().optional(),
+                  changeFor: z.number().positive().nullable().optional(),
+                })
+                .refine(
+                  (p) => p.method !== "OTHER" || (p.customLabel?.trim().length ?? 0) > 0,
+                  { message: "Forma personalizada exige nome.", path: ["customLabel"] }
+                )
+                .refine((p) => p.changeFor == null || p.method === "CASH", {
+                  message: "Troco só é permitido para pagamento em dinheiro.",
+                  path: ["changeFor"],
+                })
+            )
+            .min(2, "Split exige no mínimo 2 linhas de pagamento.")
+            .max(10, "Máximo de 10 linhas de pagamento por pedido.")
+            .optional(),
           notes: z.string().optional(),
           promoCode: z.string().optional(),
           items: z.array(orderItemInput).min(1),
@@ -1750,6 +1779,18 @@ export const orderRouter = createTRPCRouter({
 
       const total = subtotal + deliveryFee - discount;
 
+      // Validar soma do split — precisa bater com o total do pedido.
+      // Tolerância de 1 centavo para arredondamento de divisão entre pessoas.
+      if (input.splitPayments) {
+        const splitSum = input.splitPayments.reduce((s, p) => s + p.amount, 0);
+        if (Math.abs(splitSum - total) > 0.01) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `Soma das formas de pagamento (R$ ${splitSum.toFixed(2)}) não bate com o total do pedido (R$ ${total.toFixed(2)}).`,
+          });
+        }
+      }
+
       // Determinar status e paymentStatus por tipo de pedido.
       // Pedidos criados pelo POS nunca passam por "Pendentes" — só ONLINE passa.
       // Todos os tipos começam em PREPARING para o operador ver direto na cozinha.
@@ -1832,6 +1873,26 @@ export const orderRouter = createTRPCRouter({
              source: "POS",
            });
 
+      // Resolver campos legados de pagamento. Quando há split, os campos
+      // paymentMethod/customPaymentLabel/changeFor refletem a PRIMEIRA linha
+      // (apenas para satisfazer o NOT NULL e listagens rápidas). Os detalhes
+      // completos ficam em order_payments.
+      const isSplit = !!input.splitPayments && input.splitPayments.length >= 2;
+      const firstSplit = isSplit ? input.splitPayments![0]! : null;
+      const legacyPaymentMethod = firstSplit ? firstSplit.method : input.paymentMethod;
+      const legacyCustomLabel = firstSplit
+        ? firstSplit.method === "OTHER"
+          ? firstSplit.customLabel ?? null
+          : null
+        : input.paymentMethod === "OTHER"
+          ? input.customPaymentLabel ?? null
+          : null;
+      const legacyChangeFor = firstSplit
+        ? firstSplit.changeFor != null
+          ? firstSplit.changeFor.toFixed(2)
+          : null
+        : input.changeFor ?? null;
+
       // Criar pedido com source POS
       const [order] = await db
         .insert(orders)
@@ -1853,10 +1914,11 @@ export const orderRouter = createTRPCRouter({
           deliveryFee: deliveryFee.toFixed(2),
           discount: discount.toFixed(2),
           total: total.toFixed(2),
-          paymentMethod: input.paymentMethod,
-          customPaymentLabel: input.paymentMethod === "OTHER" ? (input.customPaymentLabel ?? null) : null,
+          paymentMethod: legacyPaymentMethod,
+          customPaymentLabel: legacyCustomLabel,
           paymentStatus,
-          changeFor: input.changeFor,
+          isSplitPayment: isSplit,
+          changeFor: legacyChangeFor,
           notes: input.notes,
           promotionId,
           loyaltyPointsEarned,
@@ -1868,6 +1930,26 @@ export const orderRouter = createTRPCRouter({
           code: "INTERNAL_SERVER_ERROR",
           message: "Falha ao criar pedido",
         });
+      }
+
+      // Criar linhas de pagamento (split). Quando não há split, nada é inserido
+      // aqui — os campos legados em orders já contêm a forma única.
+      if (isSplit && input.splitPayments) {
+        await db.insert(orderPayments).values(
+          input.splitPayments.map((p, idx) => ({
+            orderId: order.id,
+            method: p.method,
+            customLabel: p.method === "OTHER" ? p.customLabel ?? null : null,
+            amount: p.amount.toFixed(2),
+            payerName: p.payerName?.trim() ? p.payerName.trim() : null,
+            status: paymentStatus,
+            changeFor:
+              p.method === "CASH" && p.changeFor != null
+                ? p.changeFor.toFixed(2)
+                : null,
+            sortOrder: idx,
+          }))
+        );
       }
 
       // Criar itens do pedido
@@ -2887,7 +2969,16 @@ export const orderRouter = createTRPCRouter({
         })
       );
 
-      return { ...order, items: itemsWithDetails };
+      // Carrega linhas de pagamento apenas quando o pedido foi marcado como split.
+      const payments = order.isSplitPayment
+        ? await db
+            .select()
+            .from(orderPayments)
+            .where(eq(orderPayments.orderId, order.id))
+            .orderBy(orderPayments.sortOrder)
+        : [];
+
+      return { ...order, items: itemsWithDetails, payments };
     }),
 
   /**

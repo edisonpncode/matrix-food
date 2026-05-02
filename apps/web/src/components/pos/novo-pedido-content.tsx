@@ -707,6 +707,13 @@ export function NovoPedidoContent() {
     paymentMethod: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
     customPaymentLabel: string | null;
     changeFor: string | null;
+    splitPayments?: Array<{
+      method: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
+      customLabel: string | null;
+      amount: number;
+      payerName: string | null;
+      changeFor: number | null;
+    }>;
   }) {
     const h = orderHeaderData;
     createOrder.mutate({
@@ -716,6 +723,7 @@ export function NovoPedidoContent() {
       paymentMethod: data.paymentMethod || "CASH",
       customPaymentLabel: data.customPaymentLabel,
       changeFor: data.changeFor,
+      splitPayments: data.splitPayments,
       customerId: h.customerId,
       cpf: h.cpf,
       tableNumber: h.tableNumber,
