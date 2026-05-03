@@ -11,6 +11,7 @@ import {
   uuid,
   uniqueIndex,
   index,
+  date,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 
@@ -23,6 +24,11 @@ export const userRoleEnum = pgEnum("user_role", [
   "MANAGER",
   "CASHIER",
   "DELIVERY",
+]);
+
+export const timeOffTypeEnum = pgEnum("time_off_type", [
+  "FOLGA",
+  "FERIAS",
 ]);
 
 export const activityActionEnum = pgEnum("activity_action", [
@@ -46,6 +52,10 @@ export const activityActionEnum = pgEnum("activity_action", [
   "STAFF_CREATED",
   "STAFF_UPDATED",
   "STAFF_DEACTIVATED",
+  "STAFF_SHIFT_UPDATED",
+  "STAFF_SHIFT_DELETED",
+  "STAFF_TIME_OFF_CREATED",
+  "STAFF_TIME_OFF_DELETED",
   "USER_TYPE_CREATED",
   "USER_TYPE_UPDATED",
   "USER_TYPE_DELETED",
@@ -361,6 +371,72 @@ export const tenantUsers = pgTable(
     index("tenant_users_firebase_uid_idx").on(table.firebaseUid),
     index("tenant_users_tenant_idx").on(table.tenantId),
     index("tenant_users_pin_idx").on(table.tenantId, table.pin),
+  ]
+);
+
+// ============================================
+// STAFF SHIFTS (Escala Semanal Recorrente)
+// ============================================
+
+export const staffShifts = pgTable(
+  "staff_shifts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    tenantUserId: uuid("tenant_user_id")
+      .notNull()
+      .references(() => tenantUsers.id, { onDelete: "cascade" }),
+    /** 0=Dom, 1=Seg, ..., 6=Sáb (mesmo padrão de categories.schedule) */
+    dayOfWeek: integer("day_of_week").notNull(),
+    /** "HH:MM" 24h, ex.: "18:00" */
+    startTime: varchar("start_time", { length: 5 }).notNull(),
+    endTime: varchar("end_time", { length: 5 }).notNull(),
+    notes: varchar("notes", { length: 200 }),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("staff_shifts_tenant_idx").on(table.tenantId),
+    index("staff_shifts_user_day_idx").on(table.tenantUserId, table.dayOfWeek),
+  ]
+);
+
+// ============================================
+// STAFF TIME OFF (Folgas e Férias)
+// ============================================
+
+export const staffTimeOff = pgTable(
+  "staff_time_off",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    tenantUserId: uuid("tenant_user_id")
+      .notNull()
+      .references(() => tenantUsers.id, { onDelete: "cascade" }),
+    type: timeOffTypeEnum("type").notNull(),
+    /** "YYYY-MM-DD" — dia inicial inclusive */
+    startDate: date("start_date").notNull(),
+    /** "YYYY-MM-DD" — dia final inclusive (mesmo dia = folga de 1 dia) */
+    endDate: date("end_date").notNull(),
+    reason: varchar("reason", { length: 300 }),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index("staff_time_off_tenant_idx").on(table.tenantId),
+    index("staff_time_off_user_idx").on(table.tenantUserId),
+    index("staff_time_off_dates_idx").on(table.startDate, table.endDate),
   ]
 );
 

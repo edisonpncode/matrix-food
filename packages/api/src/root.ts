@@ -13,6 +13,7 @@ import { superadminRouter } from "./routers/superadmin";
 import { billingRouter } from "./routers/billing";
 import { userTypeRouter } from "./routers/userType";
 import { staffRouter } from "./routers/staff";
+import { staffScheduleRouter } from "./routers/staffSchedule";
 import { activityLogRouter } from "./routers/activityLog";
 import { customerRouter } from "./routers/customer";
 import { customerPortalRouter } from "./routers/customer-portal";
@@ -44,6 +45,7 @@ export const appRouter = createTRPCRouter({
   billing: billingRouter,
   userType: userTypeRouter,
   staff: staffRouter,
+  staffSchedule: staffScheduleRouter,
   activityLog: activityLogRouter,
   customer: customerRouter,
   customerPortal: customerPortalRouter,
