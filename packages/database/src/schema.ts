@@ -210,6 +210,28 @@ export const subscriptionStatusEnum = pgEnum("subscription_status", [
   "CANCELLED",
 ]);
 
+/**
+ * Status do tenant no ciclo de aprovação do superadmin.
+ * - ACTIVE: aprovado e operando.
+ * - WAITLIST: cadastrado mas aguardando vaga (limite cheio).
+ * - SUSPENDED: desativado pelo superadmin.
+ * Independente de `tenants.isActive`, que indica se a loja está aberta agora.
+ */
+export const tenantStatusEnum = pgEnum("tenant_status", [
+  "ACTIVE",
+  "WAITLIST",
+  "SUSPENDED",
+]);
+
+/** Faixa de vendas mensais informada no cadastro (qualifica o lead). */
+export const monthlySalesRangeEnum = pgEnum("monthly_sales_range", [
+  "NOT_OPENED",
+  "UP_TO_100K",
+  "FROM_100K_TO_500K",
+  "FROM_500K_TO_1M",
+  "ABOVE_1M",
+]);
+
 // ============================================
 // TENANTS (Restaurantes)
 // ============================================
@@ -297,6 +319,14 @@ export const tenants = pgTable(
     /** Horário padrão de turno usado como sugestão ao criar nova entrada na escala. "HH:MM" 24h. */
     defaultShiftStartTime: varchar("default_shift_start_time", { length: 5 }),
     defaultShiftEndTime: varchar("default_shift_end_time", { length: 5 }),
+    /** Aprovação no sistema (controlado pelo superadmin). Independente de `isActive`. */
+    status: tenantStatusEnum("status").notNull().default("ACTIVE"),
+    /** Lead: o restaurante já usa algum sistema concorrente? */
+    usesOtherSystem: boolean("uses_other_system"),
+    /** Lead: nome do sistema atual, se usesOtherSystem = true. */
+    currentSystemName: varchar("current_system_name", { length: 100 }),
+    /** Lead: faixa de vendas mensais aproximadas. */
+    monthlySalesRange: monthlySalesRangeEnum("monthly_sales_range"),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")
@@ -1733,6 +1763,29 @@ export const fiscalDocuments = pgTable(
     index("fiscal_docs_order_idx").on(table.orderId),
     uniqueIndex("fiscal_docs_chave_idx").on(table.chaveAcesso),
   ]
+);
+
+// ============================================
+// SYSTEM SETTINGS (Configurações globais chave-valor)
+// ============================================
+
+/**
+ * Configurações globais do sistema editáveis pelo superadmin sem deploy.
+ * Chaves usadas:
+ * - "max_active_restaurants": string com inteiro; vazio/ausente = sem limite.
+ */
+export const systemSettings = pgTable(
+  "system_settings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: varchar("key", { length: 100 }).notNull(),
+    value: text("value"),
+    updatedAt: timestamp("updated_at")
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [uniqueIndex("system_settings_key_idx").on(table.key)]
 );
 
 // ============================================

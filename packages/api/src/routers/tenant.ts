@@ -1,8 +1,29 @@
 import { z } from "zod";
 import { createTRPCRouter, publicProcedure, tenantProcedure } from "../trpc";
-import { getDb, tenants, tenantUsers, userTypes, eq, and, ilike, asc } from "@matrix-food/database";
+import {
+  getDb,
+  tenants,
+  tenantUsers,
+  userTypes,
+  systemSettings,
+  eq,
+  and,
+  ilike,
+  asc,
+  sql,
+} from "@matrix-food/database";
 import { DEFAULT_PAYMENT_METHODS, paymentMethodsListSchema } from "@matrix-food/utils";
 import { AVAILABLE_PERMISSIONS } from "./userType";
+
+const MONTHLY_SALES_RANGES = [
+  "NOT_OPENED",
+  "UP_TO_100K",
+  "FROM_100K_TO_500K",
+  "FROM_500K_TO_1M",
+  "ABOVE_1M",
+] as const;
+
+const MAX_RESTAURANTS_KEY = "max_active_restaurants";
 
 export const tenantRouter = createTRPCRouter({
   /**
@@ -61,6 +82,10 @@ export const tenantRouter = createTRPCRouter({
         foodTypes: z.array(z.string()).min(1, "Selecione pelo menos um tipo"),
         state: z.string().length(2),
         city: z.string().min(1).max(100),
+        // Lead profile
+        usesOtherSystem: z.boolean(),
+        currentSystemName: z.string().max(100).optional(),
+        monthlySalesRange: z.enum(MONTHLY_SALES_RANGES),
         // Login
         email: z.string().email(),
         firebaseUid: z.string().min(1),
@@ -68,6 +93,24 @@ export const tenantRouter = createTRPCRouter({
     )
     .mutation(async ({ input }) => {
       const db = getDb();
+
+      // Decidir status: ACTIVE ou WAITLIST conforme limite configurado.
+      const [maxSetting] = await db
+        .select({ value: systemSettings.value })
+        .from(systemSettings)
+        .where(eq(systemSettings.key, MAX_RESTAURANTS_KEY))
+        .limit(1);
+      const maxParsed = maxSetting?.value ? parseInt(maxSetting.value, 10) : NaN;
+      const max = Number.isFinite(maxParsed) && maxParsed > 0 ? maxParsed : null;
+
+      let status: "ACTIVE" | "WAITLIST" = "ACTIVE";
+      if (max !== null) {
+        const [activeCount] = await db
+          .select({ count: sql<number>`count(*)::int` })
+          .from(tenants)
+          .where(eq(tenants.status, "ACTIVE"));
+        if ((activeCount?.count ?? 0) >= max) status = "WAITLIST";
+      }
 
       // Gerar slug a partir do nome
       const baseSlug = input.restaurantName
@@ -104,6 +147,12 @@ export const tenantRouter = createTRPCRouter({
           phone: input.ownerPhone,
           whatsapp: input.ownerPhone,
           paymentMethodsAccepted: DEFAULT_PAYMENT_METHODS,
+          status,
+          usesOtherSystem: input.usesOtherSystem,
+          currentSystemName: input.usesOtherSystem
+            ? input.currentSystemName?.trim() || null
+            : null,
+          monthlySalesRange: input.monthlySalesRange,
         })
         .returning();
 
@@ -139,8 +188,21 @@ export const tenantRouter = createTRPCRouter({
         userTypeId: ownerType?.id,
       });
 
-      return { tenantId: tenant.id, slug: tenant.slug };
+      return { tenantId: tenant.id, slug: tenant.slug, status };
     }),
+
+  /**
+   * Status do tenant do usuário logado. Usado pelo painel /restaurante/admin
+   * para barrar acesso de quem está em WAITLIST/SUSPENDED.
+   */
+  getMyStatus: tenantProcedure.query(async ({ ctx }) => {
+    const [tenant] = await getDb()
+      .select({ status: tenants.status })
+      .from(tenants)
+      .where(eq(tenants.id, ctx.tenantId))
+      .limit(1);
+    return { status: tenant?.status ?? null };
+  }),
   /**
    * Busca restaurante pelo slug (URL).
    * Público - qualquer pessoa pode ver os dados básicos.

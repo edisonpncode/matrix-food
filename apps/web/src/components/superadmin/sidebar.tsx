@@ -11,6 +11,7 @@ import {
   ChevronRight,
   Shield,
   MessageCircle,
+  Settings,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -20,6 +21,7 @@ const menuItems = [
   { href: "/admin/planos", label: "Planos", icon: CreditCard },
   { href: "/admin/cobrancas", label: "Cobranças", icon: Receipt },
   { href: "/admin/morpheu", label: "Morpheu", icon: MessageCircle },
+  { href: "/admin/configuracoes", label: "Configurações", icon: Settings },
 ];
 
 export function SuperAdminSidebar() {

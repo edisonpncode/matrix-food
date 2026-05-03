@@ -43,6 +43,19 @@ const FOOD_TYPES = [
 ];
 
 // ==========================================
+// Faixas de vendas mensais
+// ==========================================
+const MONTHLY_SALES_OPTIONS = [
+  { value: "NOT_OPENED", label: "Ainda não inaugurei o restaurante" },
+  { value: "UP_TO_100K", label: "Até R$ 100 mil por mês" },
+  { value: "FROM_100K_TO_500K", label: "R$ 100 mil a R$ 500 mil por mês" },
+  { value: "FROM_500K_TO_1M", label: "R$ 500 mil a R$ 1 milhão por mês" },
+  { value: "ABOVE_1M", label: "Acima de R$ 1 milhão por mês" },
+] as const;
+
+type MonthlySalesValue = (typeof MONTHLY_SALES_OPTIONS)[number]["value"];
+
+// ==========================================
 // Estados brasileiros
 // ==========================================
 const STATES = [
@@ -110,6 +123,11 @@ export default function CadastroPage() {
   const [selectedFoodTypes, setSelectedFoodTypes] = useState<string[]>([]);
   const [state, setState] = useState("");
   const [city, setCity] = useState("");
+  const [usesOtherSystem, setUsesOtherSystem] = useState<boolean | null>(null);
+  const [currentSystemName, setCurrentSystemName] = useState("");
+  const [monthlySalesRange, setMonthlySalesRange] = useState<
+    MonthlySalesValue | ""
+  >("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -176,6 +194,8 @@ export default function CadastroPage() {
     selectedFoodTypes.length > 0 &&
     state &&
     city &&
+    usesOtherSystem !== null &&
+    monthlySalesRange !== "" &&
     email.trim() &&
     password.length >= 6;
 
@@ -233,18 +253,36 @@ export default function CadastroPage() {
       });
 
       // 3. Registrar no backend
-      await registerMutation.mutateAsync({
+      const result = await registerMutation.mutateAsync({
         ownerName,
         ownerPhone: ownerPhone || undefined,
         restaurantName,
         foodTypes: selectedFoodTypes,
         state,
         city,
+        usesOtherSystem: usesOtherSystem === true,
+        currentSystemName:
+          usesOtherSystem === true && currentSystemName.trim()
+            ? currentSystemName.trim()
+            : undefined,
+        monthlySalesRange: monthlySalesRange as MonthlySalesValue,
         email: email.trim(),
         firebaseUid: userCredential.user.uid,
       });
 
-      // 4. Trocar o ID token Firebase por um cookie de sessão server-side.
+      // 4. Se ficou na lista de espera, redireciona sem abrir sessão.
+      // O usuário Firebase fica criado (poderá logar quando aprovado),
+      // mas não recebe acesso ao painel agora.
+      if (result.status === "WAITLIST") {
+        router.push(
+          `/restaurante/cadastro/lista-de-espera?email=${encodeURIComponent(
+            email.trim()
+          )}`
+        );
+        return;
+      }
+
+      // 5. Trocar o ID token Firebase por um cookie de sessão server-side.
       // Sem isso o middleware /restaurante/admin não enxerga a auth e joga
       // o usuário recém-criado de volta para a tela de login.
       const idToken = await userCredential.user.getIdToken();
@@ -260,7 +298,7 @@ export default function CadastroPage() {
         return;
       }
 
-      // 5. Redirecionar para o admin
+      // 6. Redirecionar para o admin
       router.push("/restaurante/admin");
     } catch (err: unknown) {
       if (err instanceof Error) {
@@ -527,6 +565,81 @@ export default function CadastroPage() {
                     </div>
                   )}
                 </div>
+              </div>
+
+              {/* Já usa sistema? */}
+              <div>
+                <label className="mb-2 block text-sm font-medium text-[#1a1a2e]">
+                  Você já usa algum sistema no seu restaurante? *
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: true, label: "Sim, já uso" },
+                    { value: false, label: "Não, ainda não" },
+                  ].map((opt) => {
+                    const selected = usesOtherSystem === opt.value;
+                    return (
+                      <button
+                        key={String(opt.value)}
+                        type="button"
+                        onClick={() => setUsesOtherSystem(opt.value)}
+                        className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-all ${
+                          selected
+                            ? "border-[#7c3aed] bg-[#7c3aed]/10 text-[#7c3aed]"
+                            : "border-[#e2e8f0] bg-[#fafafa] text-[#64748b] hover:border-[#c4b5fd] hover:text-[#7c3aed]"
+                        }`}
+                      >
+                        <div className="flex items-center justify-center gap-2">
+                          <div
+                            className={`flex h-4 w-4 items-center justify-center rounded-full border ${
+                              selected
+                                ? "border-[#7c3aed] bg-[#7c3aed]"
+                                : "border-[#cbd5e1]"
+                            }`}
+                          >
+                            {selected && (
+                              <Check className="h-3 w-3 text-white" />
+                            )}
+                          </div>
+                          {opt.label}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+                {usesOtherSystem === true && (
+                  <input
+                    type="text"
+                    value={currentSystemName}
+                    onChange={(e) => setCurrentSystemName(e.target.value)}
+                    placeholder="Qual sistema? (opcional)"
+                    className={`${inputClass} mt-2`}
+                    maxLength={100}
+                  />
+                )}
+              </div>
+
+              {/* Vendas mensais */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-[#1a1a2e]">
+                  Vendas mensais aproximadas *
+                </label>
+                <select
+                  value={monthlySalesRange}
+                  onChange={(e) =>
+                    setMonthlySalesRange(
+                      e.target.value as MonthlySalesValue | ""
+                    )
+                  }
+                  className={inputClass}
+                >
+                  <option value="">Selecione uma faixa...</option>
+                  {MONTHLY_SALES_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               {/* Email */}
