@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
 
 export default function EquipePage() {
-  redirect("/restaurante/admin/equipe/funcionarios");
+  redirect("/restaurante/admin/equipe/escala");
 }

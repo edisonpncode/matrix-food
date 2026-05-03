@@ -5,8 +5,8 @@ import { usePathname } from "next/navigation";
 import { Users, Shield, Activity, CalendarClock } from "lucide-react";
 
 const tabs = [
-  { href: "/restaurante/admin/equipe/funcionarios", label: "Funcionários", icon: Users },
   { href: "/restaurante/admin/equipe/escala", label: "Escala", icon: CalendarClock },
+  { href: "/restaurante/admin/equipe/funcionarios", label: "Funcionários", icon: Users },
   { href: "/restaurante/admin/equipe/tipos-usuario", label: "Tipos de Usuário", icon: Shield },
   { href: "/restaurante/admin/equipe/log-atividades", label: "Log de Atividades", icon: Activity },
 ];

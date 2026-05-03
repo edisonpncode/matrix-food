@@ -61,7 +61,7 @@ function isGroup(entry: SidebarEntry): entry is MenuGroup {
 
 const sidebarEntries: SidebarEntry[] = [
   { href: "/restaurante/admin", label: "Dashboard", icon: LayoutDashboard, permission: "dashboard.view" },
-  { href: "/restaurante/admin/mini-max", label: "Neo Assistente (Beta)", icon: Sparkles },
+  { href: "/restaurante/admin/relatorios", label: "Relatórios", icon: BarChart3, permission: "reports.view" },
   {
     id: "pos",
     label: "Ponto de Venda",
@@ -95,7 +95,6 @@ const sidebarEntries: SidebarEntry[] = [
       { href: "/restaurante/admin/avaliacoes", label: "Avaliações", icon: MessageSquare, permission: "reviews.view" },
     ],
   },
-  { href: "/restaurante/admin/relatorios", label: "Relatórios", icon: BarChart3, permission: "reports.view" },
   {
     id: "config",
     label: "Configurações",
@@ -109,6 +108,7 @@ const sidebarEntries: SidebarEntry[] = [
       { href: "/restaurante/admin/fiscal", label: "Nota Fiscal", icon: FileText, permission: "fiscal.view" },
     ],
   },
+  { href: "/restaurante/admin/mini-max", label: "Neo Assistente (Beta)", icon: Sparkles },
   { href: "/restaurante/admin/assinatura", label: "Assinatura", icon: CreditCard, permission: "billing.view" },
 ];
 
