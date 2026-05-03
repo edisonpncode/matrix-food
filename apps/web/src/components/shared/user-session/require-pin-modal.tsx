@@ -13,6 +13,12 @@ interface RequirePinModalProps {
   action: string;
   /** Motivo adicional gravado no log */
   reason?: string;
+  /**
+   * Quando passado, valida o PIN apenas para esse usuário específico.
+   * Usado quando o atendente precisa pedir autorização a um gerente/dono
+   * já escolhido na lista de autorizadores.
+   */
+  userId?: string;
   /** Fecha o modal sem autorizar */
   onClose?: () => void;
   /** Chamado com os dados do usuário que autorizou */
@@ -41,6 +47,7 @@ export function RequirePinModal({
   description = "Informe o PIN para continuar.",
   action,
   reason,
+  userId,
   onClose,
   onSuccess,
   blocking = false,
@@ -70,7 +77,7 @@ export function RequirePinModal({
     e.preventDefault();
     if (pin.length < 4) return;
     setError(null);
-    authorize.mutate({ pin, action, reason });
+    authorize.mutate({ pin, action, reason, userId });
   }
 
   async function handleLogout() {

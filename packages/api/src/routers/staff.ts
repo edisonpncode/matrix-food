@@ -11,6 +11,7 @@ import {
   and,
   asc,
   desc,
+  isNotNull,
 } from "@matrix-food/database";
 import { getAllPermissions } from "./userType";
 import { rateLimit } from "../lib/rate-limit";
@@ -276,6 +277,72 @@ export const staffRouter = createTRPCRouter({
       .orderBy(asc(tenantUsers.name));
 
     return users;
+  }),
+
+  /**
+   * Lista funcionários autorizados a aplicar desconto manual.
+   * Retorna usuários ativos, com PIN cadastrado, cuja userType (ou
+   * override em tenantUsers.permissions) inclua "orders.discount".
+   * OWNERs sempre são considerados autorizados (têm todas permissões).
+   *
+   * Usado pelo modal de autorização no POS quando o atendente logado não
+   * possui a permissão e precisa que um gerente/dono autorize com PIN.
+   */
+  listAuthorizers: tenantProcedure.query(async ({ ctx }) => {
+    const db = getDb();
+
+    const rows = await db
+      .select({
+        id: tenantUsers.id,
+        name: tenantUsers.name,
+        role: tenantUsers.role,
+        photoUrl: tenantUsers.photoUrl,
+        userTypeName: userTypes.name,
+        userTypePermissions: userTypes.permissions,
+        userOverridePermissions: tenantUsers.permissions,
+      })
+      .from(tenantUsers)
+      .leftJoin(userTypes, eq(tenantUsers.userTypeId, userTypes.id))
+      .where(
+        and(
+          eq(tenantUsers.tenantId, ctx.tenantId),
+          eq(tenantUsers.isActive, true),
+          isNotNull(tenantUsers.pin)
+        )
+      );
+
+    const ROLE_RANK: Record<string, number> = {
+      OWNER: 0,
+      MANAGER: 1,
+      CASHIER: 2,
+      DELIVERY: 3,
+    };
+
+    return rows
+      .filter((u) => {
+        if (u.role === "OWNER") return true;
+        const override = u.userOverridePermissions as
+          | Record<string, boolean>
+          | null;
+        if (override?.["orders.discount"] === true) return true;
+        const fromType = u.userTypePermissions as
+          | Record<string, boolean>
+          | null;
+        return fromType?.["orders.discount"] === true;
+      })
+      .map((u) => ({
+        id: u.id,
+        name: u.name,
+        role: u.role,
+        photoUrl: u.photoUrl,
+        userTypeName: u.userTypeName,
+      }))
+      .sort((a, b) => {
+        const ra = ROLE_RANK[a.role] ?? 99;
+        const rb = ROLE_RANK[b.role] ?? 99;
+        if (ra !== rb) return ra - rb;
+        return a.name.localeCompare(b.name, "pt-BR");
+      });
   }),
 
   /**

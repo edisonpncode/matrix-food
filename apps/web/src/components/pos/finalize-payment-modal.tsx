@@ -9,17 +9,23 @@ import {
   type PaymentMethodConfig,
 } from "@matrix-food/utils";
 import { X, Utensils, ShoppingBag, User } from "lucide-react";
+import { DiscountSection, type DiscountValue } from "./discount-section";
 
 interface FinalizePaymentModalProps {
   order: {
     id: string;
     displayNumber: string;
     type: "TABLE" | "PICKUP";
+    /** Total do pedido ANTES do desconto manual aplicado nesta tela. */
     total: number;
+    /** Subtotal usado como teto para o desconto manual. */
+    subtotal?: number;
     customerName?: string | null;
     tableNumber?: number | null;
   };
   paymentMethods?: PaymentMethodConfig[] | null;
+  discount?: DiscountValue;
+  onDiscountChange?: (next: DiscountValue) => void;
   onConfirm: (data: {
     paymentMethod: PaymentMethodCode;
     customPaymentLabel: string | null;
@@ -33,11 +39,15 @@ interface FinalizePaymentModalProps {
 export function FinalizePaymentModal({
   order,
   paymentMethods,
+  discount,
+  onDiscountChange,
   onConfirm,
   onClose,
   isLoading,
   errorMessage,
 }: FinalizePaymentModalProps) {
+  const discountAmount = discount?.amount ?? 0;
+  const finalTotal = Math.max(0, order.total - discountAmount);
   const enabledMethods = getEnabledPaymentMethods(
     paymentMethods ?? DEFAULT_PAYMENT_METHODS
   );
@@ -152,10 +162,32 @@ export function FinalizePaymentModal({
             )}
           </div>
 
+          {onDiscountChange && discount && (
+            <DiscountSection
+              subtotal={order.subtotal ?? order.total}
+              value={discount}
+              onChange={onDiscountChange}
+              disabled={isLoading}
+            />
+          )}
+
+          {discountAmount > 0 && (
+            <div className="space-y-1">
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Subtotal</span>
+                <span>{formatCurrency(order.total)}</span>
+              </div>
+              <div className="flex justify-between text-sm text-muted-foreground">
+                <span>Desconto</span>
+                <span>-{formatCurrency(discountAmount)}</span>
+              </div>
+            </div>
+          )}
+
           <div className="flex items-center justify-between rounded-lg bg-accent p-3">
             <span className="text-lg font-bold">Total</span>
             <span className="text-2xl font-bold text-primary">
-              {formatCurrency(order.total)}
+              {formatCurrency(finalTotal)}
             </span>
           </div>
 

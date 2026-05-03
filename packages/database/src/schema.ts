@@ -38,6 +38,7 @@ export const activityActionEnum = pgEnum("activity_action", [
   "ORDER_CONFIRMED",
   "ORDER_CANCELLED",
   "ORDER_STATUS_CHANGED",
+  "ORDER_DISCOUNT_APPLIED",
   "CASH_OPENED",
   "CASH_CLOSED",
   "CASH_WITHDRAWAL",

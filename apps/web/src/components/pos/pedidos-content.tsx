@@ -30,6 +30,15 @@ import { FinalizePaymentModal } from "@/components/pos/finalize-payment-modal";
 import { RequirePinModal } from "@/components/shared/user-session/require-pin-modal";
 import { OrderEditModal } from "@/components/pos/order-edit-modal";
 import { PrintJobsPanel } from "@/components/pos/print-jobs-panel";
+import { SelectAuthorizerModal } from "@/components/pos/select-authorizer-modal";
+import type { DiscountValue } from "@/components/pos/discount-section";
+import { useCan } from "@/lib/permissions";
+
+type FinalizePayload = {
+  paymentMethod: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
+  customPaymentLabel: string | null;
+  changeFor: number | null;
+};
 
 type OrderStatus =
   | "PENDING"
@@ -196,6 +205,13 @@ export function PedidosContent() {
   // Fechamento de mesa / vem buscar (modal pede forma de pagamento)
   const [closingOrderId, setClosingOrderId] = useState<string | null>(null);
   const [closingError, setClosingError] = useState<string | null>(null);
+  const [closingDiscount, setClosingDiscount] = useState<DiscountValue>({
+    amount: 0,
+    reason: "",
+  });
+  const [pendingClosingAuth, setPendingClosingAuth] =
+    useState<FinalizePayload | null>(null);
+  const canDiscount = useCan("orders.discount");
   // PIN authorization state for cancellation
   const [pendingCancelOrderId, setPendingCancelOrderId] = useState<string | null>(null);
   // Modal de detalhes/edição
@@ -244,6 +260,8 @@ export function PedidosContent() {
     onSuccess: () => {
       setClosingOrderId(null);
       setClosingError(null);
+      setClosingDiscount({ amount: 0, reason: "" });
+      setPendingClosingAuth(null);
       refetch();
     },
     onError: (err) => setClosingError(err.message),
@@ -800,6 +818,7 @@ export function PedidosContent() {
               displayNumber: orderBeingClosed.displayNumber,
               type: orderBeingClosed.type,
               total: parseFloat(orderBeingClosed.total),
+              subtotal: parseFloat(orderBeingClosed.subtotal),
               customerName: orderBeingClosed.customerName,
               tableNumber: orderBeingClosed.tableNumber,
             }}
@@ -809,23 +828,62 @@ export function PedidosContent() {
                 | null
                 | undefined
             }
+            discount={closingDiscount}
+            onDiscountChange={setClosingDiscount}
             isLoading={finalizeOrder.isPending}
             errorMessage={closingError}
             onClose={() => {
               setClosingOrderId(null);
               setClosingError(null);
+              setClosingDiscount({ amount: 0, reason: "" });
             }}
             onConfirm={(data) => {
               setClosingError(null);
+              if (closingDiscount.amount > 0 && !canDiscount) {
+                setPendingClosingAuth(data);
+                return;
+              }
               finalizeOrder.mutate({
                 orderId: orderBeingClosed.id,
                 paymentMethod: data.paymentMethod,
                 customPaymentLabel: data.customPaymentLabel,
                 changeFor: data.changeFor ?? undefined,
+                manualDiscount:
+                  closingDiscount.amount > 0
+                    ? {
+                        amount: closingDiscount.amount,
+                        reason: closingDiscount.reason.trim() || undefined,
+                      }
+                    : undefined,
               });
             }}
           />
         )}
+
+      {pendingClosingAuth && orderBeingClosed && (
+        <SelectAuthorizerModal
+          discountAmount={closingDiscount.amount}
+          contextLabel={`Fechamento ${orderBeingClosed.displayNumber}`}
+          onClose={() => setPendingClosingAuth(null)}
+          onAuthorized={({ authorizerId }) => {
+            const data = pendingClosingAuth;
+            setPendingClosingAuth(null);
+            if (data) {
+              finalizeOrder.mutate({
+                orderId: orderBeingClosed.id,
+                paymentMethod: data.paymentMethod,
+                customPaymentLabel: data.customPaymentLabel,
+                changeFor: data.changeFor ?? undefined,
+                manualDiscount: {
+                  amount: closingDiscount.amount,
+                  reason: closingDiscount.reason.trim() || undefined,
+                  authorizedByUserId: authorizerId,
+                },
+              });
+            }
+          }}
+        />
+      )}
 
       {pendingCancelOrderId && (
         <RequirePinModal

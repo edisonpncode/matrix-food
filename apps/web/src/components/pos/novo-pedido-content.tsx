@@ -6,11 +6,27 @@ import { formatCurrency, type PaymentMethodConfig } from "@matrix-food/utils";
 import { usePrinterSettings } from "@/hooks/use-printer-settings";
 import { POSCart, type POSCartItem } from "@/components/pos/pos-cart";
 import { POSCheckoutModal } from "@/components/pos/pos-checkout-modal";
+import { SelectAuthorizerModal } from "@/components/pos/select-authorizer-modal";
+import type { DiscountValue } from "@/components/pos/discount-section";
 import {
   OrderTypeHeader,
   type OrderHeaderData,
 } from "@/components/pos/order-type-header";
+import { useCan } from "@/lib/permissions";
 import { Minus, Plus, X, Package, Tag, Gift, Calendar, Clock } from "lucide-react";
+
+type CheckoutFormData = {
+  paymentMethod: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
+  customPaymentLabel: string | null;
+  changeFor: string | null;
+  splitPayments?: Array<{
+    method: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
+    customLabel: string | null;
+    amount: number;
+    payerName: string | null;
+    changeFor: number | null;
+  }>;
+};
 
 interface ProductVariant {
   id: string;
@@ -77,6 +93,13 @@ export function NovoPedidoContent() {
   const [selectedCategory, setSelectedCategory] = useState<string | "PROMOS" | null>(null);
   const [cartItems, setCartItems] = useState<POSCartItem[]>([]);
   const [showCheckout, setShowCheckout] = useState(false);
+  const [discount, setDiscount] = useState<DiscountValue>({
+    amount: 0,
+    reason: "",
+  });
+  const [pendingAuthCheckout, setPendingAuthCheckout] =
+    useState<CheckoutFormData | null>(null);
+  const canDiscount = useCan("orders.discount");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedCustomizations, setSelectedCustomizations] = useState<
@@ -161,6 +184,8 @@ export function NovoPedidoContent() {
       setCartItems([]);
       setShowCheckout(false);
       setAppliedPromos([]);
+      setDiscount({ amount: 0, reason: "" });
+      setPendingAuthCheckout(null);
     },
     onError: (error) => {
       alert(error.message);
@@ -703,19 +728,20 @@ export function NovoPedidoContent() {
     setCartItems((prev) => prev.filter((i) => i.id !== itemId));
   }, []);
 
-  function handleCheckout(data: {
-    paymentMethod: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
-    customPaymentLabel: string | null;
-    changeFor: string | null;
-    splitPayments?: Array<{
-      method: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
-      customLabel: string | null;
-      amount: number;
-      payerName: string | null;
-      changeFor: number | null;
-    }>;
-  }) {
+  function submitCheckout(
+    data: CheckoutFormData,
+    authorizedByUserId: string | null
+  ) {
     const h = orderHeaderData;
+    const manualDiscount =
+      discount.amount > 0
+        ? {
+            amount: discount.amount,
+            reason: discount.reason.trim() || undefined,
+            authorizedByUserId: authorizedByUserId ?? undefined,
+          }
+        : undefined;
+
     createOrder.mutate({
       type: h.orderType,
       customerName: h.customerName || "Balcão",
@@ -730,6 +756,7 @@ export function NovoPedidoContent() {
       deliveryAddress: h.deliveryAddress || null,
       deliveryAreaId: h.deliveryAreaId,
       manualDeliveryFee: h.manualDeliveryFee,
+      manualDiscount,
       items: cartItems.map((item) => ({
         productId: item.productId,
         productVariantId: item.variantId,
@@ -752,6 +779,16 @@ export function NovoPedidoContent() {
     });
   }
 
+  function handleCheckout(data: CheckoutFormData) {
+    // Se há desconto manual e o atendente não tem permissão, exigir
+    // autorização de um gerente/dono via PIN antes de criar o pedido.
+    if (discount.amount > 0 && !canDiscount) {
+      setPendingAuthCheckout(data);
+      return;
+    }
+    submitCheckout(data, null);
+  }
+
   // Calcular totais separando combo de regular (mesma lógica do POSCart)
   const getItemTotal = (item: POSCartItem) => {
     const custTotal = item.customizations.reduce((s, c) => s + c.price, 0);
@@ -772,7 +809,9 @@ export function NovoPedidoContent() {
   }, 0);
 
   const subtotal = promosTotal + regularSubtotal;
-  const finalTotal = subtotal + (orderHeaderData.deliveryFee || 0);
+  const cappedDiscount = Math.min(discount.amount, subtotal);
+  const finalTotal =
+    subtotal + (orderHeaderData.deliveryFee || 0) - cappedDiscount;
 
   return (
     <div className="-m-6 flex h-screen flex-col">
@@ -1784,9 +1823,24 @@ export function NovoPedidoContent() {
           orderHeader={orderHeaderData}
           paymentMethods={tenant?.paymentMethodsAccepted as PaymentMethodConfig[] | null}
           items={cartItems}
+          discount={discount}
+          onDiscountChange={setDiscount}
           onConfirm={handleCheckout}
           onClose={() => setShowCheckout(false)}
           isLoading={createOrder.isPending}
+        />
+      )}
+
+      {pendingAuthCheckout && (
+        <SelectAuthorizerModal
+          discountAmount={cappedDiscount}
+          contextLabel="Pedido novo"
+          onClose={() => setPendingAuthCheckout(null)}
+          onAuthorized={({ authorizerId }) => {
+            const data = pendingAuthCheckout;
+            setPendingAuthCheckout(null);
+            if (data) submitCheckout(data, authorizerId);
+          }}
         />
       )}
       </div>{/* end flex row */}

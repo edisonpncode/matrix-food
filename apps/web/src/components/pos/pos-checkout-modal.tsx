@@ -31,6 +31,7 @@ import {
   POSSplitByPersonWizard,
   type SplitLineOut,
 } from "./pos-split-by-person-wizard";
+import { DiscountSection, type DiscountValue } from "./discount-section";
 
 const ORDER_TYPE_LABELS: Record<string, { label: string; icon: typeof Store }> = {
   COUNTER: { label: "Balcão", icon: Store },
@@ -69,6 +70,9 @@ interface POSCheckoutModalProps {
   paymentMethods?: PaymentMethodConfig[] | null;
   /** Itens do carrinho — necessário para o modo "Dividir por item". */
   items: POSCartItem[];
+  /** Desconto manual aplicado no pedido (valor em R$ + motivo). */
+  discount?: DiscountValue;
+  onDiscountChange?: (next: DiscountValue) => void;
   onConfirm: (data: ConfirmPayload) => void;
   onClose: () => void;
   isLoading: boolean;
@@ -87,6 +91,8 @@ export function POSCheckoutModal({
   orderHeader,
   paymentMethods,
   items,
+  discount,
+  onDiscountChange,
   onConfirm,
   onClose,
   isLoading,
@@ -282,6 +288,16 @@ export function POSCheckoutModal({
               </div>
             )}
           </div>
+
+          {/* Desconto manual — só aparece se o parent decidir tratar desconto */}
+          {onDiscountChange && discount && !isTable && (
+            <DiscountSection
+              subtotal={subtotal}
+              value={discount}
+              onChange={onDiscountChange}
+              disabled={isLoading}
+            />
+          )}
 
           {/* Payment area */}
           {isTable ? (
@@ -502,16 +518,24 @@ export function POSCheckoutModal({
             <>
               {/* Total breakdown */}
               <div className="space-y-1">
-                {deliveryFee > 0 && (
+                {(deliveryFee > 0 || (discount?.amount ?? 0) > 0) && (
                   <>
                     <div className="flex justify-between text-sm text-muted-foreground">
                       <span>Subtotal</span>
                       <span>{formatCurrency(subtotal)}</span>
                     </div>
-                    <div className="flex justify-between text-sm text-muted-foreground">
-                      <span>Taxa de entrega</span>
-                      <span>{formatCurrency(deliveryFee)}</span>
-                    </div>
+                    {(discount?.amount ?? 0) > 0 && (
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Desconto</span>
+                        <span>-{formatCurrency(discount!.amount)}</span>
+                      </div>
+                    )}
+                    {deliveryFee > 0 && (
+                      <div className="flex justify-between text-sm text-muted-foreground">
+                        <span>Taxa de entrega</span>
+                        <span>{formatCurrency(deliveryFee)}</span>
+                      </div>
+                    )}
                   </>
                 )}
                 <div className="flex items-center justify-between rounded-lg bg-accent p-3">

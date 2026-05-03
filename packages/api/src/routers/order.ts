@@ -24,6 +24,7 @@ import {
   customers,
   customerTenants,
   tenantUsers,
+  userTypes,
   tenants,
   activityLogs,
   eq,
@@ -113,6 +114,166 @@ const deliveryAddressInput = z.object({
   zipCode: z.string().optional().default(""),
   referencePoint: z.string().optional(),
 });
+
+// --- Schema compartilhado: desconto manual aplicado pelo POS ---
+
+const manualDiscountInput = z
+  .object({
+    amount: z.number().min(0),
+    reason: z.string().max(200).optional(),
+    authorizedByUserId: z.string().uuid().optional(),
+  })
+  .optional();
+
+/**
+ * Resolve quem aplicou o desconto e quem (se alguém) autorizou, validando
+ * permissões. Retorna o valor capado por subtotalCap e a identidade do
+ * autorizador (quando o operador não tem permissão).
+ *
+ * Lança TRPCError se faltar autorização válida.
+ */
+async function resolveManualDiscount(params: {
+  db: ReturnType<typeof getDb>;
+  tenantId: string;
+  operatorUid: string;
+  input: { amount: number; reason?: string; authorizedByUserId?: string } | null | undefined;
+  subtotalCap: number;
+}): Promise<{
+  amount: number;
+  reason: string | null;
+  authorizedByUserId: string | null;
+  authorizedByName: string | null;
+} | null> {
+  const { db, tenantId, operatorUid, input, subtotalCap } = params;
+
+  if (!input || input.amount <= 0) return null;
+
+  const cappedAmount = Math.min(
+    Math.round(input.amount * 100) / 100,
+    Math.round(subtotalCap * 100) / 100
+  );
+  if (cappedAmount <= 0) return null;
+
+  const reason = input.reason?.trim() || null;
+
+  // Localiza o operador (atendente logado) via firebaseUid para checar permissões.
+  const [operator] = await db
+    .select({
+      id: tenantUsers.id,
+      role: tenantUsers.role,
+      userTypeId: tenantUsers.userTypeId,
+      overridePermissions: tenantUsers.permissions,
+    })
+    .from(tenantUsers)
+    .where(
+      and(
+        eq(tenantUsers.tenantId, tenantId),
+        eq(tenantUsers.firebaseUid, operatorUid),
+        eq(tenantUsers.isActive, true)
+      )
+    )
+    .limit(1);
+
+  // Se o operador não foi achado (tenant antigo sem registro), assume OWNER:
+  // historicamente a entrada legacy é tratada como dono em outras rotas.
+  let operatorHasPermission = !operator || operator.role === "OWNER";
+
+  if (operator && !operatorHasPermission) {
+    const override = operator.overridePermissions as
+      | Record<string, boolean>
+      | null;
+    if (override?.["orders.discount"] === true) {
+      operatorHasPermission = true;
+    } else if (operator.userTypeId) {
+      const [opType] = await db
+        .select({ permissions: userTypes.permissions })
+        .from(userTypes)
+        .where(eq(userTypes.id, operator.userTypeId))
+        .limit(1);
+      const perms = opType?.permissions as Record<string, boolean> | null;
+      if (perms?.["orders.discount"] === true) {
+        operatorHasPermission = true;
+      }
+    }
+  }
+
+  if (operatorHasPermission) {
+    return {
+      amount: cappedAmount,
+      reason,
+      authorizedByUserId: null,
+      authorizedByName: null,
+    };
+  }
+
+  // Operador não tem permissão — exige autorizador.
+  if (!input.authorizedByUserId) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message:
+        "Você não tem permissão para aplicar desconto. Peça autorização de um gerente ou dono.",
+    });
+  }
+
+  const [authorizer] = await db
+    .select({
+      id: tenantUsers.id,
+      name: tenantUsers.name,
+      role: tenantUsers.role,
+      userTypeId: tenantUsers.userTypeId,
+      overridePermissions: tenantUsers.permissions,
+    })
+    .from(tenantUsers)
+    .where(
+      and(
+        eq(tenantUsers.tenantId, tenantId),
+        eq(tenantUsers.id, input.authorizedByUserId),
+        eq(tenantUsers.isActive, true)
+      )
+    )
+    .limit(1);
+
+  if (!authorizer) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Autorizador inválido.",
+    });
+  }
+
+  let authorizerHasPermission = authorizer.role === "OWNER";
+  if (!authorizerHasPermission) {
+    const override = authorizer.overridePermissions as
+      | Record<string, boolean>
+      | null;
+    if (override?.["orders.discount"] === true) {
+      authorizerHasPermission = true;
+    } else if (authorizer.userTypeId) {
+      const [authType] = await db
+        .select({ permissions: userTypes.permissions })
+        .from(userTypes)
+        .where(eq(userTypes.id, authorizer.userTypeId))
+        .limit(1);
+      const perms = authType?.permissions as Record<string, boolean> | null;
+      if (perms?.["orders.discount"] === true) {
+        authorizerHasPermission = true;
+      }
+    }
+  }
+
+  if (!authorizerHasPermission) {
+    throw new TRPCError({
+      code: "FORBIDDEN",
+      message: "Usuário escolhido não pode autorizar desconto.",
+    });
+  }
+
+  return {
+    amount: cappedAmount,
+    reason,
+    authorizedByUserId: authorizer.id,
+    authorizedByName: authorizer.name,
+  };
+}
 
 // --- Helper: auto-salvar cliente ao criar pedido ---
 
@@ -1583,6 +1744,13 @@ export const orderRouter = createTRPCRouter({
             .optional(),
           notes: z.string().optional(),
           promoCode: z.string().optional(),
+          /**
+           * Desconto manual aplicado pelo atendente. Quando o operador não
+           * possui a permissão `orders.discount`, é obrigatório informar
+           * `authorizedByUserId` (validado por PIN no front via
+           * staff.authorizeAction).
+           */
+          manualDiscount: manualDiscountInput,
           items: z.array(orderItemInput).min(1),
         })
         .refine((d) => d.items.every((i) => !i.paidWithPoints), {
@@ -1836,6 +2004,21 @@ export const orderRouter = createTRPCRouter({
         }
       }
 
+      // Desconto manual (autorizado pelo atendente ou por gerente/dono via PIN).
+      // Soma ao desconto da promoção, respeitando o cap de subtotal.
+      const remainingSubtotalCap = Math.max(0, subtotal - discount);
+      const manualDiscountResolved = await resolveManualDiscount({
+        db,
+        tenantId: ctx.tenantId,
+        operatorUid: ctx.user.uid,
+        input: input.manualDiscount ?? null,
+        subtotalCap: remainingSubtotalCap,
+      });
+
+      if (manualDiscountResolved) {
+        discount = Math.round((discount + manualDiscountResolved.amount) * 100) / 100;
+      }
+
       const total = subtotal + deliveryFee - discount;
 
       // Validar soma do split — precisa bater com o total do pedido.
@@ -1988,6 +2171,31 @@ export const orderRouter = createTRPCRouter({
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Falha ao criar pedido",
+        });
+      }
+
+      if (manualDiscountResolved) {
+        await db.insert(activityLogs).values({
+          tenantId: ctx.tenantId,
+          userName: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          action: "ORDER_DISCOUNT_APPLIED",
+          description: `Desconto manual de R$ ${manualDiscountResolved.amount.toFixed(2)} aplicado no pedido ${order.displayNumber}${
+            manualDiscountResolved.reason
+              ? ` — motivo: ${manualDiscountResolved.reason}`
+              : ""
+          }${
+            manualDiscountResolved.authorizedByName
+              ? ` (autorizado por ${manualDiscountResolved.authorizedByName})`
+              : ""
+          }.`,
+          metadata: {
+            orderId: order.id,
+            displayNumber: order.displayNumber,
+            amount: manualDiscountResolved.amount,
+            reason: manualDiscountResolved.reason,
+            authorizedByUserId: manualDiscountResolved.authorizedByUserId,
+            authorizedByName: manualDiscountResolved.authorizedByName,
+          },
         });
       }
 
@@ -2696,6 +2904,12 @@ export const orderRouter = createTRPCRouter({
           .optional(),
         customPaymentLabel: z.string().trim().min(1).max(50).nullable().optional(),
         changeFor: z.number().nonnegative().nullable().optional(),
+        /**
+         * Desconto manual adicional aplicado no fechamento. Soma ao desconto
+         * já existente no pedido. Operadores sem permissão devem informar
+         * `authorizedByUserId` validado por PIN.
+         */
+        manualDiscount: manualDiscountInput,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -2756,6 +2970,36 @@ export const orderRouter = createTRPCRouter({
       const finalStatus =
         existingOrder.type === "PICKUP" ? "PICKED_UP" : "DELIVERED";
 
+      // Aplica desconto manual adicional (se informado) antes de montar
+      // o updateData, para já entrar com discount/total recalculados.
+      const existingSubtotal = parseFloat(existingOrder.subtotal);
+      const existingDiscount = parseFloat(existingOrder.discount);
+      const existingDeliveryFee = parseFloat(existingOrder.deliveryFee);
+      const remainingDiscountCap = Math.max(
+        0,
+        existingSubtotal - existingDiscount
+      );
+
+      const finalizeManualDiscount = await resolveManualDiscount({
+        db,
+        tenantId: ctx.tenantId,
+        operatorUid: ctx.user.uid,
+        input: input.manualDiscount ?? null,
+        subtotalCap: remainingDiscountCap,
+      });
+
+      let newDiscount = existingDiscount;
+      let newTotal = parseFloat(existingOrder.total);
+      if (finalizeManualDiscount) {
+        newDiscount =
+          Math.round((existingDiscount + finalizeManualDiscount.amount) * 100) /
+          100;
+        newTotal =
+          Math.round(
+            (existingSubtotal + existingDeliveryFee - newDiscount) * 100
+          ) / 100;
+      }
+
       const updateData: {
         status: typeof finalStatus;
         paymentStatus: "PAID";
@@ -2763,11 +3007,18 @@ export const orderRouter = createTRPCRouter({
         paymentMethod?: "PIX" | "CASH" | "CREDIT_CARD" | "DEBIT_CARD" | "OTHER";
         customPaymentLabel?: string | null;
         changeFor?: string | null;
+        discount?: string;
+        total?: string;
       } = {
         status: finalStatus,
         paymentStatus: "PAID",
         amountReceived: input.amountReceived?.toFixed(2) ?? null,
       };
+
+      if (finalizeManualDiscount) {
+        updateData.discount = newDiscount.toFixed(2);
+        updateData.total = newTotal.toFixed(2);
+      }
 
       if (input.paymentMethod) {
         updateData.paymentMethod = input.paymentMethod;
@@ -2786,6 +3037,31 @@ export const orderRouter = createTRPCRouter({
         .set(updateData)
         .where(eq(orders.id, input.orderId))
         .returning();
+
+      if (finalizeManualDiscount) {
+        await db.insert(activityLogs).values({
+          tenantId: ctx.tenantId,
+          userName: ctx.user.name ?? ctx.user.email ?? "Funcionário",
+          action: "ORDER_DISCOUNT_APPLIED",
+          description: `Desconto manual de R$ ${finalizeManualDiscount.amount.toFixed(2)} aplicado no fechamento do pedido ${existingOrder.displayNumber}${
+            finalizeManualDiscount.reason
+              ? ` — motivo: ${finalizeManualDiscount.reason}`
+              : ""
+          }${
+            finalizeManualDiscount.authorizedByName
+              ? ` (autorizado por ${finalizeManualDiscount.authorizedByName})`
+              : ""
+          }.`,
+          metadata: {
+            orderId: existingOrder.id,
+            displayNumber: existingOrder.displayNumber,
+            amount: finalizeManualDiscount.amount,
+            reason: finalizeManualDiscount.reason,
+            authorizedByUserId: finalizeManualDiscount.authorizedByUserId,
+            authorizedByName: finalizeManualDiscount.authorizedByName,
+          },
+        });
+      }
 
       // Se já existe sessão aberta e paymentStatus mudou p/ PAID,
       // registrar venda no caixa se ainda não tiver sido registrada.
@@ -2819,7 +3095,7 @@ export const orderRouter = createTRPCRouter({
               sessionId: activeSession.id,
               tenantId: ctx.tenantId,
               type: "SALE",
-              amount: existingOrder.total,
+              amount: newTotal.toFixed(2),
               description: `Pedido #${existingOrder.displayNumber}`,
               orderId: existingOrder.id,
               createdBy: ctx.user.name ?? ctx.user.email ?? "Funcionário",
