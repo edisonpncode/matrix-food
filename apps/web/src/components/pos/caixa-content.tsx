@@ -34,6 +34,7 @@ type CloseResult = {
   expectedBreakdown: Breakdown;
   countedBreakdown: Breakdown;
   sessionId: string;
+  totalDiscounts: number;
 };
 
 export function CaixaContent() {
@@ -87,6 +88,7 @@ export function CaixaContent() {
         sessionId: data.session.id,
         expectedBreakdown: data.expectedBreakdown,
         countedBreakdown: data.countedBreakdown,
+        totalDiscounts: data.totalDiscounts,
       });
       setCloseStep("review");
       // NÃO invalida activeSession aqui — isso faria a página voltar pro
@@ -293,13 +295,22 @@ export function CaixaContent() {
       </div>
 
       {((summary?.totalDeposits ?? 0) > 0 ||
-        (summary?.totalRefunds ?? 0) < 0) && (
-        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        (summary?.totalRefunds ?? 0) < 0 ||
+        (summary?.totalDiscounts ?? 0) > 0) && (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           {(summary?.totalDeposits ?? 0) > 0 && (
             <div className="rounded-xl border bg-blue-50 p-4">
               <p className="text-sm text-blue-600">Depósitos</p>
               <p className="text-xl font-bold text-blue-700">
                 +{formatCurrency(summary?.totalDeposits ?? 0)}
+              </p>
+            </div>
+          )}
+          {(summary?.totalDiscounts ?? 0) > 0 && (
+            <div className="rounded-xl border bg-amber-50 p-4">
+              <p className="text-sm text-amber-700">Descontos concedidos</p>
+              <p className="text-xl font-bold text-amber-800">
+                -{formatCurrency(summary?.totalDiscounts ?? 0)}
               </p>
             </div>
           )}
@@ -613,6 +624,17 @@ export function CaixaContent() {
             </div>
 
             <DifferencesTable result={closeResult} />
+
+            {closeResult.totalDiscounts > 0 && (
+              <div className="mt-3 flex items-center justify-between rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
+                <span className="font-medium text-amber-800">
+                  Descontos concedidos
+                </span>
+                <span className="font-semibold text-amber-900">
+                  -{formatCurrency(closeResult.totalDiscounts)}
+                </span>
+              </div>
+            )}
 
             <button
               onClick={handleFinishClose}

@@ -243,6 +243,41 @@ export const cashRegisterRouter = createTRPCRouter({
       const withdrawals = parseFloat(txSums?.totalWithdrawals ?? "0");
       const adjustments = parseFloat(txSums?.totalAdjustments ?? "0");
 
+      // Soma dos descontos (promo + manual) aplicados nos pedidos da sessão.
+      // Usa a mesma janela de pedidos do getSessionSummary (criados na sessão
+      // OU com SALE/REFUND lançados nela), exceto cancelados.
+      const closeSessionEnd = new Date();
+      const discountRows = await db
+        .selectDistinct({
+          id: orders.id,
+          discount: orders.discount,
+        })
+        .from(orders)
+        .leftJoin(
+          cashRegisterTransactions,
+          eq(cashRegisterTransactions.orderId, orders.id)
+        )
+        .where(
+          and(
+            eq(orders.tenantId, ctx.tenantId),
+            not(eq(orders.status, "CANCELLED")),
+            or(
+              and(
+                gte(orders.createdAt, session.openedAt),
+                lte(orders.createdAt, closeSessionEnd)
+              ),
+              and(
+                eq(cashRegisterTransactions.sessionId, input.sessionId),
+                inArray(cashRegisterTransactions.type, ["SALE", "REFUND"])
+              )
+            )
+          )
+        );
+      const totalDiscounts = discountRows.reduce(
+        (sum, row) => sum + parseFloat(row.discount ?? "0"),
+        0
+      );
+
       // O caixa físico (dinheiro) recebe: abertura + vendas em dinheiro + depósitos - retiradas + ajustes.
       // Cartões/PIX são "esperados" apenas como valores de controle (o que foi registrado no sistema).
       const expectedCash =
@@ -342,6 +377,9 @@ export const cashRegisterRouter = createTRPCRouter({
         lines.push(`• PIX: R$ ${brl(salesByMethod.pix)}`);
         lines.push("");
         lines.push(`*Total vendido:* R$ ${brl(salesNet)}`);
+        if (totalDiscounts > 0.005) {
+          lines.push(`*Total de descontos:* R$ ${brl(totalDiscounts)}`);
+        }
         lines.push(`*Em caixa (contado):* R$ ${brl(closingBalance)}`);
         lines.push(
           `*Esperado em caixa:* R$ ${brl(expectedBalanceTotal)}`
@@ -378,6 +416,7 @@ export const cashRegisterRouter = createTRPCRouter({
         session: updated,
         expectedBreakdown,
         countedBreakdown,
+        totalDiscounts,
       };
     }),
 
@@ -565,6 +604,7 @@ export const cashRegisterRouter = createTRPCRouter({
         .selectDistinct({
           id: orders.id,
           total: orders.total,
+          discount: orders.discount,
         })
         .from(orders)
         .leftJoin(
@@ -589,6 +629,10 @@ export const cashRegisterRouter = createTRPCRouter({
         );
       const totalSales = salesRows.reduce(
         (sum, row) => sum + parseFloat(row.total),
+        0
+      );
+      const totalDiscounts = salesRows.reduce(
+        (sum, row) => sum + parseFloat(row.discount ?? "0"),
         0
       );
 
@@ -629,6 +673,7 @@ export const cashRegisterRouter = createTRPCRouter({
         summary: {
           openingBalance,
           totalSales,
+          totalDiscounts,
           totalRefunds,
           totalDeposits,
           totalWithdrawals,
