@@ -34,6 +34,23 @@ function formatDateBR(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
+/**
+ * Extrai uma mensagem amigável de um erro do tRPC. Se o erro for de
+ * validação (BAD_REQUEST/NOT_FOUND/CONFLICT), usa a mensagem do servidor
+ * — elas são escritas em português e prontas para o usuário. Para qualquer
+ * outro código (INTERNAL_SERVER_ERROR, UNAUTHORIZED, etc), retorna uma
+ * mensagem genérica e loga o detalhe técnico no console.
+ */
+function friendlyError(err: { message: string; data?: { code?: string } | null } | null | undefined): string | null {
+  if (!err) return null;
+  const code = err.data?.code;
+  if (code === "BAD_REQUEST" || code === "NOT_FOUND" || code === "CONFLICT") {
+    return err.message;
+  }
+  console.error("[Escala] Erro inesperado:", err);
+  return "Não foi possível salvar agora. Tente novamente em alguns segundos.";
+}
+
 function dateRangeCoversDay(startDate: string, endDate: string, dayOfWeek: number): boolean {
   // Verifica se o intervalo [startDate, endDate] contém algum dia da semana específico
   // dentro dos próximos 7 dias a partir de hoje (visualização semanal corrente).
@@ -467,10 +484,10 @@ function EditShiftsModal({
             Adicionar turno
           </button>
 
-          {setShifts.error && (
+          {friendlyError(setShifts.error) && (
             <div className="flex items-start gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-              <span>{setShifts.error.message}</span>
+              <span>{friendlyError(setShifts.error)}</span>
             </div>
           )}
         </div>
@@ -650,10 +667,10 @@ function TimeOffPanel({
             </div>
           </div>
 
-          {createMutation.error && (
+          {friendlyError(createMutation.error) && (
             <div className="mt-3 flex items-start gap-2 rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               <AlertCircle className="mt-0.5 h-4 w-4 flex-shrink-0" />
-              <span>{createMutation.error.message}</span>
+              <span>{friendlyError(createMutation.error)}</span>
             </div>
           )}
 
