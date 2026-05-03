@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { trpc } from "@/lib/trpc";
 import {
   Loader2,
@@ -80,6 +80,7 @@ export default function EscalaPage() {
   const staffQuery = trpc.staff.list.useQuery();
   const shiftsQuery = trpc.staffSchedule.listShifts.useQuery();
   const timeOffQuery = trpc.staffSchedule.listTimeOff.useQuery();
+  const defaultsQuery = trpc.staffSchedule.getDefaults.useQuery();
 
   const activeStaff = useMemo(
     () => (staffQuery.data ?? []).filter((s) => s.isActive),
@@ -158,8 +159,12 @@ export default function EscalaPage() {
           isLoading={staffQuery.isLoading || shiftsQuery.isLoading}
           shiftsByCell={shiftsByCell}
           timeOffByUser={timeOffByUser}
+          defaults={defaultsQuery.data ?? null}
           onSaved={() => {
             utils.staffSchedule.listShifts.invalidate();
+          }}
+          onDefaultsSaved={() => {
+            utils.staffSchedule.getDefaults.invalidate();
           }}
         />
       ) : (
@@ -177,6 +182,99 @@ export default function EscalaPage() {
 }
 
 // ============================================================
+// PAINEL DE HORÁRIO PADRÃO
+// ============================================================
+
+function DefaultShiftPanel({
+  defaults,
+  onSaved,
+}: {
+  defaults: { defaultShiftStartTime: string | null; defaultShiftEndTime: string | null } | null;
+  onSaved: () => void;
+}) {
+  const [start, setStart] = useState(defaults?.defaultShiftStartTime ?? "18:00");
+  const [end, setEnd] = useState(defaults?.defaultShiftEndTime ?? "23:00");
+  const [savedFlash, setSavedFlash] = useState(false);
+
+  // Quando os defaults chegam (carga inicial ou após invalidação), atualiza
+  // os inputs locais para refletir o que está salvo no servidor.
+  useEffect(() => {
+    if (defaults?.defaultShiftStartTime) setStart(defaults.defaultShiftStartTime);
+    if (defaults?.defaultShiftEndTime) setEnd(defaults.defaultShiftEndTime);
+  }, [defaults?.defaultShiftStartTime, defaults?.defaultShiftEndTime]);
+
+  const updateMutation = trpc.staffSchedule.updateDefaults.useMutation({
+    onSuccess: () => {
+      onSaved();
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2000);
+    },
+  });
+
+  function handleSave() {
+    updateMutation.mutate({
+      defaultShiftStartTime: start,
+      defaultShiftEndTime: end,
+    });
+  }
+
+  const errMsg = friendlyError(updateMutation.error);
+
+  return (
+    <div className="mb-4 flex flex-wrap items-end gap-3 rounded-lg border border-border bg-muted/30 p-3">
+      <div className="flex-shrink-0">
+        <p className="text-sm font-medium text-foreground">Horário padrão</p>
+        <p className="text-xs text-muted-foreground">
+          Sugerido ao adicionar um novo turno na escala.
+        </p>
+      </div>
+      <div className="flex items-end gap-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-foreground">
+            Início
+          </label>
+          <input
+            type="time"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-foreground">
+            Fim
+          </label>
+          <input
+            type="time"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            className="rounded-md border border-input bg-background px-2 py-1.5 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={updateMutation.isPending}
+          className="flex items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+        >
+          {updateMutation.isPending && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+          Salvar padrão
+        </button>
+        {savedFlash && (
+          <span className="text-xs font-medium text-green-700">Salvo ✓</span>
+        )}
+      </div>
+      {errMsg && (
+        <div className="flex w-full items-start gap-2 rounded border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 flex-shrink-0" />
+          <span>{errMsg}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // GRADE SEMANAL
 // ============================================================
 
@@ -187,13 +285,17 @@ function ScheduleGrid({
   isLoading,
   shiftsByCell,
   timeOffByUser,
+  defaults,
   onSaved,
+  onDefaultsSaved,
 }: {
   activeStaff: StaffItem[];
   isLoading: boolean;
   shiftsByCell: Map<string, { id: string; startTime: string; endTime: string; notes: string | null }[]>;
   timeOffByUser: Map<string, { id: string; type: "FOLGA" | "FERIAS"; startDate: string; endDate: string }[]>;
+  defaults: { defaultShiftStartTime: string | null; defaultShiftEndTime: string | null } | null;
   onSaved: () => void;
+  onDefaultsSaved: () => void;
 }) {
   const [editing, setEditing] = useState<{ user: StaffItem; dayOfWeek: number } | null>(null);
 
@@ -218,6 +320,11 @@ function ScheduleGrid({
 
   return (
     <>
+      <DefaultShiftPanel
+        defaults={defaults}
+        onSaved={onDefaultsSaved}
+      />
+
       <div className="overflow-x-auto rounded-lg border border-border bg-card">
         <table className="w-full min-w-[800px] border-collapse text-sm">
           <thead>
@@ -324,6 +431,7 @@ function ScheduleGrid({
                 notes: s.notes,
               }))
             )}
+          defaults={defaults}
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
@@ -344,6 +452,7 @@ function EditShiftsModal({
   dayOfWeek,
   existingShifts,
   allShiftsForUser,
+  defaults,
   onClose,
   onSaved,
 }: {
@@ -351,6 +460,7 @@ function EditShiftsModal({
   dayOfWeek: number;
   existingShifts: { id: string; startTime: string; endTime: string; notes: string | null }[];
   allShiftsForUser: { dayOfWeek: number; startTime: string; endTime: string; notes: string | null }[];
+  defaults: { defaultShiftStartTime: string | null; defaultShiftEndTime: string | null } | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -366,7 +476,14 @@ function EditShiftsModal({
   });
 
   function addBlock() {
-    setDrafts((d) => [...d, { startTime: "18:00", endTime: "23:00", notes: "" }]);
+    setDrafts((d) => [
+      ...d,
+      {
+        startTime: defaults?.defaultShiftStartTime ?? "18:00",
+        endTime: defaults?.defaultShiftEndTime ?? "23:00",
+        notes: "",
+      },
+    ]);
   }
   function removeBlock(i: number) {
     setDrafts((d) => d.filter((_, idx) => idx !== i));

@@ -294,6 +294,9 @@ export const tenants = pgTable(
         showTimestamp: boolean;
       };
     }>(),
+    /** Horário padrão de turno usado como sugestão ao criar nova entrada na escala. "HH:MM" 24h. */
+    defaultShiftStartTime: varchar("default_shift_start_time", { length: 5 }),
+    defaultShiftEndTime: varchar("default_shift_end_time", { length: 5 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")

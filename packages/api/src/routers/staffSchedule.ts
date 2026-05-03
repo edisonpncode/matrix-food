@@ -6,6 +6,7 @@ import {
   staffShifts,
   staffTimeOff,
   tenantUsers,
+  tenants,
   activityLogs,
   eq,
   and,
@@ -64,6 +65,62 @@ const shiftItemSchema = z.object({
 });
 
 export const staffScheduleRouter = createTRPCRouter({
+  /**
+   * Lê o horário padrão do restaurante usado como sugestão ao criar
+   * uma nova entrada de turno na escala. Retorna `null` em cada campo
+   * quando ainda não foi configurado.
+   */
+  getDefaults: tenantProcedure.query(async ({ ctx }) => {
+    const db = getDb();
+    const [row] = await db
+      .select({
+        defaultShiftStartTime: tenants.defaultShiftStartTime,
+        defaultShiftEndTime: tenants.defaultShiftEndTime,
+      })
+      .from(tenants)
+      .where(eq(tenants.id, ctx.tenantId))
+      .limit(1);
+    return {
+      defaultShiftStartTime: row?.defaultShiftStartTime ?? null,
+      defaultShiftEndTime: row?.defaultShiftEndTime ?? null,
+    };
+  }),
+
+  /**
+   * Atualiza o horário padrão de turno do restaurante. Aceita ambos os
+   * campos como `null` para limpar a configuração.
+   */
+  updateDefaults: tenantProcedure
+    .input(
+      z.object({
+        defaultShiftStartTime: timeSchema.nullable(),
+        defaultShiftEndTime: timeSchema.nullable(),
+      })
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Se ambos preenchidos, valida que não são iguais
+      if (
+        input.defaultShiftStartTime &&
+        input.defaultShiftEndTime &&
+        input.defaultShiftStartTime === input.defaultShiftEndTime
+      ) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "Horário de início e fim não podem ser iguais.",
+        });
+      }
+      const db = getDb();
+      await db
+        .update(tenants)
+        .set({
+          defaultShiftStartTime: input.defaultShiftStartTime,
+          defaultShiftEndTime: input.defaultShiftEndTime,
+        })
+        .where(eq(tenants.id, ctx.tenantId));
+      return { success: true };
+    }),
+
   /**
    * Lista todos os turnos do tenant com dados básicos do funcionário.
    */
