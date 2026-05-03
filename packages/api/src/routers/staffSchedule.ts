@@ -25,6 +25,37 @@ function timeToMinutes(time: string): number {
   return h * 60 + m;
 }
 
+/**
+ * Converte um turno em sub-intervalos [start, end) no eixo 0..1440 minutos.
+ * Turnos que cruzam meia-noite (end <= start) viram dois sub-intervalos:
+ * [start, 1440) e [0, end).
+ */
+function shiftToIntervals(
+  startTime: string,
+  endTime: string
+): Array<[number, number]> {
+  const s = timeToMinutes(startTime);
+  const e = timeToMinutes(endTime);
+  if (e > s) return [[s, e]];
+  // Cruza meia-noite — assume e < s (caso e === s é rejeitado antes).
+  return [
+    [s, 1440],
+    [0, e],
+  ];
+}
+
+function intervalsOverlap(
+  a: Array<[number, number]>,
+  b: Array<[number, number]>
+): boolean {
+  for (const [as, ae] of a) {
+    for (const [bs, be] of b) {
+      if (as < be && bs < ae) return true;
+    }
+  }
+  return false;
+}
+
 const shiftItemSchema = z.object({
   dayOfWeek: dayOfWeekSchema,
   startTime: timeSchema,
@@ -93,17 +124,21 @@ export const staffScheduleRouter = createTRPCRouter({
         });
       }
 
-      // Valida cada turno individualmente
+      // Valida cada turno individualmente — startTime === endTime é vazio.
+      // Demais combinações são válidas: endTime < startTime significa que
+      // o turno atravessa a meia-noite (ex.: 18:00 → 01:00 do dia seguinte).
       for (const s of input.shifts) {
-        if (timeToMinutes(s.endTime) <= timeToMinutes(s.startTime)) {
+        if (s.startTime === s.endTime) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: `Turno inválido: horário de fim (${s.endTime}) deve ser maior que o de início (${s.startTime}).`,
+            message: `Turno inválido: horário de início e fim são iguais (${s.startTime}).`,
           });
         }
       }
 
-      // Valida sobreposição por dia da semana
+      // Valida sobreposição por dia da semana, ciente de turnos que cruzam
+      // a meia-noite. Cada turno é representado como 1 ou 2 sub-intervalos
+      // [start, end) dentro do eixo 0..1440 (minutos do dia).
       const byDay = new Map<number, typeof input.shifts>();
       for (const s of input.shifts) {
         const list = byDay.get(s.dayOfWeek) ?? [];
@@ -111,18 +146,16 @@ export const staffScheduleRouter = createTRPCRouter({
         byDay.set(s.dayOfWeek, list);
       }
       for (const [, list] of byDay) {
-        const sorted = [...list].sort(
-          (a, b) => timeToMinutes(a.startTime) - timeToMinutes(b.startTime)
-        );
-        for (let i = 1; i < sorted.length; i++) {
-          const cur = sorted[i]!;
-          const prev = sorted[i - 1]!;
-          if (timeToMinutes(cur.startTime) < timeToMinutes(prev.endTime)) {
-            throw new TRPCError({
-              code: "BAD_REQUEST",
-              message:
-                "Há turnos sobrepostos no mesmo dia. Ajuste os horários.",
-            });
+        const intervals = list.map((s) => shiftToIntervals(s.startTime, s.endTime));
+        for (let i = 0; i < intervals.length; i++) {
+          for (let j = i + 1; j < intervals.length; j++) {
+            if (intervalsOverlap(intervals[i]!, intervals[j]!)) {
+              throw new TRPCError({
+                code: "BAD_REQUEST",
+                message:
+                  "Há turnos sobrepostos no mesmo dia. Ajuste os horários.",
+              });
+            }
           }
         }
       }

@@ -256,15 +256,28 @@ function ScheduleGrid({
                           {cellShifts.length === 0 && !offThisDay && (
                             <span className="text-xs text-muted-foreground">—</span>
                           )}
-                          {cellShifts.map((s) => (
-                            <span
-                              key={s.id}
-                              className="inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-[11px] font-medium text-purple-800"
-                            >
-                              <Clock className="h-3 w-3" />
-                              {s.startTime}–{s.endTime}
-                            </span>
-                          ))}
+                          {cellShifts.map((s) => {
+                            const crossesMidnight = s.endTime <= s.startTime;
+                            return (
+                              <span
+                                key={s.id}
+                                className="inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-[11px] font-medium text-purple-800"
+                                title={
+                                  crossesMidnight
+                                    ? `${s.startTime}–${s.endTime} do dia seguinte`
+                                    : undefined
+                                }
+                              >
+                                <Clock className="h-3 w-3" />
+                                {s.startTime}–{s.endTime}
+                                {crossesMidnight && (
+                                  <span className="rounded bg-purple-200 px-1 text-[9px] font-bold leading-tight">
+                                    +1d
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })}
                         </button>
                       </td>
                     );
