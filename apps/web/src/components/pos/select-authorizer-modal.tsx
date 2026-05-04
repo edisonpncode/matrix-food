@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { X, ShieldAlert, Loader2, ArrowLeft, ChevronRight } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
@@ -121,10 +122,11 @@ export function SelectAuthorizerModal({
                       className="flex w-full items-center gap-3 rounded-lg border border-border bg-card px-3 py-2 text-left hover:border-primary hover:bg-primary/5"
                     >
                       {u.photoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
+                        <Image
                           src={u.photoUrl}
                           alt={u.name}
+                          width={36}
+                          height={36}
                           className="h-9 w-9 flex-shrink-0 rounded-full object-cover"
                         />
                       ) : (
