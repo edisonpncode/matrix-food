@@ -1,18 +1,10 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { trpc } from "@/lib/trpc";
-import { Plus, Trash2, Loader2, Ruler, Search, X, Calculator, AlertTriangle } from "lucide-react";
+import { Plus, Trash2, Loader2, Ruler, Search, X } from "lucide-react";
 import { ImageUploader } from "./image-uploader";
-import { CostHelp, MarginBadge } from "./cost-help";
-import {
-  computeProductCost,
-  computeMargin,
-  type IngredientUnit,
-} from "@matrix-food/utils";
-
-type BaseUnit = "g" | "ml" | "un";
 
 interface Variant {
   name: string;
@@ -40,8 +32,6 @@ interface ProductIngredientItem {
   defaultState: string;
   additionalPrice: string;
   weightGrams: string | null;
-  quantity: string;
-  unit: BaseUnit | null;
   sortOrder: number;
 }
 
@@ -68,17 +58,8 @@ interface ProductData {
     defaultState: string;
     additionalPrice: string;
     weightGrams: string | null;
-    quantity?: string;
-    unit?: BaseUnit | null;
     sortOrder: number;
   }>;
-}
-
-function formatBRL(value: number): string {
-  return new Intl.NumberFormat("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  }).format(value);
 }
 
 export function ProductForm({ product }: { product?: ProductData }) {
@@ -124,27 +105,17 @@ export function ProductForm({ product }: { product?: ProductData }) {
   const [productIngredientsList, setProductIngredientsList] = useState<
     ProductIngredientItem[]
   >(
-    (product?.ingredients ?? []).map((ing) => {
-      // Migração transparente: se não tem quantity mas tem weightGrams, usa-o como gramas.
-      const hasNewFields = ing.quantity != null && Number(ing.quantity) > 0;
-      const fallbackQty =
-        !hasNewFields && ing.weightGrams ? ing.weightGrams : (ing.quantity ?? "0");
-      const fallbackUnit =
-        !hasNewFields && ing.weightGrams ? ("g" as BaseUnit) : (ing.unit ?? null);
-      return {
-        ingredientId: ing.ingredientId,
-        ingredientName: ing.ingredientName,
-        ingredientType: ing.ingredientType,
-        defaultQuantity: ing.defaultQuantity,
-        maxQuantity: ing.maxQuantity,
-        defaultState: ing.defaultState,
-        additionalPrice: ing.additionalPrice,
-        weightGrams: ing.weightGrams,
-        quantity: fallbackQty,
-        unit: fallbackUnit,
-        sortOrder: ing.sortOrder,
-      };
-    })
+    (product?.ingredients ?? []).map((ing) => ({
+      ingredientId: ing.ingredientId,
+      ingredientName: ing.ingredientName,
+      ingredientType: ing.ingredientType,
+      defaultQuantity: ing.defaultQuantity,
+      maxQuantity: ing.maxQuantity,
+      defaultState: ing.defaultState,
+      additionalPrice: ing.additionalPrice,
+      weightGrams: ing.weightGrams,
+      sortOrder: ing.sortOrder,
+    }))
   );
   const [ingredientSearch, setIngredientSearch] = useState("");
   const [showIngredientDropdown, setShowIngredientDropdown] = useState(false);
@@ -194,74 +165,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
     syncVariantsMutation.isPending ||
     syncSizePricesMutation.isPending ||
     syncIngredientsMutation.isPending;
-
-  // ============================================
-  // CUSTO / MARGEM AO VIVO (CMV calculado no client)
-  // ============================================
-  const ingredientCostMap = useMemo(() => {
-    const map = new Map<
-      string,
-      { unitCost: number; unit: BaseUnit; isComposite: boolean }
-    >();
-    for (const ing of ingredientsQuery.data ?? []) {
-      map.set(ing.id, {
-        unitCost: Number(ing.unitCost),
-        unit: ing.unit as BaseUnit,
-        isComposite: ing.isComposite,
-      });
-    }
-    return map;
-  }, [ingredientsQuery.data]);
-
-  const costBreakdown = useMemo(() => {
-    return computeProductCost({
-      ingredients: productIngredientsList.map((pi) => {
-        const meta = ingredientCostMap.get(pi.ingredientId);
-        return {
-          name: pi.ingredientName,
-          quantity: pi.quantity || "0",
-          unit: pi.unit,
-          weightGramsLegacy: pi.weightGrams,
-          ingredientUnitCost: meta?.unitCost ?? 0,
-          ingredientUnit: (meta?.unit ?? "un") as IngredientUnit,
-        };
-      }),
-    });
-  }, [productIngredientsList, ingredientCostMap]);
-
-  const baseMargin = useMemo(
-    () =>
-      computeMargin({
-        sellPrice: price || "0",
-        cost: costBreakdown.totalCost,
-      }),
-    [price, costBreakdown.totalCost]
-  );
-
-  const variantMargins = useMemo(() => {
-    if (!hasVariants) return [];
-    return variants.map((v) => ({
-      name: v.name || "(sem nome)",
-      price: Number(v.price),
-      ...computeMargin({ sellPrice: v.price, cost: costBreakdown.totalCost }),
-    }));
-  }, [hasVariants, variants, costBreakdown.totalCost]);
-
-  const sizeMargins = useMemo(() => {
-    if (!categoryHasSizes) return [];
-    return sizePrices.map((sp) => ({
-      name: sp.sizeName,
-      price: Number(sp.price),
-      ...computeMargin({ sellPrice: sp.price, cost: costBreakdown.totalCost }),
-    }));
-  }, [categoryHasSizes, sizePrices, costBreakdown.totalCost]);
-
-  const hasCost = costBreakdown.totalCost > 0;
-  const hasNegativeMargin =
-    hasCost &&
-    (baseMargin.profitBRL < 0 ||
-      variantMargins.some((v) => v.profitBRL < 0 && v.price > 0) ||
-      sizeMargins.some((s) => s.profitBRL < 0 && s.price > 0));
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -319,8 +222,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
               defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
               additionalPrice: ing.additionalPrice,
               weightGrams: ing.weightGrams,
-              quantity: ing.quantity || "0",
-              unit: ing.unit ?? null,
               sortOrder: i,
             })),
           })
@@ -360,8 +261,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
             defaultState: (ing.defaultState === "SEM" ? "SEM" : "COM") as "COM" | "SEM",
             additionalPrice: ing.additionalPrice,
             weightGrams: ing.weightGrams,
-            quantity: ing.quantity || "0",
-            unit: ing.unit ?? null,
             sortOrder: i,
           })),
         });
@@ -891,23 +790,16 @@ export function ProductForm({ product }: { product?: ProductData }) {
 
                   <div className="flex items-center gap-2">
                     <label className="text-xs text-muted-foreground whitespace-nowrap">
-                      Qtd na ficha
+                      Peso (g)
                     </label>
                     <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={ing.quantity ?? ""}
+                      type="text"
+                      value={ing.weightGrams ?? ""}
                       onChange={(e) => {
                         setProductIngredientsList((prev) =>
                           prev.map((item, i) =>
                             i === index
-                              ? {
-                                  ...item,
-                                  quantity: e.target.value || "0",
-                                  // limpa weightGrams legado quando user edita o novo campo
-                                  weightGrams: null,
-                                }
+                              ? { ...item, weightGrams: e.target.value || null }
                               : item
                           )
                         );
@@ -915,9 +807,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
                       className="w-20 rounded-md border border-input bg-background px-2 py-1 text-sm text-center"
                       placeholder="0"
                     />
-                    <span className="text-xs text-muted-foreground">
-                      {ing.unit ?? "—"}
-                    </span>
                   </div>
                 </div>
               </div>
@@ -986,8 +875,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
                                 ing.type === "DESCRIPTION" ? "COM" : "COM",
                               additionalPrice: "0",
                               weightGrams: null,
-                              quantity: "0",
-                              unit: (ing.unit ?? "un") as BaseUnit,
                               sortOrder: productIngredientsList.length,
                             },
                           ]);
@@ -1006,11 +893,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
                         >
                           {ing.type === "QUANTITY" ? "Quantidade" : "Descrição"}
                         </span>
-                        {Number(ing.unitCost) > 0 && (
-                          <span className="ml-auto text-[10px] text-muted-foreground">
-                            {formatBRL(Number(ing.unitCost))}/{ing.unit}
-                          </span>
-                        )}
                       </button>
                     ))}
                     {filtered.length === 0 && !exactMatch && (
@@ -1114,8 +996,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
                             result.type === "DESCRIPTION" ? "COM" : "COM",
                           additionalPrice: "0",
                           weightGrams: null,
-                          quantity: "0",
-                          unit: (result.unit ?? "un") as BaseUnit,
                           sortOrder: productIngredientsList.length,
                         },
                       ]);
@@ -1141,174 +1021,6 @@ export function ProductForm({ product }: { product?: ProductData }) {
             </div>
           </div>
         </div>
-      )}
-
-      {/* Custo / Margem ao vivo */}
-      {productIngredientsList.length > 0 && (
-        <section className="rounded-lg border border-border bg-card p-5">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="flex items-center gap-2 text-lg font-semibold text-foreground">
-              <Calculator className="h-5 w-5 text-emerald-600" />
-              Custo / Margem
-              <CostHelp topic="margin" />
-            </h2>
-            {hasCost && <MarginBadge marginPercent={baseMargin.marginPercent} cost={costBreakdown.totalCost} />}
-          </div>
-
-          {!hasCost ? (
-            <p className="text-sm text-muted-foreground">
-              Cadastre <strong>preço de compra</strong> e <strong>quantidade na ficha</strong> dos
-              ingredientes para calcular o custo automaticamente.
-            </p>
-          ) : (
-            <>
-              <div className="grid gap-3 sm:grid-cols-4 mb-4">
-                <div className="rounded-md border border-border p-3 bg-background">
-                  <div className="text-xs text-muted-foreground">Custo (CMV)</div>
-                  <div className="text-lg font-semibold text-foreground tabular-nums">
-                    {formatBRL(costBreakdown.totalCost)}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border p-3 bg-background">
-                  <div className="text-xs text-muted-foreground">Lucro (R$)</div>
-                  <div
-                    className={`text-lg font-semibold tabular-nums ${
-                      baseMargin.profitBRL >= 0 ? "text-emerald-600" : "text-red-600"
-                    }`}
-                  >
-                    {formatBRL(baseMargin.profitBRL)}
-                  </div>
-                </div>
-                <div className="rounded-md border border-border p-3 bg-background">
-                  <div className="text-xs text-muted-foreground">Margem (%)</div>
-                  <div
-                    className={`text-lg font-semibold tabular-nums ${
-                      baseMargin.marginPercent >= 30 ? "text-foreground" : "text-red-600"
-                    }`}
-                  >
-                    {baseMargin.marginPercent.toFixed(1)}%
-                  </div>
-                </div>
-                <div className="rounded-md border border-border p-3 bg-background">
-                  <div className="text-xs text-muted-foreground">Markup (%)</div>
-                  <div className="text-lg font-semibold text-foreground tabular-nums">
-                    {baseMargin.markupPercent.toFixed(1)}%
-                  </div>
-                </div>
-              </div>
-
-              {hasNegativeMargin && (
-                <div className="mb-4 flex items-start gap-2 rounded-md border border-red-300 bg-red-50 dark:bg-red-900/20 p-3">
-                  <AlertTriangle className="h-5 w-5 shrink-0 text-red-600 mt-0.5" />
-                  <div className="text-sm">
-                    <p className="font-medium text-red-700 dark:text-red-400">Margem negativa!</p>
-                    <p className="text-xs text-red-600 dark:text-red-300 mt-0.5">
-                      O preço de venda está abaixo do custo. Você está perdendo dinheiro a cada
-                      venda. Reveja o preço ou reduza ingredientes.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Margens por variante / tamanho */}
-              {variantMargins.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">
-                    Por variante
-                  </h4>
-                  <div className="space-y-1">
-                    {variantMargins.map((v, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-                      >
-                        <span className="font-medium">{v.name}</span>
-                        <div className="flex items-center gap-3 text-xs tabular-nums">
-                          <span className="text-muted-foreground">
-                            {formatBRL(v.price)} − {formatBRL(costBreakdown.totalCost)} =
-                          </span>
-                          <span
-                            className={`font-semibold ${
-                              v.profitBRL >= 0 ? "text-emerald-600" : "text-red-600"
-                            }`}
-                          >
-                            {formatBRL(v.profitBRL)}
-                          </span>
-                          <MarginBadge marginPercent={v.marginPercent} cost={costBreakdown.totalCost} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {sizeMargins.length > 0 && (
-                <div className="mb-4">
-                  <h4 className="text-xs font-semibold uppercase text-muted-foreground mb-2">
-                    Por tamanho
-                  </h4>
-                  <div className="space-y-1">
-                    {sizeMargins.map((sp, i) => (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between rounded-md border border-border bg-background px-3 py-1.5 text-sm"
-                      >
-                        <span className="font-medium">{sp.name}</span>
-                        <div className="flex items-center gap-3 text-xs tabular-nums">
-                          <span className="text-muted-foreground">
-                            {formatBRL(sp.price)} − {formatBRL(costBreakdown.totalCost)} =
-                          </span>
-                          <span
-                            className={`font-semibold ${
-                              sp.profitBRL >= 0 ? "text-emerald-600" : "text-red-600"
-                            }`}
-                          >
-                            {formatBRL(sp.profitBRL)}
-                          </span>
-                          <MarginBadge marginPercent={sp.marginPercent} cost={costBreakdown.totalCost} />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Detalhamento expansível por linha */}
-              <details className="rounded-md border border-border bg-background">
-                <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent rounded-md">
-                  Ver detalhamento por ingrediente ({costBreakdown.lineItems.length})
-                </summary>
-                <div className="border-t border-border divide-y divide-border">
-                  {costBreakdown.lineItems.map((line, i) => {
-                    const item = productIngredientsList[i];
-                    if (!item) return null;
-                    return (
-                      <div
-                        key={i}
-                        className="flex items-center justify-between px-3 py-1.5 text-xs"
-                      >
-                        <span className="truncate">
-                          {item.ingredientName}
-                          {line.warning && (
-                            <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 text-[10px]">
-                              {line.warning}
-                            </span>
-                          )}
-                        </span>
-                        <span className="text-muted-foreground tabular-nums">
-                          {item.quantity || 0} {item.unit ?? "—"} ={" "}
-                          <strong className="text-foreground">
-                            {formatBRL(line.cost)}
-                          </strong>
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </details>
-            </>
-          )}
-        </section>
       )}
 
       {/* Botões */}

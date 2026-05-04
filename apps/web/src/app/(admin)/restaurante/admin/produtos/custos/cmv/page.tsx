@@ -17,7 +17,6 @@ import {
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
 import {
-  ReportShell,
   DateRangePicker,
   KpiCard,
   ChartContainer,
@@ -105,33 +104,27 @@ export default function CmvPage() {
   }
 
   return (
-    <ReportShell
-      title="CMV no Período"
-      description="Custo de mercadoria vendida consolidado, faturamento e margem real do período."
-      filters={
-        <>
-          <DateRangePicker value={range} onChange={setRange} />
-          <select
-            value={groupBy}
-            onChange={(e) => setGroupBy(e.target.value as GroupBy)}
-            className="rounded-md border bg-card px-3 py-2 text-sm"
-          >
-            {(Object.keys(GROUP_LABELS) as GroupBy[]).map((k) => (
-              <option key={k} value={k}>
-                {GROUP_LABELS[k]}
-              </option>
-            ))}
-          </select>
-        </>
-      }
-      actions={
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <DateRangePicker value={range} onChange={setRange} />
+        <select
+          value={groupBy}
+          onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+          className="rounded-md border bg-card px-3 py-2 text-sm"
+        >
+          {(Object.keys(GROUP_LABELS) as GroupBy[]).map((k) => (
+            <option key={k} value={k}>
+              {GROUP_LABELS[k]}
+            </option>
+          ))}
+        </select>
         <ExportButton
           formats={["csv"]}
           onExport={handleExport}
           disabled={series.length === 0}
         />
-      }
-    >
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-4">
         <KpiCard
           title="Faturamento"
@@ -158,9 +151,7 @@ export default function CmvPage() {
           iconColor="text-blue-600"
           iconBg="bg-blue-50"
           subtitle={
-            summary
-              ? `Margem ${summary.marginPercent.toFixed(1)}%`
-              : undefined
+            summary ? `Margem ${summary.marginPercent.toFixed(1)}%` : undefined
           }
           loading={cmvQ.isLoading}
           isText
@@ -192,9 +183,7 @@ export default function CmvPage() {
               fontSize={12}
               tickFormatter={(v: number) => formatCurrency(v)}
             />
-            <Tooltip
-              formatter={(value: number) => formatCurrency(value)}
-            />
+            <Tooltip formatter={(value: number) => formatCurrency(value)} />
             <Legend />
             <Line
               type="monotone"
@@ -237,9 +226,7 @@ export default function CmvPage() {
               tickFormatter={(v: number) => `${v.toFixed(0)}%`}
               domain={[0, 100]}
             />
-            <Tooltip
-              formatter={(value: number) => `${value.toFixed(1)}%`}
-            />
+            <Tooltip formatter={(value: number) => `${value.toFixed(1)}%`} />
             <Line
               type="monotone"
               dataKey="marginPercent"
@@ -261,7 +248,11 @@ export default function CmvPage() {
         <ResponsiveContainer width="100%" height={350}>
           <BarChart data={topQ.data ?? []} layout="vertical">
             <CartesianGrid strokeDasharray="3 3" />
-            <XAxis type="number" fontSize={12} tickFormatter={(v: number) => formatCurrency(v)} />
+            <XAxis
+              type="number"
+              fontSize={12}
+              tickFormatter={(v: number) => formatCurrency(v)}
+            />
             <YAxis
               type="category"
               dataKey="productName"
@@ -271,9 +262,7 @@ export default function CmvPage() {
                 name.length > 18 ? name.slice(0, 18) + "…" : name
               }
             />
-            <Tooltip
-              formatter={(value: number) => formatCurrency(value)}
-            />
+            <Tooltip formatter={(value: number) => formatCurrency(value)} />
             <Bar
               dataKey="profit"
               name="Lucro bruto"
@@ -332,6 +321,6 @@ export default function CmvPage() {
           </table>
         </div>
       </ChartContainer>
-    </ReportShell>
+    </div>
   );
 }

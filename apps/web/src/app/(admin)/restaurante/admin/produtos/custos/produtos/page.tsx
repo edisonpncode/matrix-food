@@ -13,7 +13,6 @@ import {
 import { trpc } from "@/lib/trpc";
 import { formatCurrency } from "@matrix-food/utils";
 import {
-  ReportShell,
   KpiCard,
   ChartContainer,
   ExportButton,
@@ -60,7 +59,7 @@ function MarginPill({
   );
 }
 
-export default function RentabilidadePage() {
+export default function CustoProdutosPage() {
   const [sortBy, setSortBy] = useState<SortBy>("marginPercentAsc");
   const [onlyNegative, setOnlyNegative] = useState(false);
   const [belowMargin, setBelowMargin] = useState<string>("");
@@ -80,7 +79,7 @@ export default function RentabilidadePage() {
     if (format !== "csv") return;
     const rows = productsQ.data ?? [];
     exportRowsAsCsv(
-      `rentabilidade_produtos_${new Date().toISOString().slice(0, 10)}.csv`,
+      `custo_produtos_${new Date().toISOString().slice(0, 10)}.csv`,
       [
         { header: "Produto", accessor: (r) => r.name },
         { header: "Categoria", accessor: (r) => r.categoryName },
@@ -106,55 +105,49 @@ export default function RentabilidadePage() {
   );
 
   return (
-    <ReportShell
-      title="Rentabilidade"
-      description="Margem por produto, custo (CMV), comparação por categoria e adicionais com prejuízo."
-      filters={
-        <>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortBy)}
-            className="rounded-md border bg-card px-3 py-2 text-sm"
-          >
-            {(Object.keys(SORT_LABELS) as SortBy[]).map((k) => (
-              <option key={k} value={k}>
-                {SORT_LABELS[k]}
-              </option>
-            ))}
-          </select>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={onlyNegative}
-              onChange={(e) => setOnlyNegative(e.target.checked)}
-              className="rounded border-input"
-            />
-            Apenas margem negativa
-          </label>
-          <div className="flex items-center gap-2 text-sm">
-            <span className="text-muted-foreground">Margem &lt;</span>
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="5"
-              value={belowMargin}
-              onChange={(e) => setBelowMargin(e.target.value)}
-              placeholder="ex: 30"
-              className="w-20 rounded-md border bg-card px-2 py-1 text-sm"
-            />
-            <span className="text-muted-foreground">%</span>
-          </div>
-        </>
-      }
-      actions={
+    <div className="space-y-6">
+      <div className="flex items-center justify-end gap-3">
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as SortBy)}
+          className="rounded-md border bg-card px-3 py-2 text-sm"
+        >
+          {(Object.keys(SORT_LABELS) as SortBy[]).map((k) => (
+            <option key={k} value={k}>
+              {SORT_LABELS[k]}
+            </option>
+          ))}
+        </select>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={onlyNegative}
+            onChange={(e) => setOnlyNegative(e.target.checked)}
+            className="rounded border-input"
+          />
+          Apenas margem negativa
+        </label>
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-muted-foreground">Margem &lt;</span>
+          <input
+            type="number"
+            min="0"
+            max="100"
+            step="5"
+            value={belowMargin}
+            onChange={(e) => setBelowMargin(e.target.value)}
+            placeholder="ex: 30"
+            className="w-20 rounded-md border bg-card px-2 py-1 text-sm"
+          />
+          <span className="text-muted-foreground">%</span>
+        </div>
         <ExportButton
           formats={["csv"]}
           onExport={handleExport}
           disabled={!productsQ.data || productsQ.data.length === 0}
         />
-      }
-    >
+      </div>
+
       <div className="grid gap-4 sm:grid-cols-4">
         <KpiCard
           title="Produtos com custo"
@@ -168,9 +161,7 @@ export default function RentabilidadePage() {
         <KpiCard
           title="Margem média"
           value={
-            summary
-              ? `${summary.averageMarginPercent.toFixed(1)}%`
-              : "—"
+            summary ? `${summary.averageMarginPercent.toFixed(1)}%` : "—"
           }
           icon={Calculator}
           iconColor="text-emerald-600"
@@ -187,7 +178,7 @@ export default function RentabilidadePage() {
           loading={summaryQ.isLoading}
           subtitle={
             summary && summary.belowThreshold > 0
-              ? "Reveja o preço ou ingredientes"
+              ? "Reveja preço ou ingredientes"
               : "Tudo certo!"
           }
         />
@@ -207,7 +198,6 @@ export default function RentabilidadePage() {
         />
       </div>
 
-      {/* Tabela detalhada */}
       <ChartContainer
         title={`Produtos (${productsQ.data?.length ?? 0})`}
         description="Lista ordenada — produtos sem custo cadastrado aparecem ao final."
@@ -272,7 +262,6 @@ export default function RentabilidadePage() {
         </div>
       </ChartContainer>
 
-      {/* Categorias */}
       <ChartContainer
         title="Margem média por categoria"
         description="Margem ponderada considerando o preço base de cada produto."
@@ -308,7 +297,6 @@ export default function RentabilidadePage() {
         </div>
       </ChartContainer>
 
-      {/* Adicionais com problema */}
       {customQ.data && customQ.data.length > 0 && (
         <ChartContainer
           title="Adicionais (custo vs preço)"
@@ -374,6 +362,6 @@ export default function RentabilidadePage() {
           </div>
         </ChartContainer>
       )}
-    </ReportShell>
+    </div>
   );
 }

@@ -29,6 +29,7 @@ import {
   FileText,
   Bike,
   BarChart3,
+  Calculator,
 } from "lucide-react";
 import { useState, useEffect, useMemo } from "react";
 import type { LucideIcon } from "lucide-react";
@@ -82,6 +83,7 @@ const sidebarEntries: SidebarEntry[] = [
       { href: "/restaurante/admin/categorias", label: "Categorias", icon: FolderOpen, permission: "categories.view" },
       { href: "/restaurante/admin/produtos", label: "Produtos", icon: ShoppingBag, permission: "products.view" },
       { href: "/restaurante/admin/ingredientes", label: "Ingredientes", icon: Egg, permission: "ingredients.view" },
+      { href: "/restaurante/admin/produtos/custos", label: "Custos", icon: Calculator, permission: "products.view" },
       { href: "/restaurante/admin/promocoes", label: "Promoções", icon: Tag, permission: "promotions.view" },
     ],
   },
@@ -201,6 +203,13 @@ export function AdminSidebar() {
     }
     if (href === "/restaurante/admin/configuracoes") {
       return pathname === href;
+    }
+    // "Produtos" não deve ficar ativo quando estamos em "Produtos > Custos"
+    if (href === "/restaurante/admin/produtos") {
+      return (
+        pathname.startsWith(href) &&
+        !pathname.startsWith("/restaurante/admin/produtos/custos")
+      );
     }
     return pathname.startsWith(href);
   }

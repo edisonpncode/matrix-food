@@ -25,7 +25,7 @@ function formatDateTime(value: Date | string): string {
   }).format(date);
 }
 
-export default function IngredienteDetailPage({
+export default function InsumoDetailPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -48,9 +48,9 @@ export default function IngredienteDetailPage({
   if (!ing) {
     return (
       <div className="max-w-3xl mx-auto py-12 text-center">
-        <p className="text-muted-foreground">Ingrediente não encontrado.</p>
+        <p className="text-muted-foreground">Insumo não encontrado.</p>
         <Link
-          href="/restaurante/admin/ingredientes"
+          href="/restaurante/admin/produtos/custos/insumos"
           className="mt-4 inline-flex items-center gap-1 text-sm text-primary hover:underline"
         >
           <ArrowLeft className="h-4 w-4" /> Voltar
@@ -65,15 +65,16 @@ export default function IngredienteDetailPage({
   const wastePercent = Number(ing.wastePercent);
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    <div className="space-y-6">
+      <Link
+        href="/restaurante/admin/produtos/custos/insumos"
+        className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary"
+      >
+        <ArrowLeft className="h-4 w-4" /> Voltar para insumos
+      </Link>
+
       <div>
-        <Link
-          href="/restaurante/admin/ingredientes"
-          className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary"
-        >
-          <ArrowLeft className="h-4 w-4" /> Voltar para ingredientes
-        </Link>
-        <h1 className="mt-2 flex items-center gap-2 text-2xl font-bold text-foreground">
+        <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground">
           {ing.name}
           {ing.isComposite && (
             <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-2 py-0.5 text-xs font-medium">
@@ -81,13 +82,12 @@ export default function IngredienteDetailPage({
               Sub-receita
             </span>
           )}
-        </h1>
+        </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Detalhes de custo, ficha de compra e histórico.
+          Detalhes de custo, ficha de compra e histórico de variação.
         </p>
       </div>
 
-      {/* Cards principais */}
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="rounded-lg border border-border bg-card p-4">
           <div className="text-xs text-muted-foreground flex items-center gap-1">
@@ -95,7 +95,10 @@ export default function IngredienteDetailPage({
             Custo unitário
           </div>
           <div className="text-xl font-semibold text-foreground tabular-nums mt-1">
-            {formatBRL(unitCost)} <span className="text-sm font-normal text-muted-foreground">/{ing.unit}</span>
+            {formatBRL(unitCost)}{" "}
+            <span className="text-sm font-normal text-muted-foreground">
+              /{ing.unit}
+            </span>
           </div>
         </div>
 
@@ -116,31 +119,33 @@ export default function IngredienteDetailPage({
               </div>
             </div>
             <div className="rounded-lg border border-border bg-card p-4">
-              <div className="text-xs text-muted-foreground">Perda no processo</div>
+              <div className="text-xs text-muted-foreground">
+                Perda no processo
+              </div>
               <div className="text-base text-foreground mt-1">
                 {(wastePercent * 100).toFixed(1)}%
               </div>
             </div>
           </>
         ) : (
-          <>
-            <div className="rounded-lg border border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 p-4 col-span-2">
-              <div className="text-xs text-muted-foreground">Receita (rendimento líquido)</div>
-              <div className="text-base text-foreground mt-1">
-                Rende {ing.yieldQuantity ? Number(ing.yieldQuantity) : "—"} {ing.unit} (perda {(wastePercent * 100).toFixed(1)}%)
-              </div>
+          <div className="rounded-lg border border-amber-300 bg-amber-50/50 dark:bg-amber-950/20 p-4 col-span-2">
+            <div className="text-xs text-muted-foreground">
+              Receita (rendimento líquido)
             </div>
-          </>
+            <div className="text-base text-foreground mt-1">
+              Rende {ing.yieldQuantity ? Number(ing.yieldQuantity) : "—"}{" "}
+              {ing.unit} (perda {(wastePercent * 100).toFixed(1)}%)
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Componentes (se composite) */}
       {ing.isComposite && ing.recipeItems.length > 0 && (
         <div className="rounded-lg border border-border bg-card p-5">
-          <h2 className="flex items-center gap-2 text-lg font-semibold mb-3">
+          <h3 className="flex items-center gap-2 text-base font-semibold mb-3">
             <ChefHat className="h-5 w-5 text-amber-600" />
             Componentes da receita
-          </h2>
+          </h3>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -176,20 +181,19 @@ export default function IngredienteDetailPage({
         </div>
       )}
 
-      {/* Histórico de custo */}
       <div className="rounded-lg border border-border bg-card p-5">
-        <h2 className="flex items-center gap-2 text-lg font-semibold mb-3">
+        <h3 className="flex items-center gap-2 text-base font-semibold mb-3">
           <History className="h-5 w-5 text-blue-600" />
           Histórico de custo
-        </h2>
+        </h3>
         {historyQ.isLoading ? (
           <div className="flex justify-center py-6">
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : !historyQ.data || historyQ.data.length === 0 ? (
           <p className="text-sm text-muted-foreground italic">
-            Sem histórico ainda. Edite o ingrediente para começar a registrar
-            mudanças de custo.
+            Sem histórico ainda. Atualize o preço/perda do insumo na tabela
+            para começar a registrar mudanças.
           </p>
         ) : (
           <div className="overflow-x-auto">

@@ -283,7 +283,9 @@ export const ingredientRouter = createTRPCRouter({
     }),
 
   /**
-   * Atualiza um ingrediente simples e propaga mudanças de custo aos compostos.
+   * Atualiza um ingrediente. Os campos de custo (unit/purchaseQuantity/etc) são opcionais —
+   * a página de Ingredientes usa só nome+tipo; a tela "Custos > Insumos" envia os campos de custo.
+   * Quando os dados de compra mudam, recalcula `unitCost`, grava histórico e propaga aos compostos.
    */
   update: tenantProcedure
     .input(
@@ -291,10 +293,10 @@ export const ingredientRouter = createTRPCRouter({
         id: z.string().uuid(),
         name: z.string().min(1).max(255),
         type: z.enum(["QUANTITY", "DESCRIPTION"]),
-        unit: unitEnum,
-        purchaseQuantity: z.string(),
-        purchasePrice: z.string(),
-        wastePercent: z.string(),
+        unit: unitEnum.optional(),
+        purchaseQuantity: z.string().optional(),
+        purchasePrice: z.string().optional(),
+        wastePercent: z.string().optional(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -315,31 +317,36 @@ export const ingredientRouter = createTRPCRouter({
         throw new TRPCError({ code: "NOT_FOUND", message: "Ingrediente não encontrado" });
       }
 
-      // Sub-receitas têm unitCost calculado, não editado.
       const isComposite = previous.isComposite;
+      const purchaseQuantity = input.purchaseQuantity ?? previous.purchaseQuantity;
+      const purchasePrice = input.purchasePrice ?? previous.purchasePrice;
+      const wastePercent = input.wastePercent ?? previous.wastePercent;
+      const unit = input.unit ?? previous.unit;
+
+      // Sub-receitas têm unitCost calculado pela receita, não editado.
       const unitCost = isComposite
         ? Number(previous.unitCost)
         : computeIngredientUnitCost({
-            purchaseQuantity: input.purchaseQuantity,
-            purchasePrice: input.purchasePrice,
-            wastePercent: input.wastePercent,
+            purchaseQuantity,
+            purchasePrice,
+            wastePercent,
           });
 
       const costChanged =
         !isComposite &&
-        (Number(previous.purchaseQuantity) !== Number(input.purchaseQuantity) ||
-          Number(previous.purchasePrice) !== Number(input.purchasePrice) ||
-          Number(previous.wastePercent) !== Number(input.wastePercent));
+        (Number(previous.purchaseQuantity) !== Number(purchaseQuantity) ||
+          Number(previous.purchasePrice) !== Number(purchasePrice) ||
+          Number(previous.wastePercent) !== Number(wastePercent));
 
       const [updated] = await db
         .update(ingredients)
         .set({
           name: input.name,
           type: input.type,
-          unit: input.unit,
-          purchaseQuantity: input.purchaseQuantity,
-          purchasePrice: input.purchasePrice,
-          wastePercent: input.wastePercent,
+          unit,
+          purchaseQuantity,
+          purchasePrice,
+          wastePercent,
           unitCost: unitCost.toFixed(6),
         })
         .where(
@@ -354,9 +361,9 @@ export const ingredientRouter = createTRPCRouter({
         await db.insert(ingredientCostHistory).values({
           tenantId: ctx.tenantId,
           ingredientId: input.id,
-          purchaseQuantity: input.purchaseQuantity,
-          purchasePrice: input.purchasePrice,
-          wastePercent: input.wastePercent,
+          purchaseQuantity,
+          purchasePrice,
+          wastePercent,
           unitCost: unitCost.toFixed(6),
         });
         await cascadeRecalculate(db, ctx.tenantId, input.id);
