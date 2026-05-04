@@ -182,6 +182,15 @@ export const ingredientTypeEnum = pgEnum("ingredient_type", [
   "DESCRIPTION",
 ]);
 
+/**
+ * Unidade-base do ingrediente para custeio (CMV).
+ * - g  = gramas (peso)
+ * - ml = mililitros (volume)
+ * - un = unidade (contável: ovo, embalagem, fatia)
+ * Compras em kg/L são convertidas no client antes de gravar.
+ */
+export const ingredientUnitEnum = pgEnum("ingredient_unit", ["g", "ml", "un"]);
+
 export const promotionTypeEnum = pgEnum("promotion_type", [
   "PERCENTAGE",
   "FIXED_AMOUNT",
@@ -812,6 +821,10 @@ export const customizationOptions = pgTable("customization_options", {
   name: varchar("name", { length: 255 }).notNull(),
   /** Preço adicional (0 = grátis, como "Sem cebola") */
   price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
+  /** Custo do adicional (R$) — entra no CMV do pedido */
+  unitCost: decimal("unit_cost", { precision: 10, scale: 4 })
+    .notNull()
+    .default("0"),
   sortOrder: integer("sort_order").notNull().default(0),
   isActive: boolean("is_active").notNull().default(true),
 });
@@ -830,6 +843,31 @@ export const ingredients = pgTable(
     name: varchar("name", { length: 255 }).notNull(),
     /** QUANTITY = contável (ovo, queijo), DESCRIPTION = descritivo (maionese, milho) */
     type: ingredientTypeEnum("type").notNull(),
+    /** Unidade-base usada na ficha técnica e cálculo de CMV */
+    unit: ingredientUnitEnum("unit").notNull().default("un"),
+    /** Quantidade comprada (na unidade-base). Ex: 1000 (g), 900 (ml), 12 (un) */
+    purchaseQuantity: decimal("purchase_quantity", {
+      precision: 12,
+      scale: 4,
+    })
+      .notNull()
+      .default("0"),
+    /** Preço total pago pela compra (R$) */
+    purchasePrice: decimal("purchase_price", { precision: 10, scale: 2 })
+      .notNull()
+      .default("0"),
+    /** Perda no processo (0..1). Ex: 0.05 = 5% */
+    wastePercent: decimal("waste_percent", { precision: 5, scale: 4 })
+      .notNull()
+      .default("0"),
+    /** Custo unitário ajustado por perda (R$ por unidade-base). Cache calculado pelo router. */
+    unitCost: decimal("unit_cost", { precision: 12, scale: 6 })
+      .notNull()
+      .default("0"),
+    /** Composto = sub-receita (massa de pizza, bife marinado). Calculado a partir de subRecipeItems. */
+    isComposite: boolean("is_composite").notNull().default(false),
+    /** Produção líquida da sub-receita (na unidade-base). Só usado quando isComposite=true. */
+    yieldQuantity: decimal("yield_quantity", { precision: 12, scale: 4 }),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at").notNull().defaultNow(),
     updatedAt: timestamp("updated_at")
@@ -840,6 +878,74 @@ export const ingredients = pgTable(
   (table) => [
     index("ingredients_tenant_idx").on(table.tenantId),
     uniqueIndex("ingredients_tenant_name_idx").on(table.tenantId, table.name),
+  ]
+);
+
+// ============================================
+// SUB-RECIPE ITEMS (Composição de ingredientes compostos)
+// Liga um ingrediente "pai" composto (ex: MASSA PIZZA) aos seus
+// componentes (FARINHA, ÁGUA, FERMENTO).
+// ============================================
+
+export const subRecipeItems = pgTable(
+  "sub_recipe_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    parentIngredientId: uuid("parent_ingredient_id")
+      .notNull()
+      .references(() => ingredients.id, { onDelete: "cascade" }),
+    childIngredientId: uuid("child_ingredient_id")
+      .notNull()
+      .references(() => ingredients.id, { onDelete: "restrict" }),
+    /** Quantidade do componente usada na receita (na unidade do componente) */
+    quantity: decimal("quantity", { precision: 12, scale: 4 }).notNull(),
+    /** Unidade snapshot da quantidade (deve coincidir com a unidade do childIngredient) */
+    unit: ingredientUnitEnum("unit").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+  },
+  (table) => [
+    uniqueIndex("sub_recipe_unique_idx").on(
+      table.parentIngredientId,
+      table.childIngredientId
+    ),
+    index("sub_recipe_parent_idx").on(table.parentIngredientId),
+  ]
+);
+
+// ============================================
+// INGREDIENT COST HISTORY (Auditoria de variação de custo)
+// ============================================
+
+export const ingredientCostHistory = pgTable(
+  "ingredient_cost_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tenantId: uuid("tenant_id")
+      .notNull()
+      .references(() => tenants.id, { onDelete: "cascade" }),
+    ingredientId: uuid("ingredient_id")
+      .notNull()
+      .references(() => ingredients.id, { onDelete: "cascade" }),
+    /** Snapshot dos campos no momento da mudança */
+    purchaseQuantity: decimal("purchase_quantity", {
+      precision: 12,
+      scale: 4,
+    }).notNull(),
+    purchasePrice: decimal("purchase_price", {
+      precision: 10,
+      scale: 2,
+    }).notNull(),
+    wastePercent: decimal("waste_percent", {
+      precision: 5,
+      scale: 4,
+    }).notNull(),
+    unitCost: decimal("unit_cost", { precision: 12, scale: 6 }).notNull(),
+    note: text("note"),
+    changedAt: timestamp("changed_at").notNull().defaultNow(),
+  },
+  (table) => [
+    index("ingredient_cost_history_ingredient_idx").on(table.ingredientId),
+    index("ingredient_cost_history_tenant_idx").on(table.tenantId),
   ]
 );
 
@@ -867,8 +973,15 @@ export const productIngredients = pgTable(
     additionalPrice: decimal("additional_price", { precision: 10, scale: 2 })
       .notNull()
       .default("0"),
-    /** Peso em gramas (opcional, para cálculo de custo) */
+    /** Peso em gramas (legado — mantido por compatibilidade; preferir quantity+unit) */
     weightGrams: decimal("weight_grams", { precision: 10, scale: 2 }),
+    /** Quantidade consumida do ingrediente para 1 unidade do produto (usar com `unit`) */
+    quantity: decimal("quantity", { precision: 12, scale: 4 })
+      .notNull()
+      .default("0"),
+    /** Unidade snapshot da quantidade (deve coincidir com a unidade-base do ingrediente).
+     *  Null = legado, sistema usa weightGrams como gramas. */
+    unit: ingredientUnitEnum("unit"),
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => [
@@ -1165,6 +1278,13 @@ export const orderItems = pgTable(
     pointsUnitCost: integer("points_unit_cost").notNull().default(0),
     /** Custo total em pontos do item (pointsUnitCost × quantity) */
     pointsTotalCost: integer("points_total_cost").notNull().default(0),
+    /** Snapshot do CMV unitário (R$) no momento do pedido — base para relatório de CMV histórico */
+    unitCostSnapshot: decimal("unit_cost_snapshot", {
+      precision: 10,
+      scale: 4,
+    })
+      .notNull()
+      .default("0"),
     notes: text("notes"),
     createdAt: timestamp("created_at").notNull().defaultNow(),
   },
@@ -1188,6 +1308,10 @@ export const orderItemCustomizations = pgTable("order_item_customizations", {
     length: 255,
   }).notNull(),
   price: decimal("price", { precision: 10, scale: 2 }).notNull().default("0"),
+  /** Snapshot do custo unitário do adicional no momento do pedido (R$) */
+  unitCostSnapshot: decimal("unit_cost_snapshot", { precision: 10, scale: 4 })
+    .notNull()
+    .default("0"),
 });
 
 // ============================================
@@ -1958,7 +2082,35 @@ export const ingredientsRelations = relations(ingredients, ({ one, many }) => ({
     references: [tenants.id],
   }),
   productIngredients: many(productIngredients),
+  subRecipeItems: many(subRecipeItems, { relationName: "parentRecipe" }),
+  costHistory: many(ingredientCostHistory),
 }));
+
+export const subRecipeItemsRelations = relations(subRecipeItems, ({ one }) => ({
+  parent: one(ingredients, {
+    fields: [subRecipeItems.parentIngredientId],
+    references: [ingredients.id],
+    relationName: "parentRecipe",
+  }),
+  child: one(ingredients, {
+    fields: [subRecipeItems.childIngredientId],
+    references: [ingredients.id],
+  }),
+}));
+
+export const ingredientCostHistoryRelations = relations(
+  ingredientCostHistory,
+  ({ one }) => ({
+    tenant: one(tenants, {
+      fields: [ingredientCostHistory.tenantId],
+      references: [tenants.id],
+    }),
+    ingredient: one(ingredients, {
+      fields: [ingredientCostHistory.ingredientId],
+      references: [ingredients.id],
+    }),
+  })
+);
 
 export const productIngredientsRelations = relations(
   productIngredients,

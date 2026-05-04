@@ -32,3 +32,21 @@ export {
 } from "./payment-methods";
 export type { PaymentMethodCode, PaymentMethodConfig } from "./payment-methods";
 export { round2, splitEvenly, isSplitTotalValid } from "./payment-split";
+export {
+  computeIngredientUnitCost,
+  computeCompositeCost,
+  computeProductCost,
+  computeMargin,
+  hasRecipeCycle,
+} from "./cost";
+export type {
+  IngredientUnit,
+  IngredientUnitCostInput,
+  CompositeRecipeItem,
+  CompositeCostInput,
+  ProductIngredientLine,
+  ProductCostLineResult,
+  ProductCostResult,
+  MarginInput,
+  MarginResult,
+} from "./cost";

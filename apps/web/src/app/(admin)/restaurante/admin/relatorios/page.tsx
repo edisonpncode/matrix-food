@@ -14,6 +14,7 @@ import {
   FileText,
   MessageCircle,
   ArrowRight,
+  Calculator,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { ReportShell } from "@/components/reports";
@@ -50,6 +51,26 @@ const CATEGORIES: CategoryTile[] = [
     iconColor: "text-purple-600",
     iconBg: "bg-purple-50",
     href: "/restaurante/admin/relatorios/produtos",
+  },
+  {
+    id: "rentabilidade",
+    title: "Rentabilidade (CMV)",
+    description:
+      "Custo da ficha técnica, margem por produto e categoria, alertas de margem baixa.",
+    icon: Calculator,
+    iconColor: "text-emerald-600",
+    iconBg: "bg-emerald-50",
+    href: "/restaurante/admin/relatorios/rentabilidade",
+  },
+  {
+    id: "cmv-periodo",
+    title: "CMV no Período",
+    description:
+      "Custo consolidado, lucro bruto e margem ao longo do tempo (com base em pedidos reais).",
+    icon: TrendingUp,
+    iconColor: "text-amber-600",
+    iconBg: "bg-amber-50",
+    href: "/restaurante/admin/relatorios/cmv",
   },
   {
     id: "clientes",

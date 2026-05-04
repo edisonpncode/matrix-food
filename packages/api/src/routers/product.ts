@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, publicProcedure, tenantProcedure } from "../trpc";
 import {
   getDb,
@@ -17,6 +18,11 @@ import {
   inArray,
   sql,
 } from "@matrix-food/database";
+import {
+  computeProductCost,
+  computeMargin,
+  type IngredientUnit,
+} from "@matrix-food/utils";
 
 // --- Schemas de validação reutilizáveis ---
 
@@ -48,6 +54,7 @@ const sizePriceInput = z
 const customizationOptionInput = z.object({
   name: z.string().min(1).max(255),
   price: z.string().default("0"),
+  unitCost: z.string().default("0"),
   sortOrder: z.number().int().min(0).default(0),
   isActive: z.boolean().default(true),
 });
@@ -60,6 +67,10 @@ const productIngredientInput = z.object({
   defaultState: z.enum(["COM", "SEM"]).default("COM"),
   additionalPrice: z.string().default("0"),
   weightGrams: z.string().nullable().optional(),
+  /** Quantidade consumida do ingrediente para 1 produto (na unidade do ingrediente) */
+  quantity: z.string().default("0"),
+  /** Unidade snapshot. Null = legado, sistema usa weightGrams como gramas */
+  unit: z.enum(["g", "ml", "un"]).nullable().optional(),
   sortOrder: z.number().int().min(0).default(0),
 });
 
@@ -156,6 +167,8 @@ export const productRouter = createTRPCRouter({
             defaultState: productIngredients.defaultState,
             additionalPrice: productIngredients.additionalPrice,
             weightGrams: productIngredients.weightGrams,
+            quantity: productIngredients.quantity,
+            unit: productIngredients.unit,
             sortOrder: productIngredients.sortOrder,
             ingredientName: ingredients.name,
             ingredientType: ingredients.type,
@@ -343,9 +356,13 @@ export const productRouter = createTRPCRouter({
             defaultState: productIngredients.defaultState,
             additionalPrice: productIngredients.additionalPrice,
             weightGrams: productIngredients.weightGrams,
+            quantity: productIngredients.quantity,
+            unit: productIngredients.unit,
             sortOrder: productIngredients.sortOrder,
             ingredientName: ingredients.name,
             ingredientType: ingredients.type,
+            ingredientUnit: ingredients.unit,
+            ingredientUnitCost: ingredients.unitCost,
           })
           .from(productIngredients)
           .innerJoin(
@@ -441,9 +458,13 @@ export const productRouter = createTRPCRouter({
           defaultState: productIngredients.defaultState,
           additionalPrice: productIngredients.additionalPrice,
           weightGrams: productIngredients.weightGrams,
+          quantity: productIngredients.quantity,
+          unit: productIngredients.unit,
           sortOrder: productIngredients.sortOrder,
           ingredientName: ingredients.name,
           ingredientType: ingredients.type,
+          ingredientUnit: ingredients.unit,
+          ingredientUnitCost: ingredients.unitCost,
         })
         .from(productIngredients)
         .innerJoin(
@@ -532,6 +553,8 @@ export const productRouter = createTRPCRouter({
           defaultState: productIngredients.defaultState,
           additionalPrice: productIngredients.additionalPrice,
           weightGrams: productIngredients.weightGrams,
+          quantity: productIngredients.quantity,
+          unit: productIngredients.unit,
           sortOrder: productIngredients.sortOrder,
           ingredientName: ingredients.name,
           ingredientType: ingredients.type,
@@ -554,6 +577,127 @@ export const productRouter = createTRPCRouter({
         variants,
         customizationGroups: groupsWithOptions,
         ingredients: prodIngredients,
+      };
+    }),
+
+  /**
+   * Retorna o detalhamento de custo (CMV) de um produto:
+   * total, linhas por ingrediente e margem para cada faixa de preço.
+   */
+  getCostBreakdown: tenantProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+
+      const [product] = await db
+        .select({
+          id: products.id,
+          name: products.name,
+          price: products.price,
+          hasVariants: products.hasVariants,
+        })
+        .from(products)
+        .where(
+          and(eq(products.id, input.id), eq(products.tenantId, ctx.tenantId))
+        )
+        .limit(1);
+
+      if (!product) {
+        throw new TRPCError({ code: "NOT_FOUND" });
+      }
+
+      // Ficha técnica + dados do ingrediente
+      const fichaRows = await db
+        .select({
+          ingredientId: productIngredients.ingredientId,
+          quantity: productIngredients.quantity,
+          unit: productIngredients.unit,
+          weightGrams: productIngredients.weightGrams,
+          ingredientName: ingredients.name,
+          ingredientUnit: ingredients.unit,
+          ingredientUnitCost: ingredients.unitCost,
+        })
+        .from(productIngredients)
+        .innerJoin(
+          ingredients,
+          eq(productIngredients.ingredientId, ingredients.id)
+        )
+        .where(
+          and(
+            eq(productIngredients.productId, input.id),
+            eq(ingredients.isActive, true)
+          )
+        )
+        .orderBy(asc(productIngredients.sortOrder));
+
+      const costResult = computeProductCost({
+        ingredients: fichaRows.map((r) => ({
+          name: r.ingredientName,
+          quantity: r.quantity,
+          unit: r.unit as IngredientUnit | null,
+          weightGramsLegacy: r.weightGrams,
+          ingredientUnitCost: r.ingredientUnitCost,
+          ingredientUnit: r.ingredientUnit as IngredientUnit,
+        })),
+      });
+
+      // Margem do preço base
+      const margin = computeMargin({
+        sellPrice: product.price,
+        cost: costResult.totalCost,
+      });
+
+      // Margem por variante e por tamanho (range de margens)
+      const variants = product.hasVariants
+        ? await db
+            .select({ name: productVariants.name, price: productVariants.price })
+            .from(productVariants)
+            .where(eq(productVariants.productId, product.id))
+        : [];
+
+      const sizePrices = await db
+        .select({
+          name: categorySizes.name,
+          price: productSizePrices.price,
+        })
+        .from(productSizePrices)
+        .innerJoin(
+          categorySizes,
+          eq(productSizePrices.sizeId, categorySizes.id)
+        )
+        .where(eq(productSizePrices.productId, product.id));
+
+      const variantMargins = variants.map((v) => ({
+        name: v.name,
+        price: Number(v.price),
+        ...computeMargin({ sellPrice: v.price, cost: costResult.totalCost }),
+      }));
+
+      const sizeMargins = sizePrices.map((sp) => ({
+        name: sp.name,
+        price: Number(sp.price),
+        ...computeMargin({ sellPrice: sp.price, cost: costResult.totalCost }),
+      }));
+
+      return {
+        productId: product.id,
+        productName: product.name,
+        sellPrice: Number(product.price),
+        totalCost: costResult.totalCost,
+        ingredients: fichaRows.map((r, i) => ({
+          ingredientId: r.ingredientId,
+          name: r.ingredientName,
+          quantity: Number(r.quantity),
+          unit: r.unit,
+          legacyWeightGrams: r.weightGrams,
+          unitCost: Number(r.ingredientUnitCost),
+          ingredientUnit: r.ingredientUnit,
+          lineCost: costResult.lineItems[i]?.cost ?? 0,
+          warning: costResult.lineItems[i]?.warning,
+        })),
+        margin,
+        variantMargins,
+        sizeMargins,
       };
     }),
 
@@ -661,6 +805,8 @@ export const productRouter = createTRPCRouter({
             defaultState: ing.defaultState,
             additionalPrice: ing.additionalPrice,
             weightGrams: ing.weightGrams ?? null,
+            quantity: ing.quantity,
+            unit: ing.unit ?? null,
             sortOrder: ing.sortOrder,
           }))
         );
@@ -910,6 +1056,8 @@ export const productRouter = createTRPCRouter({
             defaultState: ing.defaultState,
             additionalPrice: ing.additionalPrice,
             weightGrams: ing.weightGrams ?? null,
+            quantity: ing.quantity,
+            unit: ing.unit ?? null,
             sortOrder: ing.sortOrder,
           }))
         );

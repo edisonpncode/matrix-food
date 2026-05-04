@@ -10,6 +10,7 @@ import { deliveryReportsRouter } from "./delivery";
 import { promotionsReportsRouter } from "./promotions";
 import { fiscalReportsRouter } from "./fiscal";
 import { communicationsReportsRouter } from "./communications";
+import { profitabilityReportsRouter } from "./profitability";
 
 /** Router agregador da área de Relatórios — todos os domínios. */
 export const reportsRouter = createTRPCRouter({
@@ -24,4 +25,5 @@ export const reportsRouter = createTRPCRouter({
   promotions: promotionsReportsRouter,
   fiscal: fiscalReportsRouter,
   communications: communicationsReportsRouter,
+  profitability: profitabilityReportsRouter,
 });

@@ -43,6 +43,8 @@ import {
   pointInPolygon,
   cleanCpf,
   isValidCpf,
+  computeProductCost,
+  type IngredientUnit,
 } from "@matrix-food/utils";
 import { tryAutoEmitNfce } from "../services/fiscal/auto-emit";
 import { emitMorpheuEvent, getTenantName } from "../services/morpheu";
@@ -63,6 +65,50 @@ function brl(v: unknown): string {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
+}
+
+/**
+ * Calcula o snapshot do CMV (custo de mercadoria vendida) de UM produto no
+ * momento do pedido. Usado para popular `orderItems.unitCostSnapshot` —
+ * permite relatórios de margem histórica que não mudam quando o usuário
+ * atualiza preços de ingredientes depois.
+ *
+ * Retorna string formatada com 4 casas (compatível com decimal(10,4)).
+ */
+async function computeProductCMVSnapshot(
+  productId: string | null | undefined
+): Promise<string> {
+  if (!productId) return "0";
+  const db = getDb();
+  const ficha = await db
+    .select({
+      quantity: productIngredients.quantity,
+      unit: productIngredients.unit,
+      weightGrams: productIngredients.weightGrams,
+      ingredientUnitCost: ingredients.unitCost,
+      ingredientUnit: ingredients.unit,
+    })
+    .from(productIngredients)
+    .innerJoin(
+      ingredients,
+      eq(productIngredients.ingredientId, ingredients.id)
+    )
+    .where(
+      and(
+        eq(productIngredients.productId, productId),
+        eq(ingredients.isActive, true)
+      )
+    );
+  const cost = computeProductCost({
+    ingredients: ficha.map((f) => ({
+      quantity: f.quantity,
+      unit: f.unit as IngredientUnit | null,
+      weightGramsLegacy: f.weightGrams,
+      ingredientUnitCost: f.ingredientUnitCost,
+      ingredientUnit: f.ingredientUnit as IngredientUnit,
+    })),
+  });
+  return cost.totalCost.toFixed(4);
 }
 
 /**
@@ -1047,6 +1093,7 @@ export const orderRouter = createTRPCRouter({
 
       // 7. Criar itens do pedido
       for (const item of itemsWithPrices) {
+        const unitCostSnapshot = await computeProductCMVSnapshot(item.productId);
         const [orderItem] = await db
           .insert(orderItems)
           .values({
@@ -1062,6 +1109,7 @@ export const orderRouter = createTRPCRouter({
             paidWithPoints: item.paidWithPoints,
             pointsUnitCost: item.pointsUnitCost,
             pointsTotalCost: item.pointsTotalCost,
+            unitCostSnapshot,
           })
           .returning();
 
@@ -2221,6 +2269,7 @@ export const orderRouter = createTRPCRouter({
 
       // Criar itens do pedido
       for (const item of itemsWithPrices) {
+        const unitCostSnapshot = await computeProductCMVSnapshot(item.productId);
         const [orderItem] = await db
           .insert(orderItems)
           .values({
@@ -2233,6 +2282,7 @@ export const orderRouter = createTRPCRouter({
             quantity: item.quantity,
             totalPrice: item.totalPrice,
             notes: item.notes,
+            unitCostSnapshot,
           })
           .returning();
 
@@ -3480,6 +3530,7 @@ export const orderRouter = createTRPCRouter({
       const totalPrice = itemUnitPrice * input.item.quantity;
 
       // Inserir o item
+      const unitCostSnapshot = await computeProductCMVSnapshot(product.id);
       const [newItem] = await db
         .insert(orderItems)
         .values({
@@ -3495,6 +3546,7 @@ export const orderRouter = createTRPCRouter({
           paidWithPoints: false,
           pointsUnitCost: 0,
           pointsTotalCost: 0,
+          unitCostSnapshot,
         })
         .returning();
 

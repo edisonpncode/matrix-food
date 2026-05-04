@@ -113,6 +113,13 @@
       "when": 1777814964900,
       "tag": "0015_loving_hannibal_king",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1777915733127,
+      "tag": "0016_hot_chronomancer",
+      "breakpoints": true
     }
   ]
 }
