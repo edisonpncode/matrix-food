@@ -22,7 +22,7 @@
     "@trpc/react-query": "^11.1.2",
     "firebase": "^12.11.0",
     "lucide-react": "^0.513.0",
-    "next": "^15.5.14",
+    "next": "^16.2.4",
     "next-firebase-auth-edge": "^1.12.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
