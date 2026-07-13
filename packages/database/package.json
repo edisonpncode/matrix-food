@@ -20,14 +20,14 @@
   "dependencies": {
     "@matrix-food/utils": "workspace:*",
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.7",
+    "postgres": "^3.4.9",
     "zod": "^3.25.67"
   },
   "devDependencies": {
     "@matrix-food/tsconfig": "workspace:*",
     "dotenv": "^17.4.2",
-    "drizzle-kit": "^0.31.1",
-    "tsx": "^4.19.2",
+    "drizzle-kit": "^0.31.10",
+    "tsx": "^4.23.1",
     "typescript": "^5.8.3",
     "vitest": "^3.2.4"
   }
